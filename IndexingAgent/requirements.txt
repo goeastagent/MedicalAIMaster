@@ -1,0 +1,64 @@
+# ============================================
+# LLM Client Dependencies
+# ============================================
+# OpenAI (ChatGPT)
+openai>=1.0.0
+
+# Anthropic (Claude)
+anthropic>=0.18.0
+
+# Google Generative AI (Gemini)
+google-generativeai>=0.3.0
+
+# ============================================
+# LangGraph & LangChain
+# ============================================
+# LangGraph for workflow orchestration
+langgraph>=0.0.20
+
+# LangChain core (LangGraph dependency)
+langchain-core>=0.1.0
+
+# ============================================
+# Data Processing
+# ============================================
+# Pandas for tabular data processing
+pandas>=2.0.0
+
+# NumPy for numerical operations
+numpy>=1.24.0
+
+# ============================================
+# Environment & Configuration
+# ============================================
+# Environment variables management (.env file support)
+python-dotenv>=1.0.0
+
+# ============================================
+# Optional: Bio-Signal Processing
+# ============================================
+# MNE for EDF/BDF signal files (optional, comment out if not needed)
+# mne>=1.5.0
+
+# ============================================
+# Database (Phase 3) - PostgreSQL 전용
+# ============================================
+# PostgreSQL adapter (필수)
+psycopg2-binary>=2.9.0
+
+# SQLAlchemy (pandas to_sql용)
+sqlalchemy>=2.0.0
+
+# ============================================
+# VectorDB (Phase 3)
+# ============================================
+# ChromaDB for semantic search
+chromadb>=0.4.0
+
+# ============================================
+# Development & Testing (Optional)
+# ============================================
+# pytest>=7.4.0
+# black>=23.0.0
+# flake8>=6.0.0
+

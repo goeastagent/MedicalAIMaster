@@ -1,0 +1,46 @@
+{
+  "result": {
+    "relationships": [
+      {
+        "source_table": "lab_data",
+        "target_table": "clinical_data",
+        "source_column": "caseid",
+        "target_column": "caseid",
+        "relation_type": "N:1",
+        "confidence": 0.86,
+        "description": "lab_data is a measurement-level (transactional) lab results table; multiple lab observations (dt/name/result) are expected per surgical case. clinical_data is case-level and contains caseid as the natural anchor, so lab_data.caseid should reference clinical_data.caseid.",
+        "llm_inferred": true
+      }
+    ],
+    "hierarchy": [
+      {
+        "level": 1,
+        "entity_name": "Patient",
+        "anchor_column": "subjectid",
+        "mapping_table": "clinical_data",
+        "confidence": 0.9
+      },
+      {
+        "level": 2,
+        "entity_name": "Case/Encounter (Surgery/Anesthesia Case)",
+        "anchor_column": "caseid",
+        "mapping_table": "clinical_data",
+        "confidence": 0.92
+      },
+      {
+        "level": 3,
+        "entity_name": "Laboratory Result Event",
+        "anchor_column": "caseid",
+        "mapping_table": "lab_data",
+        "confidence": 0.84
+      }
+    ],
+    "reasoning": "Among the shared columns, only caseid plausibly functions as a foreign key: it is a standard encounter/case identifier present in the case-level clinical_data table and is the natural join key for measurement-level lab results. Columns dt, name, and result are attributes of a lab observation and do not correspond to stable parent keys in other tables. Although the provided cardinality stats show all columns as UNIQUE (which is atypical for lab_data and likely an artifact of sampling or rule misfire), domain knowledge and filename hints strongly indicate lab_data is a child fact table with many rows per case, yielding an N:1 relationship from lab_data to clinical_data via caseid."
+  },
+  "prompt_hash": "bfa91525321b87eacc045251995d8bbf",
+  "cached_at": "2025-12-17T03:47:02.491788",
+  "context_summary": {
+    "filename": "unknown",
+    "num_columns": 0
+  }
+}

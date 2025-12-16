@@ -1,0 +1,17 @@
+# Ignore raw data
+**/raw/
+
+# Ignore python artifacts
+__pycache__/
+*.pyc
+venv/
+.env
+.env.backup
+
+# Ignore postgres data
+**/postgres_data/
+**/postgres.log
+**/postgres.pid
+
+# System
+.DS_Store

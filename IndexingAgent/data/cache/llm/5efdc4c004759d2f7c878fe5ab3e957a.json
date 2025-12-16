@@ -1,0 +1,18 @@
+{
+  "result": {
+    "is_metadata": true,
+    "confidence": 0.95,
+    "reasoning": "Filename includes 'parameters', strongly suggesting a parameter/dictionary file. The columns (Parameter, Category, Description, Unit, Reference value) form a classic codebook/dictionary structure describing lab test items rather than recording per-patient measurements. Sample values are lab analyte codes (wbc, hb) with descriptive text, units, and reference ranges—documentation-style content, not transactional records.",
+    "indicators": {
+      "filename_hint": "strong",
+      "structure_hint": "dictionary-like",
+      "content_type": "descriptive"
+    }
+  },
+  "prompt_hash": "5efdc4c004759d2f7c878fe5ab3e957a",
+  "cached_at": "2025-12-17T03:47:47.516373",
+  "context_summary": {
+    "filename": "lab_parameters.csv",
+    "num_columns": 5
+  }
+}

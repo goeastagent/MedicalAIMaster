@@ -1,0 +1,18 @@
+{
+  "result": {
+    "is_metadata": true,
+    "confidence": 0.96,
+    "reasoning": "Filename 'track_names.csv' suggests a naming/lookup list rather than measurements. The columns (Parameter, Description, Type/Hz, Unit) form a classic dictionary/codebook structure mapping parameter codes to human-readable descriptions and units. Sample values are parameter identifiers (e.g., 'SNUADC/ART') and descriptive labels (e.g., 'Arterial pressure wave'), not time-stamped or per-subject records, indicating this file describes other data streams.",
+    "indicators": {
+      "filename_hint": "weak",
+      "structure_hint": "dictionary-like",
+      "content_type": "descriptive"
+    }
+  },
+  "prompt_hash": "1ba1cae52e9fe782a8174e3cccb28c68",
+  "cached_at": "2025-12-17T03:47:52.685663",
+  "context_summary": {
+    "filename": "track_names.csv",
+    "num_columns": 4
+  }
+}
