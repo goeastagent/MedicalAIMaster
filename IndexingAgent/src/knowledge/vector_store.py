@@ -9,6 +9,8 @@ import os
 from typing import List, Dict, Any, Optional
 from pathlib import Path
 
+from config import EmbeddingConfig, LLMConfig
+
 
 class VectorStore:
     """
@@ -37,30 +39,36 @@ class VectorStore:
             print("⚠️ ChromaDB가 설치되지 않았습니다. pip install chromadb")
             self.chromadb = None
     
-    def initialize(self, embedding_model: str = "openai"):
+    def initialize(self, embedding_model: str = None):
         """
         ChromaDB 초기화
         
         Args:
-            embedding_model: "openai" 또는 "local" (확장 가능)
+            embedding_model: "openai" 또는 "local" (None이면 config에서 가져옴)
         """
         if not self.chromadb:
             raise ImportError("ChromaDB not installed")
         
+        # config에서 기본값 가져오기
+        if embedding_model is None:
+            embedding_model = EmbeddingConfig.PROVIDER
+        
         # Persistent client
         self.client = self.chromadb.PersistentClient(path=str(self.db_path))
         
-        # 임베딩 함수 선택 (확장성 고려)
+        # 임베딩 함수 선택 (config에서 모델명 가져옴)
         if embedding_model == "openai":
             from chromadb.utils import embedding_functions
+            model_name = EmbeddingConfig.OPENAI_MODEL
             embedding_fn = embedding_functions.OpenAIEmbeddingFunction(
-                api_key=os.getenv("OPENAI_API_KEY"),
-                model_name="text-embedding-3-small"
+                api_key=LLMConfig.OPENAI_API_KEY,
+                model_name=model_name
             )
         elif embedding_model == "local":
             from chromadb.utils import embedding_functions
+            model_name = EmbeddingConfig.LOCAL_MODEL
             embedding_fn = embedding_functions.SentenceTransformerEmbeddingFunction(
-                model_name="all-MiniLM-L6-v2"
+                model_name=model_name
             )
         else:
             raise ValueError(f"Unknown embedding model: {embedding_model}")
@@ -73,7 +81,8 @@ class VectorStore:
         )
         
         print(f"✅ VectorDB 초기화 완료: {self.db_path}")
-        print(f"   - 임베딩 모델: {embedding_model}")
+        print(f"   - 임베딩 Provider: {embedding_model}")
+        print(f"   - 모델: {model_name}")
     
     def build_index(self, ontology_context: Dict[str, Any]):
         """

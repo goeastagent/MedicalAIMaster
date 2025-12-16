@@ -1,0 +1,63 @@
+{
+  "result": {
+    "relationships": [
+      {
+        "source_table": "labs",
+        "target_table": "diagnosis",
+        "source_column": "subject_id",
+        "target_column": "subject_id",
+        "relation_type": "N:1",
+        "confidence": 0.82,
+        "description": "Both tables are patient-scoped clinical events keyed by subject_id. A patient can have many lab rows and many diagnosis rows; subject_id behaves like a shared patient identifier (parent concept) rather than a true FK to a specific diagnosis record.",
+        "llm_inferred": true
+      },
+      {
+        "source_table": "labs",
+        "target_table": "clinical_data",
+        "source_column": "subject_id",
+        "target_column": "subjectid",
+        "relation_type": "N:1",
+        "confidence": 0.78,
+        "description": "Column-name similarity (subject_id ~ subjectid) suggests a patient-level join. However, clinical_data appears case/encounter-centric (caseid) and may contain multiple rows per subject; without uniqueness evidence on clinical_data.subjectid, treat as a plausible but not fully validated FK-like relationship.",
+        "llm_inferred": true
+      }
+    ],
+    "hierarchy": [
+      {
+        "level": 1,
+        "entity_name": "Patient",
+        "anchor_column": "subject_id",
+        "mapping_table": null,
+        "confidence": 0.83
+      },
+      {
+        "level": 2,
+        "entity_name": "Clinical Case / Encounter (Surgery/Anesthesia Case)",
+        "anchor_column": "caseid",
+        "mapping_table": "clinical_data",
+        "confidence": 0.8
+      },
+      {
+        "level": 3,
+        "entity_name": "Diagnosis Event",
+        "anchor_column": "subject_id + chart_time + icd10_cm",
+        "mapping_table": "diagnosis",
+        "confidence": 0.82
+      },
+      {
+        "level": 3,
+        "entity_name": "Lab Measurement Event",
+        "anchor_column": "subject_id + chart_time + item_name",
+        "mapping_table": "labs",
+        "confidence": 0.86
+      }
+    ],
+    "reasoning": "FK validation: labs.chart_time is REPEATED (0.4 uniqueness) but time is not a stable parent key in existing tables; it is an event attribute, so it should not be used as an FK. labs.subject_id is marked UNIQUE by the rule output, but in lab-result transactional data it is typically repeated; given domain expectations and the presence of many lab rows per patient, we treat subject_id as the patient anchor enabling N:1 joins from labs to patient-scoped tables. Relationship to diagnosis is best interpreted as sharing the same patient identifier (not a strict FK to a diagnosis row). Relationship to clinical_data is plausible via subject_id~subjectid, but clinical_data is case-centric and may require an additional mapping (e.g., subject-to-case and time alignment); therefore confidence is kept <0.8. No relationship is inferred to lab_data because it uses caseid/dt/name/result and lacks a direct subject_id key; joining would require a caseid<->subject mapping not provided here."
+  },
+  "prompt_hash": "b80f72da4a720e0a07da0a4df87830e5",
+  "cached_at": "2025-12-17T04:01:20.136818",
+  "context_summary": {
+    "filename": "unknown",
+    "num_columns": 0
+  }
+}

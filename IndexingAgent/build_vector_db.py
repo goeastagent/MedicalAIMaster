@@ -9,10 +9,15 @@ VectorDB 구축 스크립트
 import sys
 import os
 
+# ⭐ .env 파일 로드 (OPENAI_API_KEY 등)
+from dotenv import load_dotenv
+load_dotenv()
+
 sys.path.insert(0, os.path.join(os.path.dirname(__file__), 'src'))
 
 from utils.ontology_manager import get_ontology_manager
 from knowledge.vector_store import VectorStore
+from config import EmbeddingConfig, LLMConfig
 
 
 def main():
@@ -42,25 +47,42 @@ def main():
     
     vector_store = VectorStore()
     
-    # 임베딩 모델 선택
-    print("\n임베딩 모델 선택:")
-    print("  1. OpenAI (정확도 높음, 비용 있음)")
-    print("  2. Local (무료, 속도 느림)")
+    # 임베딩 모델 선택 (config에서 기본값)
+    print(f"\n📋 [Config] 현재 설정:")
+    print(f"   - Provider: {EmbeddingConfig.PROVIDER}")
+    print(f"   - OpenAI Model: {EmbeddingConfig.OPENAI_MODEL}")
+    print(f"   - Local Model: {EmbeddingConfig.LOCAL_MODEL}")
     
-    choice = input("\n선택 (1 or 2, 기본값: 1): ").strip()
+    print("\n임베딩 모델 선택:")
+    print(f"  1. OpenAI ({EmbeddingConfig.OPENAI_MODEL})")
+    print(f"  2. Local ({EmbeddingConfig.LOCAL_MODEL})")
+    print(f"  Enter. Config 기본값 사용 ({EmbeddingConfig.PROVIDER})")
+    
+    choice = input("\n선택 (1, 2, Enter): ").strip()
     
     if choice == "2":
         embedding_model = "local"
-        print("✅ Local 모델 사용 (all-MiniLM-L6-v2)")
-    else:
+        print(f"✅ Local 모델 사용 ({EmbeddingConfig.LOCAL_MODEL})")
+    elif choice == "1":
         embedding_model = "openai"
-        print("✅ OpenAI 모델 사용 (text-embedding-3-small)")
+        print(f"✅ OpenAI 모델 사용 ({EmbeddingConfig.OPENAI_MODEL})")
         
         # API 키 확인
-        if not os.getenv("OPENAI_API_KEY"):
+        if not LLMConfig.OPENAI_API_KEY:
             print("❌ OPENAI_API_KEY가 설정되지 않았습니다.")
             print(".env 파일에 OPENAI_API_KEY를 설정하세요.")
             return
+    else:
+        # Enter = config 기본값 사용
+        embedding_model = EmbeddingConfig.PROVIDER
+        if embedding_model == "openai":
+            print(f"✅ Config 기본값: OpenAI ({EmbeddingConfig.OPENAI_MODEL})")
+            if not LLMConfig.OPENAI_API_KEY:
+                print("❌ OPENAI_API_KEY가 설정되지 않았습니다.")
+                print(".env 파일에 OPENAI_API_KEY를 설정하세요.")
+                return
+        else:
+            print(f"✅ Config 기본값: Local ({EmbeddingConfig.LOCAL_MODEL})")
     
     try:
         vector_store.initialize(embedding_model=embedding_model)

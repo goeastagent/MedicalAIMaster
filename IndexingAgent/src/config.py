@@ -18,5 +18,20 @@ class LLMConfig:
     ANTHROPIC_API_KEY = os.getenv("ANTHROPIC_API_KEY")
     AHTROPIC_MODEL = "claude-opus-4-5-20251101"  # None = use default, or specify model name
 
-    # --- 5. 공통 설정 ---
+    # --- 4. 공통 설정 ---
     TEMPERATURE = 0.0  # 분석 작업이므로 창의성보다는 정확성을 위해 0에 가깝게 설정
+
+
+class EmbeddingConfig:
+    """임베딩 모델 설정"""
+    
+    # --- 1. 임베딩 Provider 선택 ---
+    # "openai" 또는 "local"
+    PROVIDER = "openai"
+    
+    # --- 2. OpenAI Embedding 설정 ---
+    OPENAI_MODEL = "text-embedding-3-large"  # 최고 성능 (3072 dimensions)
+    # 대안: "text-embedding-3-small" (1536 dims, 저렴함)
+    
+    # --- 3. Local Embedding 설정 (무료) ---
+    LOCAL_MODEL = "all-MiniLM-L6-v2"  # sentence-transformers 모델

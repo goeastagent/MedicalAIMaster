@@ -1,0 +1,18 @@
+{
+  "result": {
+    "is_metadata": true,
+    "confidence": 0.72,
+    "reasoning": "The filename/base name 'parameters' is a strong metadata cue (often used for configuration/parameter lists describing other data or processes). However, the file appears empty (0 columns, no sample rows), so structure and content cannot be validated; classification relies primarily on the filename hint.",
+    "indicators": {
+      "filename_hint": "strong",
+      "structure_hint": "unclear",
+      "content_type": "mixed"
+    }
+  },
+  "prompt_hash": "5fda347a561dc09318d4238d4060d433",
+  "cached_at": "2025-12-17T04:28:19.286747",
+  "context_summary": {
+    "filename": "parameters.csv",
+    "num_columns": 0
+  }
+}

@@ -1,0 +1,18 @@
+{
+  "result": {
+    "is_metadata": false,
+    "confidence": 0.35,
+    "reasoning": "The filename 'operations.csv' suggests an operational/events dataset rather than a data dictionary (no hints like dict/definition/parameters). However, there are zero columns and no sample rows provided, so structure and content cannot be validated; classification is therefore low-confidence and based mainly on the filename.",
+    "indicators": {
+      "filename_hint": "weak",
+      "structure_hint": "unclear",
+      "content_type": "unclear"
+    }
+  },
+  "prompt_hash": "46162cf0da48addefa87892bcc308e80",
+  "cached_at": "2025-12-17T04:26:09.267860",
+  "context_summary": {
+    "filename": "operations.csv",
+    "num_columns": 0
+  }
+}

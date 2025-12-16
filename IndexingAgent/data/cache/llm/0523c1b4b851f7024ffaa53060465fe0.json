@@ -1,0 +1,70 @@
+{
+  "result": {
+    "relationships": [
+      {
+        "source_table": "medications",
+        "target_table": "diagnosis",
+        "source_column": "subject_id",
+        "target_column": "subject_id",
+        "relation_type": "N:1",
+        "confidence": 0.82,
+        "description": "Both tables are patient-scoped (subject_id). Medications are typically many events per patient; diagnosis rows are also per patient/time. This is a plausible patient-level linkage, but diagnosis is not a true parent key unless a patient table exists.",
+        "llm_inferred": true
+      },
+      {
+        "source_table": "medications",
+        "target_table": "labs",
+        "source_column": "subject_id",
+        "target_column": "subject_id",
+        "relation_type": "N:1",
+        "confidence": 0.82,
+        "description": "Both tables share subject_id and are transactional clinical events. Medications can be joined to labs via patient context, but labs is not a true dimension/parent; this is a soft FK-like linkage in absence of a patient table.",
+        "llm_inferred": true
+      }
+    ],
+    "hierarchy": [
+      {
+        "level": 1,
+        "entity_name": "Patient",
+        "anchor_column": "subject_id",
+        "mapping_table": null,
+        "confidence": 0.84
+      },
+      {
+        "level": 2,
+        "entity_name": "Clinical Event (time-stamped)",
+        "anchor_column": "chart_time",
+        "mapping_table": null,
+        "confidence": 0.8
+      },
+      {
+        "level": 3,
+        "entity_name": "Medication Administration/Order",
+        "anchor_column": "drug_name",
+        "mapping_table": "medications",
+        "confidence": 0.86
+      },
+      {
+        "level": 3,
+        "entity_name": "Lab Result",
+        "anchor_column": "item_name",
+        "mapping_table": "labs",
+        "confidence": 0.83
+      },
+      {
+        "level": 3,
+        "entity_name": "Diagnosis Record",
+        "anchor_column": "icd10_cm",
+        "mapping_table": "diagnosis",
+        "confidence": 0.83
+      }
+    ],
+    "reasoning": "Validated FK candidates conservatively. The rule-based candidates suggesting chart_time as an FK to diagnosis/labs are not reliable: chart_time is an event timestamp and not a stable referenced key; multiple events can share the same timestamp and timestamps are not appropriate parent identifiers. The only defensible shared key is subject_id, which indicates patient-scoped linkage across medications, labs, and diagnosis. However, because there is no explicit Patient/Subject dimension table in the provided existing tables, these are best treated as soft relationships (join keys) rather than strict enforced foreign keys. The provided CARDINALITY showing uniqueness_ratio=1.0 for several columns is inconsistent with typical medication transactional data (drug_name/route/atc_code should repeat), so relationship direction and confidence are based primarily on domain knowledge and filename/entity hints rather than the uniqueness ratios. No relationship is inferred to clinical_data/lab_data because they use caseid/subjectid and dt (different identifiers) and would require a mapping between subject_id and subjectid/caseid that is not present."
+  },
+  "prompt_hash": "0523c1b4b851f7024ffaa53060465fe0",
+  "cached_at": "2025-12-17T04:13:21.566765",
+  "context_summary": {
+    "filename": "unknown",
+    "num_columns": 0
+  }
+}

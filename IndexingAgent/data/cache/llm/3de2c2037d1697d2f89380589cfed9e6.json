@@ -1,0 +1,34 @@
+{
+  "result": {
+    "entity_type": "Laboratory / Lab Results",
+    "scope": "measurement",
+    "suggested_level": 4,
+    "data_type_indicator": "transactional",
+    "related_file_patterns": [
+      "lab_results",
+      "lab_data",
+      "lab_events",
+      "lab_records",
+      "lab_parameters",
+      "lab_dict",
+      "lab_codes",
+      "lab_reference_ranges",
+      "specimens",
+      "test_catalog",
+      "loinc_map"
+    ],
+    "confidence": 0.72,
+    "reasoning": "The base name 'labs' commonly denotes laboratory measurements/results in clinical datasets. With no suffix/extension, the file type is ambiguous, but it most likely contains lab measurement records (transactional) rather than a dictionary; related patterns typically include lab metadata (parameters/dict/catalog) and code mappings (e.g., LOINC) plus specimen/reference range tables.",
+    "filename": "labs",
+    "base_name": "labs",
+    "parts": [
+      "labs"
+    ]
+  },
+  "prompt_hash": "3de2c2037d1697d2f89380589cfed9e6",
+  "cached_at": "2025-12-17T04:01:09.359159",
+  "context_summary": {
+    "filename": "unknown",
+    "num_columns": 0
+  }
+}

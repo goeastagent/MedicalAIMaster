@@ -1,0 +1,18 @@
+{
+  "result": {
+    "is_metadata": false,
+    "confidence": 0.93,
+    "reasoning": "Filename 'labs.csv' suggests lab results rather than a dictionary/codebook. Columns form an event/measurement record: subject_id (entity), chart_time (time), item_name (lab test), value (measured result). Sample values are short codes/names and numeric measurements, not long descriptive definitions or units typical of metadata files.",
+    "indicators": {
+      "filename_hint": "strong",
+      "structure_hint": "tabular",
+      "content_type": "transactional"
+    }
+  },
+  "prompt_hash": "afb8ae1bc4f10baa98da54b8f561b3e6",
+  "cached_at": "2025-12-17T04:01:05.711381",
+  "context_summary": {
+    "filename": "labs.csv",
+    "num_columns": 4
+  }
+}

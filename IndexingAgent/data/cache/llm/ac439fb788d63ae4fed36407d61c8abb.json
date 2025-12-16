@@ -1,0 +1,32 @@
+{
+  "result": {
+    "entity_type": "Medication",
+    "scope": "treatment",
+    "suggested_level": 4,
+    "data_type_indicator": "transactional",
+    "related_file_patterns": [
+      "medication_orders",
+      "medication_administrations",
+      "medication_events",
+      "medication_records",
+      "medication_master",
+      "medication_dim",
+      "medication_dict",
+      "medication_parameters",
+      "medication_info"
+    ],
+    "confidence": 0.78,
+    "reasoning": "The base name 'medications' strongly indicates a medication-related dataset in a clinical domain. With no suffix/extension, the file most likely contains transactional medication data (e.g., orders or administrations) rather than a dictionary, though ambiguity remains. Medication data is typically treatment-scoped and often recorded at an event/detail level (per order/admin), hence a lower hierarchy level.",
+    "filename": "medications",
+    "base_name": "medications",
+    "parts": [
+      "medications"
+    ]
+  },
+  "prompt_hash": "ac439fb788d63ae4fed36407d61c8abb",
+  "cached_at": "2025-12-17T04:13:08.726191",
+  "context_summary": {
+    "filename": "unknown",
+    "num_columns": 0
+  }
+}

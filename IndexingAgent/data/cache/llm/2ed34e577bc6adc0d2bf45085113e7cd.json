@@ -1,0 +1,73 @@
+{
+  "result": {
+    "relationships": [
+      {
+        "source_table": "labs",
+        "target_table": "diagnosis",
+        "source_column": "subject_id",
+        "target_column": "subject_id",
+        "relation_type": "N:1",
+        "confidence": 0.82,
+        "description": "Both tables share subject_id; labs are typically many measurements per patient, while diagnosis records are also per patient. This is best interpreted as both referencing a common Patient entity (not present as a table here). Direct FK to diagnosis is not guaranteed, but subject_id can be used to join at the patient level.",
+        "llm_inferred": true
+      },
+      {
+        "source_table": "labs",
+        "target_table": "medications",
+        "source_column": "subject_id",
+        "target_column": "subject_id",
+        "relation_type": "N:1",
+        "confidence": 0.82,
+        "description": "Both tables share subject_id; labs and medications are event/transaction tables that can be joined by patient. This is not a strict FK to medications; rather both likely reference the same Patient identifier.",
+        "llm_inferred": true
+      },
+      {
+        "source_table": "labs",
+        "target_table": "clinical_data",
+        "source_column": "subject_id",
+        "target_column": "subjectid",
+        "relation_type": "N:1",
+        "confidence": 0.78,
+        "description": "Column name similarity (subject_id vs subjectid) suggests a patient identifier mapping. However, clinical_data appears case/encounter-centric (caseid plus perioperative timestamps), so subject-level linkage may be many labs per subject across potentially multiple cases; without a case/encounter key in labs, this join is plausible but not certain.",
+        "llm_inferred": true
+      }
+    ],
+    "hierarchy": [
+      {
+        "level": 1,
+        "entity_name": "Patient",
+        "anchor_column": "subject_id",
+        "mapping_table": null,
+        "confidence": 0.86
+      },
+      {
+        "level": 2,
+        "entity_name": "Clinical Case / Encounter (Perioperative case)",
+        "anchor_column": "caseid",
+        "mapping_table": "clinical_data",
+        "confidence": 0.8
+      },
+      {
+        "level": 3,
+        "entity_name": "Clinical Events (time-stamped facts)",
+        "anchor_column": "chart_time",
+        "mapping_table": null,
+        "confidence": 0.8
+      },
+      {
+        "level": 4,
+        "entity_name": "Laboratory Result",
+        "anchor_column": "subject_id + chart_time + item_name",
+        "mapping_table": "labs",
+        "confidence": 0.9
+      }
+    ],
+    "reasoning": "The new/existing table 'labs' is a transactional lab-results table (subject_id, chart_time, item_name, value). In clinical schemas, lab results are child records of a Patient and optionally of an Encounter/Case. Among existing tables, diagnosis and medications share the same patient identifier (subject_id) and are also transactional; therefore, the safest inferred relationship is that labs can be joined to them via subject_id at the patient level, but neither diagnosis nor medications should be treated as the parent table (they are siblings under Patient). chart_time is repeated and useful for temporal alignment, but it is not a stable key in diagnosis/medications and should not be treated as an FK. A possible cross-dataset linkage to Open_VitalDB clinical_data exists via subject_id~subjectid, but because clinical_data is case-centric (caseid) and labs lacks caseid, the relationship is uncertain and kept below 0.8 confidence."
+  },
+  "prompt_hash": "2ed34e577bc6adc0d2bf45085113e7cd",
+  "cached_at": "2025-12-17T04:34:12.964275",
+  "context_summary": {
+    "filename": "unknown",
+    "num_columns": 0
+  }
+}

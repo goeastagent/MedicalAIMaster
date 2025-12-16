@@ -279,7 +279,7 @@ def main():
     """메인 함수"""
     from pathlib import Path
     
-    data_dir = Path(__file__).parent / "data" / "raw" / "Open_VitalDB_1.0.0"
+    data_dir = Path(__file__).parent / "data" / "raw" / "INSPIRE_130K_1.3"
     
     # raw 디렉토리의 모든 CSV 파일 찾기
     csv_files = sorted(glob.glob(str(data_dir / "*.csv")))

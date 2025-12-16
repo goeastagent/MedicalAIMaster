@@ -1,0 +1,30 @@
+{
+  "result": {
+    "entity_type": "Diagnosis",
+    "scope": "event",
+    "suggested_level": 2,
+    "data_type_indicator": "transactional",
+    "related_file_patterns": [
+      "diagnosis_records",
+      "diagnosis_events",
+      "diagnosis_codes",
+      "diagnosis_dict",
+      "icd10_dict",
+      "icd9_dict",
+      "diagnosis_parameters"
+    ],
+    "confidence": 0.72,
+    "reasoning": "The single token base name 'diagnosis' most commonly denotes clinical diagnosis assignments (e.g., ICD-coded conditions) recorded per encounter/admission/visit rather than per patient lifetime. With no suffix indicating metadata/reference, it is most likely a transactional/event table; related patterns often include code dictionaries (ICD) and code lists/parameters.",
+    "filename": "diagnosis",
+    "base_name": "diagnosis",
+    "parts": [
+      "diagnosis"
+    ]
+  },
+  "prompt_hash": "f75ff881beb1c5d751c4620d3f000e8c",
+  "cached_at": "2025-12-17T03:59:36.926054",
+  "context_summary": {
+    "filename": "unknown",
+    "num_columns": 0
+  }
+}
