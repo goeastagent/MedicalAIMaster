@@ -279,21 +279,31 @@ def main():
     """메인 함수"""
     from pathlib import Path
     
-    data_dir = Path(__file__).parent / "data" / "raw" / "INSPIRE_130K_1.3"
+    data_dir = Path(__file__).parent / "data" / "raw"
     
-    # raw 디렉토리의 모든 CSV 파일 찾기
-    csv_files = sorted(glob.glob(str(data_dir / "*.csv")))
+    # CSV 파일 (INSPIRE 데이터셋)
+    csv_files = sorted(glob.glob(str(data_dir / "INSPIRE_130K_1.3/*.csv")))
     
-    if not csv_files:
-        print(f"❌ CSV 파일을 찾을 수 없습니다: {data_dir}")
+    # VitalDB 파일 (신호 데이터)
+    vital_files = sorted(glob.glob(str(data_dir / "Open_VitalDB_1.0.0/*.vital")))
+    
+    # 모든 파일 합치기 (CSV 먼저, 그 다음 VitalDB)
+    all_files = csv_files + vital_files
+    
+    if not all_files:
+        print(f"❌ 파일을 찾을 수 없습니다: {data_dir}")
         return
     
-    print(f"\n📁 Found {len(csv_files)} CSV files:")
+    print(f"\n📁 Found {len(all_files)} files:")
+    print(f"   📊 CSV: {len(csv_files)}개")
     for f in csv_files:
-        print(f"   - {os.path.basename(f)}")
+        print(f"      - {os.path.basename(f)}")
+    print(f"   📈 VitalDB: {len(vital_files)}개")
+    for f in vital_files:
+        print(f"      - {os.path.basename(f)}")
     
-    # 모든 CSV 파일 처리
-    test_multiple_files_with_interrupt(csv_files)
+    # 모든 파일 처리
+    test_multiple_files_with_interrupt(all_files)
     
     # 캐시 통계 출력 (전역 캐시 import)
     from src.utils.llm_cache import get_llm_cache

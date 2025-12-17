@@ -1,0 +1,39 @@
+{
+  "result": {
+    "relationships": [
+      {
+        "source_table": "diagnosis",
+        "target_table": "clinical_data",
+        "source_column": "subject_id",
+        "target_column": "subjectid",
+        "relation_type": "N:1",
+        "confidence": 0.78,
+        "description": "Likely links diagnosis events to a patient identifier present in clinical_data. However, clinical_data appears case/encounter-centric (caseid) and subjectid may repeat across cases; without a dedicated patient table, this FK is plausible but not strongly verifiable.",
+        "llm_inferred": true
+      }
+    ],
+    "hierarchy": [
+      {
+        "level": 1,
+        "entity_name": "Patient",
+        "anchor_column": "subject_id",
+        "mapping_table": null,
+        "confidence": 0.82
+      },
+      {
+        "level": 2,
+        "entity_name": "DiagnosisEvent",
+        "anchor_column": "subject_id",
+        "mapping_table": "diagnosis",
+        "confidence": 0.84
+      }
+    ],
+    "reasoning": "The new table is the same as the existing INSPIRE diagnosis table (subject_id, chart_time, icd10_cm), so intra-table FK candidates are not applicable. Cross-table matches on subject_id and chart_time with labs/medications are not true foreign keys because those columns are shared event attributes rather than referencing a unique parent key; there is no evidence of a unique (subject_id, chart_time) parent table, and chart_time is repeated. The only plausible parent entity available is a patient-like identifier in clinical_data (subjectid), but clinical_data is primarily organized by caseid and may contain multiple rows per subject, so the relationship is inferred with conservative confidence."
+  },
+  "prompt_hash": "61be18b764eb93eb7cbfbbb96d5961d2",
+  "cached_at": "2025-12-17T13:03:49.682816",
+  "context_summary": {
+    "filename": "unknown",
+    "num_columns": 0
+  }
+}

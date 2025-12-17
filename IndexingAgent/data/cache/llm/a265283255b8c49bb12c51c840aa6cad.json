@@ -1,0 +1,76 @@
+{
+  "result": {
+    "relationships": [
+      {
+        "source_table": "vitals",
+        "target_table": "operations",
+        "source_column": "op_id",
+        "target_column": "op_id",
+        "relation_type": "N:1",
+        "confidence": 0.92,
+        "description": "Vitals are time-stamped measurements recorded during/around an operation/encounter; many vitals rows can belong to a single operation identified by op_id. Filename/entity hint indicates transactional vital-sign measurements, which typically attach to an encounter/operation entity.",
+        "llm_inferred": true
+      },
+      {
+        "source_table": "vitals",
+        "target_table": "operations",
+        "source_column": "subject_id",
+        "target_column": "subject_id",
+        "relation_type": "N:1",
+        "confidence": 0.82,
+        "description": "Each vitals record is for one patient (subject_id) and operations also carry subject_id; this supports patient-level linkage via the operation context. However, subject_id is not a dedicated patient dimension table here, so this is a weaker FK than op_id.",
+        "llm_inferred": true
+      },
+      {
+        "source_table": "operations",
+        "target_table": "clinical_data",
+        "source_column": "case_id",
+        "target_column": "caseid",
+        "relation_type": "N:1",
+        "confidence": 0.78,
+        "description": "operations.case_id appears to correspond to OpenVitalDB clinical_data.caseid (case-level summary). This is a plausible cross-dataset bridge, but naming differs and no explicit rule-provided FK candidate for case_id was given, so confidence is kept < 0.8.",
+        "llm_inferred": true
+      },
+      {
+        "source_table": "operations",
+        "target_table": "clinical_data",
+        "source_column": "subject_id",
+        "target_column": "subjectid",
+        "relation_type": "N:1",
+        "confidence": 0.72,
+        "description": "subject_id ~ subjectid suggests patient identity alignment across datasets. Still, without a shared patient master table and given cross-source integration ambiguity, treat as a tentative linkage rather than a strict FK.",
+        "llm_inferred": true
+      }
+    ],
+    "hierarchy": [
+      {
+        "level": 1,
+        "entity_name": "Patient",
+        "anchor_column": "subject_id",
+        "mapping_table": null,
+        "confidence": 0.75
+      },
+      {
+        "level": 2,
+        "entity_name": "Operation/Encounter",
+        "anchor_column": "op_id",
+        "mapping_table": "operations",
+        "confidence": 0.9
+      },
+      {
+        "level": 3,
+        "entity_name": "Vital Measurement",
+        "anchor_column": "op_id",
+        "mapping_table": "vitals",
+        "confidence": 0.92
+      }
+    ],
+    "reasoning": "Validate FK candidates conservatively: shared columns like chart_time/item_name/value are not foreign keys (they are attributes of measurements and can repeat across many rows; matching names alone is insufficient). The strongest relationship is vitals.op_id -> operations.op_id because op_id is an encounter/operation identifier and vitals are transactional observations that naturally belong to an encounter; this also aligns with the filename hint (vital signs measurement dataset). subject_id can link vitals to operations (and potentially to a patient entity), but no explicit patient table exists, so it is treated as a weaker/secondary linkage. Cross-dataset links to clinical_data are plausible via case_id/caseid and subject_id/subjectid, but kept below 0.8 due to integration ambiguity and lack of explicit FK evidence. Cardinality stats provided (all UNIQUE) appear inconsistent with typical vitals data and therefore are not relied upon to assert 1:1 relationships."
+  },
+  "prompt_hash": "a265283255b8c49bb12c51c840aa6cad",
+  "cached_at": "2025-12-17T13:43:39.764832",
+  "context_summary": {
+    "filename": "unknown",
+    "num_columns": 0
+  }
+}

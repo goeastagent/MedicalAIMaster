@@ -1,0 +1,18 @@
+{
+  "result": {
+    "is_metadata": false,
+    "confidence": 0.93,
+    "reasoning": "Filename 'vitals.csv' suggests clinical measurements. Columns include identifiers (op_id, subject_id), a time field (chart_time), a variable name (item_name), and a recorded measurement (value), forming a typical long-format event/measurement table rather than a dictionary/codebook with descriptions/units. Sample values are numeric IDs, short item codes (e.g., vt, rr), and numeric measurements, with no long descriptive text.",
+    "indicators": {
+      "filename_hint": "strong",
+      "structure_hint": "tabular",
+      "content_type": "transactional"
+    }
+  },
+  "prompt_hash": "081c7317044804e9c54d42d9ed196bc5",
+  "cached_at": "2025-12-17T13:05:28.485024",
+  "context_summary": {
+    "filename": "vitals.csv",
+    "num_columns": 5
+  }
+}

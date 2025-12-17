@@ -1,0 +1,18 @@
+{
+  "result": {
+    "is_metadata": true,
+    "confidence": 0.96,
+    "reasoning": "Filename 'parameters.csv' strongly suggests a parameter/codebook file. The columns (Table, Label, Unit, Description) form a dictionary-like structure that defines variables (lab labels) and their units/descriptions rather than recording measurements. Sample values are lab test names and explanatory text, not per-entity transactional records.",
+    "indicators": {
+      "filename_hint": "strong",
+      "structure_hint": "dictionary-like",
+      "content_type": "descriptive"
+    }
+  },
+  "prompt_hash": "3e5f745a22fbf32b595b8b1fea428ee8",
+  "cached_at": "2025-12-17T13:05:19.273064",
+  "context_summary": {
+    "filename": "parameters.csv",
+    "num_columns": 4
+  }
+}

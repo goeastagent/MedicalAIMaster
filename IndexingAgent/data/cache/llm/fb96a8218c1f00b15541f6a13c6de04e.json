@@ -1,0 +1,103 @@
+{
+  "result": {
+    "relationships": [
+      {
+        "source_table": "medications",
+        "target_table": "clinical_data",
+        "source_column": "subject_id",
+        "target_column": "subjectid",
+        "relation_type": "N:1",
+        "confidence": 0.78,
+        "description": "Likely patient-level linkage: many medication events per patient. Column name similarity (subject_id vs subjectid) suggests a join key, but cross-dataset (INSPIRE vs Open_VitalDB) and lack of explicit patient table keeps confidence conservative.",
+        "llm_inferred": true
+      },
+      {
+        "source_table": "medications",
+        "target_table": "diagnosis",
+        "source_column": "subject_id",
+        "target_column": "subject_id",
+        "relation_type": "N:1",
+        "confidence": 0.6,
+        "description": "Shared subject_id indicates both are patient-scoped transactional tables, but diagnosis is not a parent entity; both are sibling fact tables. subject_id is better modeled as FK to a Patient/Encounter dimension (not present).",
+        "llm_inferred": true
+      },
+      {
+        "source_table": "medications",
+        "target_table": "labs",
+        "source_column": "subject_id",
+        "target_column": "subject_id",
+        "relation_type": "N:1",
+        "confidence": 0.6,
+        "description": "Shared subject_id suggests patient-scoped linkage, but labs is not a parent of medications; both are event tables. Treat as co-facts joined via patient (and optionally time), not a true FK.",
+        "llm_inferred": true
+      },
+      {
+        "source_table": "medications",
+        "target_table": "operations",
+        "source_column": "subject_id",
+        "target_column": "subject_id",
+        "relation_type": "N:1",
+        "confidence": 0.65,
+        "description": "Many medication events can occur for a patient who may have one or more operations. However, operations has op_id/hadm_id/case_id and medications lacks these, so subject_id alone is insufficient to assert a strict FK to operations.",
+        "llm_inferred": true
+      },
+      {
+        "source_table": "medications",
+        "target_table": "vitals",
+        "source_column": "subject_id",
+        "target_column": "subject_id",
+        "relation_type": "N:1",
+        "confidence": 0.6,
+        "description": "Shared subject_id indicates same patient scope, but vitals is not a parent table; both are transactional measurements/events. Not a true FK relationship.",
+        "llm_inferred": true
+      },
+      {
+        "source_table": "medications",
+        "target_table": "ward_vitals",
+        "source_column": "subject_id",
+        "target_column": "subject_id",
+        "relation_type": "N:1",
+        "confidence": 0.6,
+        "description": "Shared subject_id indicates same patient scope, but ward_vitals is another fact table. Use for analytical joins, not FK enforcement.",
+        "llm_inferred": true
+      }
+    ],
+    "hierarchy": [
+      {
+        "level": 1,
+        "entity_name": "Patient",
+        "anchor_column": "subject_id",
+        "mapping_table": null,
+        "confidence": 0.72
+      },
+      {
+        "level": 2,
+        "entity_name": "Encounter/Stay (not explicitly modeled)",
+        "anchor_column": "hadm_id/case_id/op_id (missing in medications)",
+        "mapping_table": "operations (proxy for surgical encounter)",
+        "confidence": 0.55
+      },
+      {
+        "level": 3,
+        "entity_name": "Clinical Event (time-stamped facts)",
+        "anchor_column": "chart_time",
+        "mapping_table": null,
+        "confidence": 0.7
+      },
+      {
+        "level": 4,
+        "entity_name": "Medication Administration/Order Event",
+        "anchor_column": "subject_id + chart_time + drug_name (+ route)",
+        "mapping_table": "medications",
+        "confidence": 0.82
+      }
+    ],
+    "reasoning": "Most FK candidates are based on shared columns (subject_id, chart_time) across multiple transactional tables (diagnosis, labs, vitals, ward_vitals). In clinical schemas these are typically sibling fact tables that should reference a common parent (Patient and often Encounter/Visit), rather than referencing each other. The provided cardinality output marks several columns as UNIQUE in the new medications table, which is inconsistent with typical medication-event data and therefore not reliable for asserting 1:1 keys; conservatively, medications should be treated as many events per patient (N:1 to Patient). The only plausible direct FK-like linkage is medications.subject_id to a patient identifier in a patient/clinical master table; clinical_data.subjectid is the closest available, but it appears to come from a different dataset and uses case-level structure, so confidence is kept below 0.8. chart_time should be treated as an event timestamp for temporal alignment, not a foreign key."
+  },
+  "prompt_hash": "fb96a8218c1f00b15541f6a13c6de04e",
+  "cached_at": "2025-12-17T13:29:34.473118",
+  "context_summary": {
+    "filename": "unknown",
+    "num_columns": 0
+  }
+}

@@ -1,0 +1,18 @@
+{
+  "result": {
+    "is_metadata": true,
+    "confidence": 0.97,
+    "reasoning": "Filename 'schema.csv' strongly suggests a schema/codebook. The columns ['Table','Variable','Type','Description'] match a data dictionary structure describing other tables/fields rather than containing event-level records. Sample values include variable names (op_id, subject_id) and long descriptive text (avg_text_length ~38.6 in Description), indicating documentation/definitions, not measurements or transactions.",
+    "indicators": {
+      "filename_hint": "strong",
+      "structure_hint": "dictionary-like",
+      "content_type": "descriptive"
+    }
+  },
+  "prompt_hash": "170fafcebdc687861253f2d8fca3c402",
+  "cached_at": "2025-12-17T13:05:24.170897",
+  "context_summary": {
+    "filename": "schema.csv",
+    "num_columns": 4
+  }
+}

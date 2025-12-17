@@ -1,0 +1,173 @@
+{
+  "result": {
+    "relationships": [
+      {
+        "source_table": "ward_vitals",
+        "target_table": "diagnosis",
+        "source_column": "subject_id",
+        "target_column": "subject_id",
+        "relation_type": "M:N",
+        "confidence": 0.45,
+        "description": "Although both tables share subject_id, both are event/transaction tables with many rows per subject; subject_id is not a reliable FK to diagnosis without an explicit patient/master table. This is a shared identifier, not a validated FK relationship.",
+        "llm_inferred": true
+      },
+      {
+        "source_table": "ward_vitals",
+        "target_table": "diagnosis",
+        "source_column": "chart_time",
+        "target_column": "chart_time",
+        "relation_type": "M:N",
+        "confidence": 0.25,
+        "description": "chart_time is a timestamp used across multiple transactional tables; matching timestamps do not imply referential integrity. Not a valid FK.",
+        "llm_inferred": true
+      },
+      {
+        "source_table": "ward_vitals",
+        "target_table": "labs",
+        "source_column": "subject_id",
+        "target_column": "subject_id",
+        "relation_type": "M:N",
+        "confidence": 0.45,
+        "description": "Shared subject_id indicates both are patient-linked facts, but neither is a parent dimension; without a patient/admission table, this is not a true FK.",
+        "llm_inferred": true
+      },
+      {
+        "source_table": "ward_vitals",
+        "target_table": "labs",
+        "source_column": "chart_time",
+        "target_column": "chart_time",
+        "relation_type": "M:N",
+        "confidence": 0.25,
+        "description": "Shared chart_time across fact tables is not a valid FK; timestamps are not unique keys and do not define parent-child.",
+        "llm_inferred": true
+      },
+      {
+        "source_table": "ward_vitals",
+        "target_table": "labs",
+        "source_column": "item_name",
+        "target_column": "item_name",
+        "relation_type": "M:N",
+        "confidence": 0.2,
+        "description": "item_name is a label/attribute; without a dictionary table (e.g., ward_vitals_dict), it is not a stable referenced key and should not be treated as FK to labs.",
+        "llm_inferred": true
+      },
+      {
+        "source_table": "ward_vitals",
+        "target_table": "labs",
+        "source_column": "value",
+        "target_column": "value",
+        "relation_type": "M:N",
+        "confidence": 0.05,
+        "description": "value is a measurement result and never a foreign key.",
+        "llm_inferred": true
+      },
+      {
+        "source_table": "ward_vitals",
+        "target_table": "medications",
+        "source_column": "subject_id",
+        "target_column": "subject_id",
+        "relation_type": "M:N",
+        "confidence": 0.4,
+        "description": "Both are transactional patient-linked tables; subject_id is a shared identifier but not a validated FK to medications.",
+        "llm_inferred": true
+      },
+      {
+        "source_table": "ward_vitals",
+        "target_table": "medications",
+        "source_column": "chart_time",
+        "target_column": "chart_time",
+        "relation_type": "M:N",
+        "confidence": 0.2,
+        "description": "chart_time is not a parent key; temporal coincidence does not create referential integrity.",
+        "llm_inferred": true
+      },
+      {
+        "source_table": "ward_vitals",
+        "target_table": "operations",
+        "source_column": "subject_id",
+        "target_column": "subject_id",
+        "relation_type": "M:N",
+        "confidence": 0.55,
+        "description": "operations is a case/admission-like fact table and ward_vitals are ward measurements; they may be linkable by subject_id plus time windows, but no explicit key (e.g., hadm_id/op_id) exists in ward_vitals, so FK cannot be asserted.",
+        "llm_inferred": true
+      },
+      {
+        "source_table": "ward_vitals",
+        "target_table": "vitals",
+        "source_column": "subject_id",
+        "target_column": "subject_id",
+        "relation_type": "M:N",
+        "confidence": 0.6,
+        "description": "ward_vitals and vitals are both measurement-level fact tables; they likely represent different care settings (ward vs perioperative/ICU). Shared subject_id does not imply FK; at best they are sibling facts under a patient/stay entity.",
+        "llm_inferred": true
+      },
+      {
+        "source_table": "ward_vitals",
+        "target_table": "vitals",
+        "source_column": "chart_time",
+        "target_column": "chart_time",
+        "relation_type": "M:N",
+        "confidence": 0.3,
+        "description": "Shared timestamp column is not a valid FK; both tables can have many measurements at the same time.",
+        "llm_inferred": true
+      },
+      {
+        "source_table": "ward_vitals",
+        "target_table": "vitals",
+        "source_column": "item_name",
+        "target_column": "item_name",
+        "relation_type": "M:N",
+        "confidence": 0.25,
+        "description": "item_name is a measurement label; without a shared dictionary/parameter table, it should not be used as FK between fact tables.",
+        "llm_inferred": true
+      },
+      {
+        "source_table": "ward_vitals",
+        "target_table": "clinical_data",
+        "source_column": "subject_id",
+        "target_column": "subjectid",
+        "relation_type": "M:N",
+        "confidence": 0.5,
+        "description": "clinical_data appears to be case-level (surgical/anesthesia) with subjectid; ward_vitals are ward measurements. They can be associated by subject and time, but ward_vitals lacks caseid/op_id/hadm_id, so no FK can be validated.",
+        "llm_inferred": true
+      }
+    ],
+    "hierarchy": [
+      {
+        "level": 1,
+        "entity_name": "Patient",
+        "anchor_column": "subject_id",
+        "mapping_table": null,
+        "confidence": 0.7
+      },
+      {
+        "level": 2,
+        "entity_name": "Encounter/Stay (Admission/Operation Case)",
+        "anchor_column": "hadm_id/op_id/caseid (not present in ward_vitals)",
+        "mapping_table": "operations or clinical_data (as encounter-like tables)",
+        "confidence": 0.55
+      },
+      {
+        "level": 3,
+        "entity_name": "Care Setting / Location (Ward)",
+        "anchor_column": "ward_id/location_id (not present; hinted by ward_locations/ward_stays)",
+        "mapping_table": "ward_stays / ward_locations (hinted, not available)",
+        "confidence": 0.5
+      },
+      {
+        "level": 4,
+        "entity_name": "Vital Sign Measurement (Ward)",
+        "anchor_column": "subject_id + chart_time + item_name (composite natural key candidate)",
+        "mapping_table": "ward_vitals",
+        "confidence": 0.8
+      }
+    ],
+    "reasoning": "The rule-based FK candidates are driven by shared column names (subject_id, chart_time, item_name, value) across multiple transactional tables. However, these columns are not reliable foreign keys between fact tables: (1) CARDINALITY output marking all columns as UNIQUE is inconsistent with typical vitals data and likely reflects profiling on a small sample or miscomputed uniqueness; in real vitals, subject_id, chart_time, and item_name repeat. (2) Domain-wise, ward_vitals is a measurement-level fact table; it should reference a patient dimension and usually an encounter/stay (hadm_id/op_id/caseid) and possibly a ward/location dimension. None of those explicit keys exist in ward_vitals, so we cannot conservatively assert N:1 FK links to operations/clinical_data/diagnosis/labs/medications/vitals. The filename hints strongly suggest missing dimension/dictionary tables (ward_vitals_dict/parameters/units/reference_ranges, ward_stays/ward_locations) that would be the proper FK targets for item_name and ward context, but they are not present in the provided existing tables. Therefore, relationships to existing tables are marked as non-validated (low confidence) and treated as shared-identifier associations rather than true referential constraints."
+  },
+  "prompt_hash": "190c83cd59e8a8b7db872fec894836db",
+  "cached_at": "2025-12-17T14:31:36.723842",
+  "context_summary": {
+    "filename": "unknown",
+    "num_columns": 0
+  }
+}

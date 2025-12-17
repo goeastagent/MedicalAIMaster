@@ -1,7 +1,7 @@
 {
   "version": "1.0",
   "created_at": "2025-12-17T03:45:43.758708",
-  "last_updated": "2025-12-17T04:34:12.965314",
+  "last_updated": "2025-12-17T14:31:36.726857",
   "definitions": {
     "caseid": "Random | Description=Case ID; Random number between 00001 and 06388",
     "subjectid": "EMR | Description=Subject ID; Deidentified hospital ID of patient",
@@ -359,7 +359,14 @@
     "Q": "Congenital malformation (Q00~Q99)",
     "R75": "Laboratory evidence of HIV",
     "T74": "Adult and child abuse neglect and other maltreatment",
-    "Z114,Z206,Z21,Z332,Z717,Z78,Z830": "HIV related"
+    "Z114,Z206,Z21,Z332,Z717,Z78,Z830": "HIV related",
+    "labs": "subject_id | Type=Number | Description=The patient identifier defined in the operations table",
+    "vitals": "op_id | Type=Number | Description=Operation identifier defined in the operations table",
+    "ward_vitals": "subject_id | Type=Number | Description=The patient identifier defined in the operations table",
+    "operations": "op_id | Type=Number | Description=A random number starts with 4 for the operation.",
+    "nan": "atc_code3 | Type=String | Description=WHO ATC code3",
+    "diagnosis": "subject_id | Type=Number | Description=The patient identifier defined in the operations table",
+    "medications": "subject_id | Type=Number | Description=The patient identifier defined in the operations table"
   },
   "relationships": [
     {
@@ -451,6 +458,366 @@
       "confidence": 0.78,
       "description": "Both are transactional event tables keyed by subject_id + chart_time-like timestamps; without a patient dimension table or encounter_id, subject_id is not a strict FK. Conceptually diagnoses and medications relate many-to-many through the patient and time window.",
       "llm_inferred": true
+    },
+    {
+      "source_table": "medications",
+      "target_table": "diagnosis",
+      "source_column": "chart_time",
+      "target_column": "chart_time",
+      "relation_type": "M:N",
+      "confidence": 0.55,
+      "description": "chart_time is an event timestamp in both tables; timestamps are not stable identifiers and can repeat across many events. Suitable for temporal alignment, but not a reliable FK.",
+      "llm_inferred": true
+    },
+    {
+      "source_table": "medications",
+      "target_table": "labs",
+      "source_column": "chart_time",
+      "target_column": "chart_time",
+      "relation_type": "M:N",
+      "confidence": 0.55,
+      "description": "chart_time can be used for time-based joins, but it is not a true FK because multiple lab/medication events can share the same timestamp and there is no uniqueness guarantee.",
+      "llm_inferred": true
+    },
+    {
+      "source_table": "medications",
+      "target_table": "clinical_data",
+      "source_column": "subject_id",
+      "target_column": "subjectid",
+      "relation_type": "N:1",
+      "confidence": 0.6,
+      "description": "Column name similarity suggests a patient identifier mapping (subject_id -> subjectid). However, datasets appear to come from different sources (INSPIRE vs Open_VitalDB) and may not share the same identifier namespace, so treat as a tentative cross-dataset link, not a validated FK.",
+      "llm_inferred": true
+    },
+    {
+      "source_table": "operations",
+      "target_table": "diagnosis",
+      "source_column": "subject_id",
+      "target_column": "subject_id",
+      "relation_type": "1:N",
+      "confidence": 0.82,
+      "description": "Likely shared patient identifier across INSPIRE tables; an operation belongs to one patient, while a patient can have many diagnosis rows over time. Note: cardinality stats marking subject_id as UNIQUE in operations appear unreliable for real-world data, so confidence is conservative.",
+      "llm_inferred": true
+    },
+    {
+      "source_table": "operations",
+      "target_table": "labs",
+      "source_column": "subject_id",
+      "target_column": "subject_id",
+      "relation_type": "1:N",
+      "confidence": 0.82,
+      "description": "Likely shared patient identifier across INSPIRE tables; an operation belongs to one patient, while a patient can have many lab measurements over time.",
+      "llm_inferred": true
+    },
+    {
+      "source_table": "operations",
+      "target_table": "medications",
+      "source_column": "subject_id",
+      "target_column": "subject_id",
+      "relation_type": "1:N",
+      "confidence": 0.82,
+      "description": "Likely shared patient identifier across INSPIRE tables; an operation belongs to one patient, while a patient can have many medication administrations/orders over time.",
+      "llm_inferred": true
+    },
+    {
+      "source_table": "operations",
+      "target_table": "clinical_data",
+      "source_column": "case_id",
+      "target_column": "caseid",
+      "relation_type": "1:1",
+      "confidence": 0.78,
+      "description": "case_id (INSPIRE operations) and caseid (VitalDB clinical_data) look like the same concept (surgical/anesthesia case). However, these are from different source datasets, so linkage is plausible but not guaranteed without a crosswalk; keep conservative confidence.",
+      "llm_inferred": true
+    },
+    {
+      "source_table": "operations",
+      "target_table": "lab_data",
+      "source_column": "case_id",
+      "target_column": "caseid",
+      "relation_type": "1:N",
+      "confidence": 0.78,
+      "description": "If case_id aligns to VitalDB caseid, then one operation/case would have many lab_data rows (time-stamped dt/name/result). Cross-dataset linkage uncertainty keeps confidence < 0.8.",
+      "llm_inferred": true
+    },
+    {
+      "source_table": "vitals",
+      "target_table": "operations",
+      "source_column": "op_id",
+      "target_column": "op_id",
+      "relation_type": "N:1",
+      "confidence": 0.92,
+      "description": "Vitals are time-stamped measurements recorded during/around an operation/encounter; many vitals rows can belong to a single operation identified by op_id.",
+      "llm_inferred": true
+    },
+    {
+      "source_table": "vitals",
+      "target_table": "operations",
+      "source_column": "subject_id",
+      "target_column": "subject_id",
+      "relation_type": "N:1",
+      "confidence": 0.83,
+      "description": "Each vitals record is for a patient (subject_id). Operations also carry subject_id, enabling patient-level linkage; however, subject_id is not guaranteed unique in operations, so this is a secondary/denormalized join path compared to op_id.",
+      "llm_inferred": true
+    },
+    {
+      "source_table": "ward_vitals",
+      "target_table": "diagnosis",
+      "source_column": "subject_id",
+      "target_column": "subject_id",
+      "relation_type": "M:N",
+      "confidence": 0.55,
+      "description": "Shared patient identifier only; both are event/transaction tables. Without an encounter/admission key, this is not a reliable FK relationship (patients can have many diagnoses and many ward vitals).",
+      "llm_inferred": true
+    },
+    {
+      "source_table": "ward_vitals",
+      "target_table": "labs",
+      "source_column": "subject_id",
+      "target_column": "subject_id",
+      "relation_type": "M:N",
+      "confidence": 0.55,
+      "description": "Shared patient identifier only; both are measurement/event tables. No evidence that ward_vitals rows reference a specific labs row (no lab_id, no shared unique key).",
+      "llm_inferred": true
+    },
+    {
+      "source_table": "ward_vitals",
+      "target_table": "medications",
+      "source_column": "subject_id",
+      "target_column": "subject_id",
+      "relation_type": "M:N",
+      "confidence": 0.5,
+      "description": "Shared patient identifier only; not a true FK. Medication administrations and ward vitals are independent time-stamped events for the same patient.",
+      "llm_inferred": true
+    },
+    {
+      "source_table": "ward_vitals",
+      "target_table": "operations",
+      "source_column": "subject_id",
+      "target_column": "subject_id",
+      "relation_type": "M:N",
+      "confidence": 0.5,
+      "description": "Shared patient identifier only; operations are encounter/procedure-level while ward_vitals are ward measurement-level. Missing hadm_id/op_id/case_id in ward_vitals prevents a defensible FK.",
+      "llm_inferred": true
+    },
+    {
+      "source_table": "ward_vitals",
+      "target_table": "vitals",
+      "source_column": "subject_id",
+      "target_column": "subject_id",
+      "relation_type": "M:N",
+      "confidence": 0.6,
+      "description": "Same patient identifier and similar schema, but ward_vitals appears to be a parallel fact table (ward context) rather than a child referencing vitals. No key indicates ward_vitals rows point to vitals rows.",
+      "llm_inferred": true
+    },
+    {
+      "source_table": "ward_vitals",
+      "target_table": "clinical_data",
+      "source_column": "subject_id",
+      "target_column": "subjectid",
+      "relation_type": "M:N",
+      "confidence": 0.45,
+      "description": "Only a similar-name patient identifier match; clinical_data is case/operation-centric (caseid) and ward_vitals lacks caseid/op_id linkage, so this is not a validated FK.",
+      "llm_inferred": true
+    },
+    {
+      "source_table": "diagnosis",
+      "target_table": "operations",
+      "source_column": "subject_id",
+      "target_column": "subject_id",
+      "relation_type": "N:1",
+      "confidence": 0.82,
+      "description": "Multiple diagnosis rows can exist per patient, while operations contains patient-linked surgical encounters; subject_id is a plausible patient anchor shared across INSPIRE tables. This is a patient-level linkage (not necessarily encounter-specific).",
+      "llm_inferred": true
+    },
+    {
+      "source_table": "diagnosis",
+      "target_table": "vitals",
+      "source_column": "subject_id",
+      "target_column": "subject_id",
+      "relation_type": "N:1",
+      "confidence": 0.81,
+      "description": "Vitals is an event table with subject_id; diagnosis rows can be linked to the same patient via subject_id. chart_time is not unique enough to be a safe FK across tables.",
+      "llm_inferred": true
+    },
+    {
+      "source_table": "diagnosis",
+      "target_table": "ward_vitals",
+      "source_column": "subject_id",
+      "target_column": "subject_id",
+      "relation_type": "N:1",
+      "confidence": 0.81,
+      "description": "Ward vitals and diagnosis share subject_id and are both transactional; subject_id is the plausible parent key for patient-level joins. chart_time alone is not a stable referenced key.",
+      "llm_inferred": true
+    },
+    {
+      "source_table": "labs",
+      "target_table": "operations",
+      "source_column": "subject_id",
+      "target_column": "subject_id",
+      "relation_type": "N:1",
+      "confidence": 0.82,
+      "description": "Lab results are transactional measurements recorded per patient over time; multiple lab rows can exist for a single patient who may have one or more operations. The shared patient identifier supports a patient-level linkage, though operations is encounter/procedure-scoped and may not cover all lab times.",
+      "llm_inferred": true
+    },
+    {
+      "source_table": "labs",
+      "target_table": "ward_vitals",
+      "source_column": "subject_id",
+      "target_column": "subject_id",
+      "relation_type": "M:N",
+      "confidence": 0.76,
+      "description": "Ward vitals and labs share the same column set (subject_id, chart_time, item_name, value) but represent different measurement domains. This indicates parallel fact tables rather than FK; any linkage is patient/time-based and many-to-many.",
+      "llm_inferred": true
+    },
+    {
+      "source_table": "labs",
+      "target_table": "vitals",
+      "source_column": "subject_id",
+      "target_column": "subject_id",
+      "relation_type": "M:N",
+      "confidence": 0.76,
+      "description": "Vitals includes op_id (procedure/encounter context) while labs does not; subject_id alone supports patient-level association but not a strict FK. Relationship is best treated as many-to-many via patient and time alignment.",
+      "llm_inferred": true
+    },
+    {
+      "source_table": "medications",
+      "target_table": "operations",
+      "source_column": "subject_id",
+      "target_column": "subject_id",
+      "relation_type": "N:1",
+      "confidence": 0.65,
+      "description": "Many medication events can occur for a patient who may have one or more operations. However, operations has op_id/hadm_id/case_id and medications lacks these, so subject_id alone is insufficient to assert a strict FK to operations.",
+      "llm_inferred": true
+    },
+    {
+      "source_table": "medications",
+      "target_table": "vitals",
+      "source_column": "subject_id",
+      "target_column": "subject_id",
+      "relation_type": "N:1",
+      "confidence": 0.6,
+      "description": "Shared subject_id indicates same patient scope, but vitals is not a parent table; both are transactional measurements/events. Not a true FK relationship.",
+      "llm_inferred": true
+    },
+    {
+      "source_table": "medications",
+      "target_table": "ward_vitals",
+      "source_column": "subject_id",
+      "target_column": "subject_id",
+      "relation_type": "N:1",
+      "confidence": 0.6,
+      "description": "Shared subject_id indicates same patient scope, but ward_vitals is another fact table. Use for analytical joins, not FK enforcement.",
+      "llm_inferred": true
+    },
+    {
+      "source_table": "operations",
+      "target_table": "vitals",
+      "source_column": "op_id",
+      "target_column": "op_id",
+      "relation_type": "1:N",
+      "confidence": 0.92,
+      "description": "Vitals are time-series measurements recorded during/around an operation; vitals rows typically reference a single operation via op_id, so one operation links to many vitals records.",
+      "llm_inferred": true
+    },
+    {
+      "source_table": "operations",
+      "target_table": "vitals",
+      "source_column": "subject_id",
+      "target_column": "subject_id",
+      "relation_type": "1:N",
+      "confidence": 0.85,
+      "description": "Vitals also carry subject_id; this supports patient-level linkage (one patient to many vitals). However, op_id is the more specific/safer join key when available.",
+      "llm_inferred": true
+    },
+    {
+      "source_table": "operations",
+      "target_table": "ward_vitals",
+      "source_column": "subject_id",
+      "target_column": "subject_id",
+      "relation_type": "1:N",
+      "confidence": 0.83,
+      "description": "Ward vitals are patient-level time-series measurements (no op_id present). operations.subject_id can link to many ward_vitals rows; operation context requires time-window filtering.",
+      "llm_inferred": true
+    },
+    {
+      "source_table": "operations",
+      "target_table": "clinical_data",
+      "source_column": "subject_id",
+      "target_column": "subjectid",
+      "relation_type": "N:1",
+      "confidence": 0.72,
+      "description": "subject_id ~ subjectid suggests patient identity alignment across datasets. Still, without a shared patient master table and given cross-source integration ambiguity, treat as a tentative linkage rather than a strict FK.",
+      "llm_inferred": true
+    },
+    {
+      "source_table": "ward_vitals",
+      "target_table": "diagnosis",
+      "source_column": "chart_time",
+      "target_column": "chart_time",
+      "relation_type": "M:N",
+      "confidence": 0.25,
+      "description": "chart_time is a timestamp used across multiple transactional tables; matching timestamps do not imply referential integrity. Not a valid FK.",
+      "llm_inferred": true
+    },
+    {
+      "source_table": "ward_vitals",
+      "target_table": "labs",
+      "source_column": "chart_time",
+      "target_column": "chart_time",
+      "relation_type": "M:N",
+      "confidence": 0.25,
+      "description": "Shared chart_time across fact tables is not a valid FK; timestamps are not unique keys and do not define parent-child.",
+      "llm_inferred": true
+    },
+    {
+      "source_table": "ward_vitals",
+      "target_table": "labs",
+      "source_column": "item_name",
+      "target_column": "item_name",
+      "relation_type": "M:N",
+      "confidence": 0.2,
+      "description": "item_name is a label/attribute; without a dictionary table (e.g., ward_vitals_dict), it is not a stable referenced key and should not be treated as FK to labs.",
+      "llm_inferred": true
+    },
+    {
+      "source_table": "ward_vitals",
+      "target_table": "labs",
+      "source_column": "value",
+      "target_column": "value",
+      "relation_type": "M:N",
+      "confidence": 0.05,
+      "description": "value is a measurement result and never a foreign key.",
+      "llm_inferred": true
+    },
+    {
+      "source_table": "ward_vitals",
+      "target_table": "medications",
+      "source_column": "chart_time",
+      "target_column": "chart_time",
+      "relation_type": "M:N",
+      "confidence": 0.2,
+      "description": "chart_time is not a parent key; temporal coincidence does not create referential integrity.",
+      "llm_inferred": true
+    },
+    {
+      "source_table": "ward_vitals",
+      "target_table": "vitals",
+      "source_column": "chart_time",
+      "target_column": "chart_time",
+      "relation_type": "M:N",
+      "confidence": 0.3,
+      "description": "Shared timestamp column is not a valid FK; both tables can have many measurements at the same time.",
+      "llm_inferred": true
+    },
+    {
+      "source_table": "ward_vitals",
+      "target_table": "vitals",
+      "source_column": "item_name",
+      "target_column": "item_name",
+      "relation_type": "M:N",
+      "confidence": 0.25,
+      "description": "item_name is a measurement label; without a shared dictionary/parameter table, it should not be used as FK between fact tables.",
+      "llm_inferred": true
     }
   ],
   "hierarchy": [
@@ -488,6 +855,41 @@
       "anchor_column": "chart_time",
       "mapping_table": null,
       "confidence": 0.8
+    },
+    {
+      "level": 2,
+      "entity_name": "Hospital Admission / Encounter",
+      "anchor_column": "hadm_id",
+      "mapping_table": "operations",
+      "confidence": 0.78
+    },
+    {
+      "level": 2,
+      "entity_name": "Operation / Surgical Encounter",
+      "anchor_column": "op_id",
+      "mapping_table": "operations",
+      "confidence": 0.9
+    },
+    {
+      "level": 2,
+      "entity_name": "Encounter/Stay (Admission/Operation case)",
+      "anchor_column": "hadm_id/op_id/caseid",
+      "mapping_table": "operations or clinical_data (case-based)",
+      "confidence": 0.55
+    },
+    {
+      "level": 2,
+      "entity_name": "Encounter/Stay (not explicitly modeled)",
+      "anchor_column": "hadm_id/case_id/op_id (missing in medications)",
+      "mapping_table": "operations (proxy for surgical encounter)",
+      "confidence": 0.55
+    },
+    {
+      "level": 2,
+      "entity_name": "Encounter/Stay (Admission/Operation Case)",
+      "anchor_column": "hadm_id/op_id/caseid (not present in ward_vitals)",
+      "mapping_table": "operations or clinical_data (as encounter-like tables)",
+      "confidence": 0.55
     },
     {
       "level": 3,
@@ -540,10 +942,52 @@
     },
     {
       "level": 3,
-      "entity_name": "Clinical Events (time-stamped facts)",
+      "entity_name": "Vital Sign Measurement",
       "anchor_column": "chart_time",
+      "mapping_table": "vitals",
+      "confidence": 0.9
+    },
+    {
+      "level": 3,
+      "entity_name": "Laboratory Result",
+      "anchor_column": "subject_id",
+      "mapping_table": null,
+      "confidence": 0.9
+    },
+    {
+      "level": 3,
+      "entity_name": "Medication Event",
+      "anchor_column": "subject_id, chart_time, drug_name",
       "mapping_table": null,
       "confidence": 0.8
+    },
+    {
+      "level": 3,
+      "entity_name": "Diagnosis Event",
+      "anchor_column": "subject_id, chart_time, icd10_cm",
+      "mapping_table": null,
+      "confidence": 0.8
+    },
+    {
+      "level": 3,
+      "entity_name": "Vital Measurement",
+      "anchor_column": "op_id",
+      "mapping_table": "vitals",
+      "confidence": 0.92
+    },
+    {
+      "level": 3,
+      "entity_name": "Ward/Location context",
+      "anchor_column": "ward_id/location_id (not present in provided tables)",
+      "mapping_table": "ward_stays / ward_locations (hinted, not present)",
+      "confidence": 0.5
+    },
+    {
+      "level": 3,
+      "entity_name": "Care Setting / Location (Ward)",
+      "anchor_column": "ward_id/location_id (not present; hinted by ward_locations/ward_stays)",
+      "mapping_table": "ward_stays / ward_locations (hinted, not available)",
+      "confidence": 0.5
     },
     {
       "level": 4,
@@ -551,6 +995,48 @@
       "anchor_column": "subject_id + chart_time + item_name",
       "mapping_table": "labs",
       "confidence": 0.9
+    },
+    {
+      "level": 4,
+      "entity_name": "Time-stamped Clinical Facts (Labs/Medications/Diagnoses)",
+      "anchor_column": "chart_time",
+      "mapping_table": null,
+      "confidence": 0.8
+    },
+    {
+      "level": 4,
+      "entity_name": "Diagnosis Event",
+      "anchor_column": "icd10_cm",
+      "mapping_table": "diagnosis",
+      "confidence": 0.8
+    },
+    {
+      "level": 4,
+      "entity_name": "Measurements (Labs / Vitals / Ward Vitals)",
+      "anchor_column": "subject_id",
+      "mapping_table": null,
+      "confidence": 0.84
+    },
+    {
+      "level": 4,
+      "entity_name": "Medication Administration/Order Event",
+      "anchor_column": "subject_id + chart_time + drug_name (+ route)",
+      "mapping_table": "medications",
+      "confidence": 0.82
+    },
+    {
+      "level": 4,
+      "entity_name": "Clinical Observations (time-series)",
+      "anchor_column": "op_id",
+      "mapping_table": "vitals",
+      "confidence": 0.9
+    },
+    {
+      "level": 4,
+      "entity_name": "Vital Sign Measurement (Ward)",
+      "anchor_column": "subject_id + chart_time + item_name (composite natural key candidate)",
+      "mapping_table": "ward_vitals",
+      "confidence": 0.8
     }
   ],
   "file_tags": {
@@ -668,12 +1154,12 @@
       "type": "metadata",
       "role": "dictionary",
       "confidence": 0.93,
-      "detected_at": "2025-12-17T04:32:26.984338"
+      "detected_at": "2025-12-17T13:16:04.965623"
     },
     "/Users/goeastagent/products/MedicalAIMaster/IndexingAgent/data/raw/INSPIRE_130K_1.3/diagnosis.csv": {
       "type": "transactional_data",
       "confidence": 0.93,
-      "detected_at": "2025-12-17T04:32:29.543206",
+      "detected_at": "2025-12-17T13:16:07.287618",
       "columns": [
         "subject_id",
         "chart_time",
@@ -684,12 +1170,12 @@
       "type": "metadata",
       "role": "dictionary",
       "confidence": 0.9,
-      "detected_at": "2025-12-17T04:33:59.070220"
+      "detected_at": "2025-12-17T13:17:27.019552"
     },
     "/Users/goeastagent/products/MedicalAIMaster/IndexingAgent/data/raw/INSPIRE_130K_1.3/labs.csv": {
       "type": "transactional_data",
       "confidence": 0.93,
-      "detected_at": "2025-12-17T04:34:01.397775",
+      "detected_at": "2025-12-17T13:17:28.858616",
       "columns": [
         "subject_id",
         "chart_time",
@@ -700,7 +1186,7 @@
     "/Users/goeastagent/products/MedicalAIMaster/IndexingAgent/data/raw/INSPIRE_130K_1.3/medications.csv": {
       "type": "transactional_data",
       "confidence": 0.9,
-      "detected_at": "2025-12-17T04:13:05.231815",
+      "detected_at": "2025-12-17T13:29:21.914429",
       "columns": [
         "subject_id",
         "chart_time",
@@ -712,11 +1198,82 @@
         "atc_code2",
         "atc_code3"
       ]
+    },
+    "/Users/goeastagent/products/MedicalAIMaster/IndexingAgent/data/raw/INSPIRE_130K_1.3/operations.csv": {
+      "type": "transactional_data",
+      "confidence": 0.93,
+      "detected_at": "2025-12-17T13:42:13.274445",
+      "columns": [
+        "op_id",
+        "subject_id",
+        "hadm_id",
+        "case_id",
+        "opdate",
+        "age",
+        "sex",
+        "weight",
+        "height",
+        "race",
+        "asa",
+        "emop",
+        "department",
+        "antype",
+        "icd10_pcs",
+        "orin_time",
+        "orout_time",
+        "opstart_time",
+        "opend_time",
+        "admission_time",
+        "discharge_time",
+        "anstart_time",
+        "anend_time",
+        "cpbon_time",
+        "cpboff_time",
+        "icuin_time",
+        "icuout_time",
+        "inhosp_death_time",
+        "allcause_death_time"
+      ]
+    },
+    "/Users/goeastagent/products/MedicalAIMaster/IndexingAgent/data/raw/INSPIRE_130K_1.3/parameters.csv": {
+      "type": "metadata",
+      "role": "dictionary",
+      "confidence": 0.96,
+      "detected_at": "2025-12-17T13:43:25.235186"
+    },
+    "/Users/goeastagent/products/MedicalAIMaster/IndexingAgent/data/raw/INSPIRE_130K_1.3/schema.csv": {
+      "type": "metadata",
+      "role": "dictionary",
+      "confidence": 0.97,
+      "detected_at": "2025-12-17T13:43:27.660883"
+    },
+    "/Users/goeastagent/products/MedicalAIMaster/IndexingAgent/data/raw/INSPIRE_130K_1.3/vitals.csv": {
+      "type": "transactional_data",
+      "confidence": 0.93,
+      "detected_at": "2025-12-17T13:43:30.489470",
+      "columns": [
+        "op_id",
+        "subject_id",
+        "chart_time",
+        "item_name",
+        "value"
+      ]
+    },
+    "/Users/goeastagent/products/MedicalAIMaster/IndexingAgent/data/raw/INSPIRE_130K_1.3/ward_vitals.csv": {
+      "type": "transactional_data",
+      "confidence": 0.93,
+      "detected_at": "2025-12-17T14:31:18.689840",
+      "columns": [
+        "subject_id",
+        "chart_time",
+        "item_name",
+        "value"
+      ]
     }
   },
   "metadata": {
-    "total_tables": 10,
-    "total_definitions": 357,
-    "total_relationships": 9
+    "total_tables": 15,
+    "total_definitions": 364,
+    "total_relationships": 45
   }
 }

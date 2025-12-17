@@ -1,0 +1,32 @@
+{
+  "result": {
+    "entity_type": "Vital Signs",
+    "scope": "measurement",
+    "suggested_level": 4,
+    "data_type_indicator": "transactional",
+    "related_file_patterns": [
+      "vitals_data",
+      "vitals_records",
+      "vitals_events",
+      "vitals_parameters",
+      "vitals_dict",
+      "vitals_info",
+      "vital_signs",
+      "vital_signs_data",
+      "vital_signs_dict"
+    ],
+    "confidence": 0.78,
+    "reasoning": "The base name 'vitals' most commonly denotes vital signs measurements (e.g., HR, BP, RR, SpO2, temperature). With no suffix/extension, the safest interpretation is a measurement-focused dataset, typically transactional/observational records. Related patterns include a data/records file plus supporting metadata such as parameter/dictionary/info files.",
+    "filename": "vitals",
+    "base_name": "vitals",
+    "parts": [
+      "vitals"
+    ]
+  },
+  "prompt_hash": "3815686655b086394c3c3a0afbdf8f4d",
+  "cached_at": "2025-12-17T13:05:31.243629",
+  "context_summary": {
+    "filename": "unknown",
+    "num_columns": 0
+  }
+}

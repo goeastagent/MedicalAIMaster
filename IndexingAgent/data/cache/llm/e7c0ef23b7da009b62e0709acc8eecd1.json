@@ -1,0 +1,151 @@
+{
+  "result": {
+    "relationships": [
+      {
+        "source_table": "operations",
+        "target_table": "vitals",
+        "source_column": "op_id",
+        "target_column": "op_id",
+        "relation_type": "1:N",
+        "confidence": 0.92,
+        "description": "Vitals are time-series measurements recorded during/around an operation; vitals rows typically reference a single operation via op_id, so one operation links to many vitals records.",
+        "llm_inferred": true
+      },
+      {
+        "source_table": "operations",
+        "target_table": "vitals",
+        "source_column": "subject_id",
+        "target_column": "subject_id",
+        "relation_type": "1:N",
+        "confidence": 0.85,
+        "description": "Vitals also carry subject_id; this supports patient-level linkage (one patient to many vitals). However, op_id is the more specific/safer join key when available.",
+        "llm_inferred": true
+      },
+      {
+        "source_table": "operations",
+        "target_table": "diagnosis",
+        "source_column": "subject_id",
+        "target_column": "subject_id",
+        "relation_type": "1:N",
+        "confidence": 0.84,
+        "description": "Diagnosis is a patient-level longitudinal table keyed by subject_id with multiple chart_time entries; operations provides subject_id enabling patient-to-diagnoses linkage (not operation-specific without additional constraints).",
+        "llm_inferred": true
+      },
+      {
+        "source_table": "operations",
+        "target_table": "labs",
+        "source_column": "subject_id",
+        "target_column": "subject_id",
+        "relation_type": "1:N",
+        "confidence": 0.84,
+        "description": "Labs is a patient-level longitudinal table keyed by subject_id with multiple chart_time entries; operations provides subject_id enabling patient-to-labs linkage (operation-specific only if filtered by time window).",
+        "llm_inferred": true
+      },
+      {
+        "source_table": "operations",
+        "target_table": "medications",
+        "source_column": "subject_id",
+        "target_column": "subject_id",
+        "relation_type": "1:N",
+        "confidence": 0.84,
+        "description": "Medications is a patient-level longitudinal table keyed by subject_id with multiple chart_time entries; operations provides subject_id enabling patient-to-medications linkage (operation-specific only if filtered by time window).",
+        "llm_inferred": true
+      },
+      {
+        "source_table": "operations",
+        "target_table": "ward_vitals",
+        "source_column": "subject_id",
+        "target_column": "subject_id",
+        "relation_type": "1:N",
+        "confidence": 0.83,
+        "description": "Ward vitals are patient-level time-series measurements (no op_id present). operations.subject_id can link to many ward_vitals rows; operation context requires time-window filtering.",
+        "llm_inferred": true
+      },
+      {
+        "source_table": "operations",
+        "target_table": "clinical_data",
+        "source_column": "case_id",
+        "target_column": "caseid",
+        "relation_type": "1:1",
+        "confidence": 0.72,
+        "description": "case_id/caseid is a strong semantic match (surgery case identifier). However, these tables come from different source datasets (INSPIRE vs Open_VitalDB) and the provided cardinality stats are unreliable (showing all columns UNIQUE), so cross-dataset FK cannot be asserted confidently.",
+        "llm_inferred": true
+      },
+      {
+        "source_table": "operations",
+        "target_table": "lab_data",
+        "source_column": "case_id",
+        "target_column": "caseid",
+        "relation_type": "1:N",
+        "confidence": 0.7,
+        "description": "lab_data is case-based (caseid, dt, name, result) and would naturally be many lab rows per case. But this is a cross-dataset join and cannot be confirmed as a true FK without evidence that INSPIRE case_id equals Open_VitalDB caseid.",
+        "llm_inferred": true
+      }
+    ],
+    "hierarchy": [
+      {
+        "level": 1,
+        "entity_name": "Patient",
+        "anchor_column": "subject_id",
+        "mapping_table": null,
+        "confidence": 0.86
+      },
+      {
+        "level": 2,
+        "entity_name": "Hospital Admission / Encounter",
+        "anchor_column": "hadm_id",
+        "mapping_table": "operations",
+        "confidence": 0.78
+      },
+      {
+        "level": 3,
+        "entity_name": "Operation / Procedure Event",
+        "anchor_column": "op_id",
+        "mapping_table": "operations",
+        "confidence": 0.9
+      },
+      {
+        "level": 4,
+        "entity_name": "Clinical Observations (time-series)",
+        "anchor_column": "op_id",
+        "mapping_table": "vitals",
+        "confidence": 0.9
+      },
+      {
+        "level": 4,
+        "entity_name": "Ward Observations (time-series)",
+        "anchor_column": "subject_id",
+        "mapping_table": "ward_vitals",
+        "confidence": 0.82
+      },
+      {
+        "level": 4,
+        "entity_name": "Diagnoses (longitudinal)",
+        "anchor_column": "subject_id",
+        "mapping_table": "diagnosis",
+        "confidence": 0.84
+      },
+      {
+        "level": 4,
+        "entity_name": "Laboratory Results (longitudinal)",
+        "anchor_column": "subject_id",
+        "mapping_table": "labs",
+        "confidence": 0.84
+      },
+      {
+        "level": 4,
+        "entity_name": "Medications (longitudinal)",
+        "anchor_column": "subject_id",
+        "mapping_table": "medications",
+        "confidence": 0.84
+      }
+    ],
+    "reasoning": "Most same-name matches (age/sex/height/weight/asa/emop/department/etc.) are attributes, not foreign keys: they are descriptive fields and do not point to a parent table key. True relational links are best inferred where an identifier appears in a more granular table: vitals contains op_id and subject_id, making it a child of operations (and indirectly of patient). diagnosis/labs/medications/ward_vitals are patient-level longitudinal tables keyed by subject_id; operations can link to them at the patient level, but operation-specific linkage requires time-window logic (not a strict FK). Cross-dataset candidates (operations.case_id to clinical_data.caseid and lab_data.caseid) are semantically plausible but cannot be asserted with high confidence because they originate from different source systems and the provided cardinality output appears unreliable (showing all columns as UNIQUE, which is inconsistent with typical medical event data)."
+  },
+  "prompt_hash": "e7c0ef23b7da009b62e0709acc8eecd1",
+  "cached_at": "2025-12-17T13:42:29.225308",
+  "context_summary": {
+    "filename": "unknown",
+    "num_columns": 0
+  }
+}

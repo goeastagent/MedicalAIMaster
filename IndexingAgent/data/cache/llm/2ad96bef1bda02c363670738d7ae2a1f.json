@@ -1,0 +1,87 @@
+{
+  "result": {
+    "relationships": [
+      {
+        "source_table": "labs",
+        "target_table": "diagnosis",
+        "source_column": "subject_id",
+        "target_column": "subject_id",
+        "relation_type": "M:N",
+        "confidence": 0.82,
+        "description": "Both tables are transactional clinical events keyed by patient (subject_id). Since neither table provides a unique patient master key table here, the join is effectively many-to-many at the row level (many lab rows per subject and many diagnosis rows per subject). This is a shared-dimension join rather than a strict FK constraint.",
+        "llm_inferred": true
+      },
+      {
+        "source_table": "labs",
+        "target_table": "medications",
+        "source_column": "subject_id",
+        "target_column": "subject_id",
+        "relation_type": "M:N",
+        "confidence": 0.82,
+        "description": "Both are patient-level event tables. subject_id behaves like a shared patient identifier; without a patient dimension table, this is not a strict FK but supports patient-level integration (many labs and many medication administrations per subject).",
+        "llm_inferred": true
+      },
+      {
+        "source_table": "labs",
+        "target_table": "clinical_data",
+        "source_column": "subject_id",
+        "target_column": "subjectid",
+        "relation_type": "N:1",
+        "confidence": 0.7,
+        "description": "Column name similarity (subject_id ~ subjectid) suggests a patient identifier mapping, but datasets appear to be from different sources (INSPIRE vs Open_VitalDB) and clinical_data is case-based (caseid) rather than clearly patient-master. Treat as a possible cross-dataset mapping only if subject identifiers are known to be harmonized.",
+        "llm_inferred": true
+      }
+    ],
+    "hierarchy": [
+      {
+        "level": 1,
+        "entity_name": "Patient",
+        "anchor_column": "subject_id",
+        "mapping_table": null,
+        "confidence": 0.78
+      },
+      {
+        "level": 2,
+        "entity_name": "Clinical Event Stream (by patient)",
+        "anchor_column": "subject_id",
+        "mapping_table": null,
+        "confidence": 0.8
+      },
+      {
+        "level": 3,
+        "entity_name": "Laboratory Result",
+        "anchor_column": "subject_id",
+        "mapping_table": null,
+        "confidence": 0.9
+      },
+      {
+        "level": 3,
+        "entity_name": "Diagnosis Record",
+        "anchor_column": "subject_id",
+        "mapping_table": null,
+        "confidence": 0.85
+      },
+      {
+        "level": 3,
+        "entity_name": "Medication Record",
+        "anchor_column": "subject_id",
+        "mapping_table": null,
+        "confidence": 0.85
+      },
+      {
+        "level": 2,
+        "entity_name": "Surgical/Anesthesia Case (Open_VitalDB)",
+        "anchor_column": "caseid",
+        "mapping_table": null,
+        "confidence": 0.75
+      }
+    ],
+    "reasoning": "Validated candidates conservatively: chart_time is REPEATED in labs, but matching chart_time across diagnosis/medications does not imply an FK because timestamps are not stable identifiers and are not unique in the target tables. subject_id is the only plausible linking key; however, because no patient master table is provided and the involved tables are all transactional, subject_id functions as a shared dimension rather than a strict FK constraint. Relationships between labs and diagnosis/medications are therefore modeled as M:N at the row level via subject_id. A potential N:1 mapping from labs(subject_id) to clinical_data(subjectid) is marked low confidence due to cross-dataset provenance (INSPIRE vs Open_VitalDB) and the case-based nature of clinical_data."
+  },
+  "prompt_hash": "2ad96bef1bda02c363670738d7ae2a1f",
+  "cached_at": "2025-12-17T13:04:12.998528",
+  "context_summary": {
+    "filename": "unknown",
+    "num_columns": 0
+  }
+}

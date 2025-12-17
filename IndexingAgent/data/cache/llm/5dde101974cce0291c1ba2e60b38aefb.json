@@ -1,0 +1,93 @@
+{
+  "result": {
+    "relationships": [
+      {
+        "source_table": "diagnosis",
+        "target_table": "operations",
+        "source_column": "subject_id",
+        "target_column": "subject_id",
+        "relation_type": "N:1",
+        "confidence": 0.82,
+        "description": "Multiple diagnosis rows can exist per patient, while operations contains patient-linked surgical encounters; subject_id is a plausible patient anchor shared across INSPIRE tables. This is a patient-level linkage (not necessarily encounter-specific).",
+        "llm_inferred": true
+      },
+      {
+        "source_table": "diagnosis",
+        "target_table": "labs",
+        "source_column": "subject_id",
+        "target_column": "subject_id",
+        "relation_type": "N:1",
+        "confidence": 0.81,
+        "description": "Diagnosis and labs are both event/transactional tables keyed by subject_id; many diagnosis events per patient and many lab events per patient. subject_id acts as the common parent key (patient).",
+        "llm_inferred": true
+      },
+      {
+        "source_table": "diagnosis",
+        "target_table": "medications",
+        "source_column": "subject_id",
+        "target_column": "subject_id",
+        "relation_type": "N:1",
+        "confidence": 0.81,
+        "description": "Diagnosis and medications are both patient-event tables; subject_id is the only reliable shared identifier. This supports patient-level integration (not a strict FK unless a patient dimension exists).",
+        "llm_inferred": true
+      },
+      {
+        "source_table": "diagnosis",
+        "target_table": "vitals",
+        "source_column": "subject_id",
+        "target_column": "subject_id",
+        "relation_type": "N:1",
+        "confidence": 0.81,
+        "description": "Vitals is an event table with subject_id; diagnosis rows can be linked to the same patient via subject_id. chart_time is not unique enough to be a safe FK across tables.",
+        "llm_inferred": true
+      },
+      {
+        "source_table": "diagnosis",
+        "target_table": "ward_vitals",
+        "source_column": "subject_id",
+        "target_column": "subject_id",
+        "relation_type": "N:1",
+        "confidence": 0.81,
+        "description": "Ward vitals and diagnosis share subject_id and are both transactional; subject_id is the plausible parent key for patient-level joins. chart_time alone is not a stable referenced key.",
+        "llm_inferred": true
+      }
+    ],
+    "hierarchy": [
+      {
+        "level": 1,
+        "entity_name": "Patient",
+        "anchor_column": "subject_id",
+        "mapping_table": null,
+        "confidence": 0.83
+      },
+      {
+        "level": 2,
+        "entity_name": "Surgical Encounter / Operation",
+        "anchor_column": "op_id",
+        "mapping_table": "operations",
+        "confidence": 0.84
+      },
+      {
+        "level": 3,
+        "entity_name": "Clinical Events (time-stamped facts)",
+        "anchor_column": "chart_time",
+        "mapping_table": null,
+        "confidence": 0.78
+      },
+      {
+        "level": 4,
+        "entity_name": "Diagnosis Event",
+        "anchor_column": "icd10_cm",
+        "mapping_table": "diagnosis",
+        "confidence": 0.8
+      }
+    ],
+    "reasoning": "The new/target table is diagnosis(subject_id, chart_time, icd10_cm) and is best interpreted as a transactional/event table (per filename hints). The only consistently shareable identifier across INSPIRE tables is subject_id, which supports patient-level N:1 relationships from diagnosis to other patient-linked tables (operations/labs/medications/vitals/ward_vitals). chart_time is REPEATED (uniqueness_ratio 0.6) and is not a safe referenced key across tables; it can be used for temporal alignment but not as a foreign key. icd10_cm appears UNIQUE in this sample, but without an ICD dictionary table present, it cannot be validated as an FK. clinical_data uses subjectid (different dataset and naming), so a direct FK is not asserted conservatively."
+  },
+  "prompt_hash": "5dde101974cce0291c1ba2e60b38aefb",
+  "cached_at": "2025-12-17T13:16:15.866069",
+  "context_summary": {
+    "filename": "unknown",
+    "num_columns": 0
+  }
+}

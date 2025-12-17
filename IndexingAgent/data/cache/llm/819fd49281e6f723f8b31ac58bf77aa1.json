@@ -1,0 +1,66 @@
+{
+  "result": {
+    "relationships": [
+      {
+        "source_table": "vitals",
+        "target_table": "operations",
+        "source_column": "op_id",
+        "target_column": "op_id",
+        "relation_type": "N:1",
+        "confidence": 0.92,
+        "description": "Vitals are time-stamped measurements recorded during/around an operation/encounter; many vitals rows can belong to a single operation identified by op_id.",
+        "llm_inferred": true
+      },
+      {
+        "source_table": "vitals",
+        "target_table": "operations",
+        "source_column": "subject_id",
+        "target_column": "subject_id",
+        "relation_type": "N:1",
+        "confidence": 0.83,
+        "description": "Each vitals record is for a patient (subject_id). Operations also carry subject_id, enabling patient-level linkage; however, subject_id is not guaranteed unique in operations, so this is a secondary/denormalized join path compared to op_id.",
+        "llm_inferred": true
+      },
+      {
+        "source_table": "operations",
+        "target_table": "clinical_data",
+        "source_column": "case_id",
+        "target_column": "caseid",
+        "relation_type": "N:1",
+        "confidence": 0.78,
+        "description": "operations.case_id appears to correspond to OpenVitalDB clinical_data.caseid (case-level metadata). This is a plausible cross-dataset bridge but not confirmed by explicit constraints/uniqueness evidence here.",
+        "llm_inferred": true
+      }
+    ],
+    "hierarchy": [
+      {
+        "level": 1,
+        "entity_name": "Patient",
+        "anchor_column": "subject_id",
+        "mapping_table": null,
+        "confidence": 0.82
+      },
+      {
+        "level": 2,
+        "entity_name": "Operation / Surgical Encounter",
+        "anchor_column": "op_id",
+        "mapping_table": "operations",
+        "confidence": 0.9
+      },
+      {
+        "level": 3,
+        "entity_name": "Vital Sign Measurement",
+        "anchor_column": "chart_time",
+        "mapping_table": "vitals",
+        "confidence": 0.9
+      }
+    ],
+    "reasoning": "Validated FK candidates conservatively using domain semantics and table roles. In a vitals measurement table, op_id is the strongest foreign key to the operations table (many measurements per operation => N:1). subject_id is also a natural foreign key to a patient entity, but no explicit patient table exists; operations contains subject_id so a join is possible though less definitive than op_id. Other shared columns (chart_time, item_name, value) are not treated as foreign keys because they are observational attributes and not stable identifiers; sharing them with labs/diagnosis/medications reflects similar event schemas rather than referential integrity. The provided cardinality showing all columns as UNIQUE is inconsistent with typical vitals data and likely reflects sampling or a rule artifact, so relationship typing relies primarily on clinical domain knowledge and dataset intent from filename hints."
+  },
+  "prompt_hash": "819fd49281e6f723f8b31ac58bf77aa1",
+  "cached_at": "2025-12-17T13:05:38.521449",
+  "context_summary": {
+    "filename": "unknown",
+    "num_columns": 0
+  }
+}

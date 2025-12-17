@@ -1,0 +1,93 @@
+{
+  "result": {
+    "relationships": [
+      {
+        "source_table": "operations",
+        "target_table": "diagnosis",
+        "source_column": "subject_id",
+        "target_column": "subject_id",
+        "relation_type": "1:N",
+        "confidence": 0.82,
+        "description": "Likely shared patient identifier across INSPIRE tables; an operation belongs to one patient, while a patient can have many diagnosis rows over time. Note: cardinality stats marking subject_id as UNIQUE in operations appear unreliable for real-world data, so confidence is conservative.",
+        "llm_inferred": true
+      },
+      {
+        "source_table": "operations",
+        "target_table": "labs",
+        "source_column": "subject_id",
+        "target_column": "subject_id",
+        "relation_type": "1:N",
+        "confidence": 0.82,
+        "description": "Likely shared patient identifier across INSPIRE tables; an operation belongs to one patient, while a patient can have many lab measurements over time.",
+        "llm_inferred": true
+      },
+      {
+        "source_table": "operations",
+        "target_table": "medications",
+        "source_column": "subject_id",
+        "target_column": "subject_id",
+        "relation_type": "1:N",
+        "confidence": 0.82,
+        "description": "Likely shared patient identifier across INSPIRE tables; an operation belongs to one patient, while a patient can have many medication administrations/orders over time.",
+        "llm_inferred": true
+      },
+      {
+        "source_table": "operations",
+        "target_table": "clinical_data",
+        "source_column": "case_id",
+        "target_column": "caseid",
+        "relation_type": "1:1",
+        "confidence": 0.78,
+        "description": "case_id (INSPIRE operations) and caseid (VitalDB clinical_data) look like the same concept (surgical/anesthesia case). However, these are from different source datasets, so linkage is plausible but not guaranteed without a crosswalk; keep conservative confidence.",
+        "llm_inferred": true
+      },
+      {
+        "source_table": "operations",
+        "target_table": "lab_data",
+        "source_column": "case_id",
+        "target_column": "caseid",
+        "relation_type": "1:N",
+        "confidence": 0.78,
+        "description": "If case_id aligns to VitalDB caseid, then one operation/case would have many lab_data rows (time-stamped dt/name/result). Cross-dataset linkage uncertainty keeps confidence < 0.8.",
+        "llm_inferred": true
+      }
+    ],
+    "hierarchy": [
+      {
+        "level": 1,
+        "entity_name": "Patient",
+        "anchor_column": "subject_id",
+        "mapping_table": null,
+        "confidence": 0.84
+      },
+      {
+        "level": 2,
+        "entity_name": "Hospital Admission / Encounter",
+        "anchor_column": "hadm_id",
+        "mapping_table": "operations",
+        "confidence": 0.75
+      },
+      {
+        "level": 3,
+        "entity_name": "Operation / Procedure Event",
+        "anchor_column": "op_id",
+        "mapping_table": "operations",
+        "confidence": 0.9
+      },
+      {
+        "level": 4,
+        "entity_name": "Time-stamped Clinical Facts (Labs/Medications/Diagnoses)",
+        "anchor_column": "chart_time",
+        "mapping_table": null,
+        "confidence": 0.8
+      }
+    ],
+    "reasoning": "Most shared columns between the new operations table and clinical_data (age/sex/height/weight/asa/emop/department) are attributes, not foreign keys. True FK-like candidates are identifiers: subject_id, hadm_id, op_id, case_id. Within INSPIRE, subject_id is the natural parent key linking operations to diagnosis/labs/medications (patient-level 1:N from patient to facts; operations is an event under a patient). The provided cardinality report marking nearly every column as UNIQUE is inconsistent with typical medical data (e.g., sex/age cannot be unique across rows), so relationship types are inferred primarily from domain semantics and table roles. Cross-dataset links from INSPIRE operations.case_id to VitalDB caseid are plausible by naming/ontology but uncertain without an explicit mapping table, so confidence is kept below 0.8."
+  },
+  "prompt_hash": "8b1c1c62200452cad2c8d87cf44be7d4",
+  "cached_at": "2025-12-17T13:04:57.800551",
+  "context_summary": {
+    "filename": "unknown",
+    "num_columns": 0
+  }
+}
