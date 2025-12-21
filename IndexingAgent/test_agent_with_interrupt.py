@@ -291,7 +291,7 @@ def main():
     # all_files = csv_files + vital_files
     # 요청에 의해 .csv 파일만 indexing하도록 설정
     all_files = csv_files
-    ㅇㄹ
+
     if not all_files:
         print(f"❌ 파일을 찾을 수 없습니다: {data_dir}")
         return
@@ -305,6 +305,11 @@ def main():
         print(f"      - {os.path.basename(f)}")
     
     # 모든 파일 처리
+    
+    # [TEST] 속도 향상을 위해 데이터 로드 제한 설정 (1000행)
+    os.environ["TEST_ROW_LIMIT"] = "1000"
+    print("\n⚠️  [TEST MODE] 데이터 로드 제한 설정됨 (TEST_ROW_LIMIT=1000)")
+    
     test_multiple_files_with_interrupt(all_files)
     
     # 캐시 통계 출력 (전역 캐시 import)

@@ -1,0 +1,90 @@
+{
+  "result": {
+    "relationships": [
+      {
+        "source_table": "medications",
+        "target_table": "diagnosis",
+        "source_column": "subject_id",
+        "target_column": "subject_id",
+        "relation_type": "M:N",
+        "confidence": 0.72,
+        "description": "Shared patient identifier suggests joinability at the patient level, but both tables are transactional/event-like and can have multiple rows per subject; without a patient dimension table, this is not a strict FK.",
+        "llm_inferred": true
+      },
+      {
+        "source_table": "medications",
+        "target_table": "diagnosis",
+        "source_column": "chart_time",
+        "target_column": "chart_time",
+        "relation_type": "M:N",
+        "confidence": 0.55,
+        "description": "chart_time is a timestamp used across event tables; matching timestamps do not imply referential integrity and are unlikely to be a true FK.",
+        "llm_inferred": true
+      },
+      {
+        "source_table": "medications",
+        "target_table": "labs",
+        "source_column": "subject_id",
+        "target_column": "subject_id",
+        "relation_type": "M:N",
+        "confidence": 0.72,
+        "description": "Shared subject_id supports patient-level linkage, but both are transactional with potentially many rows per subject; not a true FK absent a patient master table.",
+        "llm_inferred": true
+      },
+      {
+        "source_table": "medications",
+        "target_table": "labs",
+        "source_column": "chart_time",
+        "target_column": "chart_time",
+        "relation_type": "M:N",
+        "confidence": 0.55,
+        "description": "chart_time is commonly reused across clinical events; equality does not establish parent-child ownership, so it should be treated as a join key rather than an FK.",
+        "llm_inferred": true
+      }
+    ],
+    "hierarchy": [
+      {
+        "level": 1,
+        "entity_name": "Patient",
+        "anchor_column": "subject_id",
+        "mapping_table": null,
+        "confidence": 0.78
+      },
+      {
+        "level": 2,
+        "entity_name": "Clinical Event (time-stamped record)",
+        "anchor_column": "chart_time",
+        "mapping_table": null,
+        "confidence": 0.7
+      },
+      {
+        "level": 3,
+        "entity_name": "Medication Event",
+        "anchor_column": "drug_name",
+        "mapping_table": "medications",
+        "confidence": 0.82
+      },
+      {
+        "level": 3,
+        "entity_name": "Lab Event",
+        "anchor_column": "item_name",
+        "mapping_table": "labs",
+        "confidence": 0.82
+      },
+      {
+        "level": 3,
+        "entity_name": "Diagnosis Event",
+        "anchor_column": "icd10_cm",
+        "mapping_table": "diagnosis",
+        "confidence": 0.82
+      }
+    ],
+    "reasoning": "The only plausible cross-table linkage columns are subject_id and chart_time. However, diagnosis, labs, and medications are all transactional/event tables; in such schemas, subject_id is typically a foreign key to a missing Patient/Subject dimension, not to other event tables. CARDINALITY showing uniqueness_ratio=1.0 for several columns in medications is inconsistent with typical medication event data and is insufficient to assert true FK constraints. chart_time is a shared timestamp attribute and rarely a referential key across domains. Therefore, no strict FK relationships are validated; the suggested relationships are best interpreted as optional analytical join paths (patient-level and time-aligned), with conservative confidence."
+  },
+  "prompt_hash": "37d8a3af99764269ae2f32ab4a057fad",
+  "cached_at": "2025-12-21T19:54:34.054935",
+  "context_summary": {
+    "filename": "unknown",
+    "num_columns": 0
+  }
+}

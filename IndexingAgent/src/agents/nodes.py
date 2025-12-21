@@ -338,12 +338,22 @@ def index_data_node(state: AgentState) -> Dict[str, Any]:
         # PostgreSQL용 SQLAlchemy 엔진 (pandas to_sql용)
         engine = db_manager.get_sqlalchemy_engine()
         
+        # [TEST MODE] 행 개수 제한 (환경 변수 확인)
+        test_limit = os.environ.get("TEST_ROW_LIMIT")
+        limit_kwargs = {}
+        if test_limit:
+            limit_rows = int(test_limit)
+            limit_kwargs = {"nrows": limit_rows}
+            print(f"⚠️ [TEST MODE] 데이터 로드 제한 적용: 상위 {limit_rows}행만 처리")
+
         if file_size_mb > 50:  # 50MB 이상이면 Chunk 처리
             print(f"   - 대용량 파일 - Chunk Processing 적용 (100,000행씩)")
             
             chunk_size = 100000
+            # [TEST MODE] Chunk 처리 시에도 제한 적용
+            # nrows가 설정되면 chunksize와 함께 작동하여 전체 읽는 양을 제한함
             
-            for i, chunk in enumerate(pd.read_csv(file_path, chunksize=chunk_size)):
+            for i, chunk in enumerate(pd.read_csv(file_path, chunksize=chunk_size, **limit_kwargs)):
                 chunk.to_sql(
                     table_name, 
                     engine, 
@@ -356,7 +366,7 @@ def index_data_node(state: AgentState) -> Dict[str, Any]:
         else:
             # 작은 파일은 한 번에
             print(f"   - 일반 파일 - 한 번에 적재")
-            df = pd.read_csv(file_path)
+            df = pd.read_csv(file_path, **limit_kwargs)
             df.to_sql(
                 table_name, 
                 engine, 
