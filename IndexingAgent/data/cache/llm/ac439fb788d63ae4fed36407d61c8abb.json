@@ -16,7 +16,7 @@
       "medication_info"
     ],
     "confidence": 0.78,
-    "reasoning": "The base name 'medications' strongly indicates a medication-related dataset in a clinical domain. With no suffix/extension, the file most likely contains transactional medication data (e.g., orders or administrations) rather than a dictionary, though ambiguity remains. Medication data is typically treatment-scoped and often recorded at an event/detail level (per order/admin), hence a lower hierarchy level.",
+    "reasoning": "Base name is 'medications', which commonly denotes medication-related data (orders/administrations). No suffix is present to clearly mark metadata vs reference, so it is most likely a transactional extract of medication records/events. Medications are typically treatment-level data tied to a visit/admission, so a mid-to-lower hierarchy level is suggested.",
     "filename": "medications",
     "base_name": "medications",
     "parts": [
@@ -24,7 +24,7 @@
     ]
   },
   "prompt_hash": "ac439fb788d63ae4fed36407d61c8abb",
-  "cached_at": "2025-12-17T04:13:08.726191",
+  "cached_at": "2025-12-21T20:52:45.480856",
   "context_summary": {
     "filename": "unknown",
     "num_columns": 0

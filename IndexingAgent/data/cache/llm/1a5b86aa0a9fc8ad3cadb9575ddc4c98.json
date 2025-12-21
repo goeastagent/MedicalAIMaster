@@ -1,0 +1,56 @@
+{
+  "result": {
+    "relationships": [
+      {
+        "source_table": "vitals",
+        "target_table": "operations",
+        "source_column": "op_id",
+        "target_column": "op_id",
+        "relation_type": "N:1",
+        "confidence": 0.86,
+        "description": "Vitals are time-stamped measurements that typically occur during/around a surgical encounter; op_id is the natural encounter key and should reference the operations table. Even though the provided cardinality flags columns as UNIQUE (likely a rules artifact), domain logic strongly suggests many vitals rows per operation.",
+        "llm_inferred": true
+      },
+      {
+        "source_table": "vitals",
+        "target_table": "operations",
+        "source_column": "subject_id",
+        "target_column": "subject_id",
+        "relation_type": "N:1",
+        "confidence": 0.82,
+        "description": "Each vitals record belongs to a single patient; operations contains the patient identifier for the surgical encounter. This is a weaker FK than op_id (since subject_id is not a declared patient dimension table here), but it is consistent with patient-level linkage via operations.",
+        "llm_inferred": true
+      }
+    ],
+    "hierarchy": [
+      {
+        "level": 1,
+        "entity_name": "Patient",
+        "anchor_column": "subject_id",
+        "mapping_table": null,
+        "confidence": 0.83
+      },
+      {
+        "level": 2,
+        "entity_name": "Operation / Surgical Encounter",
+        "anchor_column": "op_id",
+        "mapping_table": "operations",
+        "confidence": 0.88
+      },
+      {
+        "level": 3,
+        "entity_name": "Vital Sign Measurement",
+        "anchor_column": "chart_time",
+        "mapping_table": "vitals",
+        "confidence": 0.86
+      }
+    ],
+    "reasoning": "Validated FK candidates conservatively: (1) op_id in vitals is the strongest FK to operations.op_id because vitals are encounter-scoped transactional measurements and operations is the only table exposing op_id as an encounter identifier. (2) subject_id can also link vitals to operations at the patient level, but without a dedicated patient table it is treated as a secondary/softer FK. Rejected other candidates (to labs/diagnosis/medications) because shared columns like subject_id and chart_time are not sufficient to imply referential integrity; these are parallel event tables rather than parent entities. The provided cardinality showing all columns as UNIQUE is inconsistent with typical vitals data and likely reflects a rules/estimation artifact, so relationship direction and type are inferred primarily from domain semantics and file/table roles (transactional measurement child of encounter)."
+  },
+  "prompt_hash": "1a5b86aa0a9fc8ad3cadb9575ddc4c98",
+  "cached_at": "2025-12-21T20:54:44.592423",
+  "context_summary": {
+    "filename": "unknown",
+    "num_columns": 0
+  }
+}

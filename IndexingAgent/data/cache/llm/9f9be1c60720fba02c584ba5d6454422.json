@@ -2,7 +2,7 @@
   "result": {
     "is_metadata": true,
     "confidence": 0.9,
-    "reasoning": "Filename includes 'icd10' and 'excluded', suggesting a reference/exclusion list. The table is a simple 2-column code-to-description mapping (ICD-10-CM codes/ranges to cause labels), which functions as a lookup/codebook describing categories rather than recording events or measurements. Content is categorical codes and descriptive disease/cause names, with no transactional fields (dates, amounts, patient IDs, etc.).",
+    "reasoning": "Filename includes 'icd10' and 'excluded', suggesting a reference/exclusion list rather than event records. The file has only 2 columns in a code-to-description pattern: 'ICD-10-CM' contains diagnosis code ranges/lists, and 'Causes' provides human-readable category labels. Content is categorical reference mapping (codebook-style), not per-entity transactions or measurements.",
     "indicators": {
       "filename_hint": "strong",
       "structure_hint": "dictionary-like",
@@ -10,7 +10,7 @@
     }
   },
   "prompt_hash": "9f9be1c60720fba02c584ba5d6454422",
-  "cached_at": "2025-12-17T04:01:01.335667",
+  "cached_at": "2025-12-21T20:52:06.682140",
   "context_summary": {
     "filename": "icd10_excluded.csv",
     "num_columns": 2

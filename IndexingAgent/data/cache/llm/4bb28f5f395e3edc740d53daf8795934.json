@@ -2,7 +2,7 @@
   "result": {
     "is_metadata": false,
     "confidence": 0.93,
-    "reasoning": "Filename parts ('ward', 'vitals') suggest clinical measurements rather than a dictionary/definition file. Column structure matches event/measurement records: a subject identifier, a time field (chart_time), a variable name (item_name), and a numeric measurement (value). Sample values are short codes and numeric readings (e.g., spo2, hr, 98.0) with no long descriptive text or documentation-style fields (e.g., description/unit/type), indicating transactional vitals data rather than metadata.",
+    "reasoning": "Filename 'ward_vitals' suggests clinical vital sign measurements. Columns are patient/event oriented (subject_id, chart_time) with an item_name/value pair typical of recorded observations rather than documentation. Sample values are numeric vitals (e.g., spo2, hr, bp) and times, with no long descriptive text or definition fields (e.g., description/unit/type) that would indicate a codebook/dictionary.",
     "indicators": {
       "filename_hint": "strong",
       "structure_hint": "tabular",
@@ -10,7 +10,7 @@
     }
   },
   "prompt_hash": "4bb28f5f395e3edc740d53daf8795934",
-  "cached_at": "2025-12-17T13:05:47.341923",
+  "cached_at": "2025-12-21T20:55:03.596077",
   "context_summary": {
     "filename": "ward_vitals.csv",
     "num_columns": 4

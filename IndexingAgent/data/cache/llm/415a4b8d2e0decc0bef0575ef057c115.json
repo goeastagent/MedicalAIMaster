@@ -1,16 +1,16 @@
 {
   "result": {
     "is_metadata": false,
-    "confidence": 0.9,
-    "reasoning": "Filename 'medications.csv' suggests a dataset of medication administrations/prescriptions rather than a dictionary. Columns include subject_id and chart_time (event timestamp) plus drug_name/route and ATC codes, which are typical transactional event fields. Sample values are short codes/IDs and drug names, not long descriptive definitions; there is no [field, description, unit, type] structure indicative of metadata.",
+    "confidence": 0.92,
+    "reasoning": "Filename 'medications.csv' suggests an events/records table rather than a dictionary. Columns include subject_id and chart_time (a time field) plus drug_name/route and ATC codes, which are typical of medication administration/prescription records. Sample values are short codes/IDs and drug names, not long descriptive definitions; there are no description/unit/type fields characteristic of metadata/codebooks.",
     "indicators": {
-      "filename_hint": "weak",
+      "filename_hint": "strong",
       "structure_hint": "tabular",
       "content_type": "transactional"
     }
   },
   "prompt_hash": "415a4b8d2e0decc0bef0575ef057c115",
-  "cached_at": "2025-12-17T04:13:05.231424",
+  "cached_at": "2025-12-21T20:52:41.431395",
   "context_summary": {
     "filename": "medications.csv",
     "num_columns": 9

@@ -1,8 +1,8 @@
 {
   "result": {
     "is_metadata": false,
-    "confidence": 0.93,
-    "reasoning": "Filename 'operations.csv' suggests an events/records table rather than a dictionary. The file has 29 columns with many IDs (op_id, subject_id, hadm_id, case_id) and multiple event timestamps (opstart_time, opend_time, admission_time, discharge_time, icuin_time, death_time), plus patient attributes (age, sex, weight, height, race, asa). Sample values are numeric identifiers/codes and time-like numbers, not long descriptive text or column definitions. This matches transactional clinical operation records, not metadata/documentation.",
+    "confidence": 0.95,
+    "reasoning": "The filename 'operations.csv' suggests an event/encounter table rather than a dictionary. The structure is wide with 29 clinical/event fields (multiple IDs, demographics, procedure codes, and many timestamps like opstart_time/opend_time, admission/discharge, ICU in/out, death times), which is characteristic of transactional records. Sample values for op_id/subject_id/hadm_id are numeric identifiers, and there are no long descriptive text fields or columns like description/unit/type that would indicate a codebook/metadata file.",
     "indicators": {
       "filename_hint": "weak",
       "structure_hint": "tabular",
@@ -10,7 +10,7 @@
     }
   },
   "prompt_hash": "a0b0522600cb0669dbfe0120b2e474aa",
-  "cached_at": "2025-12-17T13:04:45.041785",
+  "cached_at": "2025-12-21T20:53:26.009138",
   "context_summary": {
     "filename": "operations.csv",
     "num_columns": 29

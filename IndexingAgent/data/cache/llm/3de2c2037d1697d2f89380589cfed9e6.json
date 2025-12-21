@@ -5,6 +5,7 @@
     "suggested_level": 4,
     "data_type_indicator": "transactional",
     "related_file_patterns": [
+      "lab",
       "lab_results",
       "lab_data",
       "lab_events",
@@ -12,13 +13,11 @@
       "lab_parameters",
       "lab_dict",
       "lab_codes",
-      "lab_reference_ranges",
-      "specimens",
-      "test_catalog",
-      "loinc_map"
+      "lab_reference",
+      "lab_units"
     ],
-    "confidence": 0.72,
-    "reasoning": "The base name 'labs' commonly denotes laboratory measurements/results in clinical datasets. With no suffix/extension, the file type is ambiguous, but it most likely contains lab measurement records (transactional) rather than a dictionary; related patterns typically include lab metadata (parameters/dict/catalog) and code mappings (e.g., LOINC) plus specimen/reference range tables.",
+    "confidence": 0.62,
+    "reasoning": "The single token base_name 'labs' most commonly denotes laboratory measurements/results in clinical datasets. With no suffix/extension, the data type is ambiguous, but 'labs' typically refers to a fact/measurement table rather than metadata; related patterns often include result/event tables plus dictionaries/parameters for test codes, units, and reference ranges.",
     "filename": "labs",
     "base_name": "labs",
     "parts": [
@@ -26,7 +25,7 @@
     ]
   },
   "prompt_hash": "3de2c2037d1697d2f89380589cfed9e6",
-  "cached_at": "2025-12-17T04:01:09.359159",
+  "cached_at": "2025-12-21T20:52:17.040182",
   "context_summary": {
     "filename": "unknown",
     "num_columns": 0

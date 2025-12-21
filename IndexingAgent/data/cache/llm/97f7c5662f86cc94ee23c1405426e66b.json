@@ -1,0 +1,93 @@
+{
+  "result": {
+    "relationships": [
+      {
+        "source_table": "ward_vitals",
+        "target_table": "vitals",
+        "source_column": "subject_id",
+        "target_column": "subject_id",
+        "relation_type": "N:1",
+        "confidence": 0.55,
+        "description": "Although both tables share subject_id, it is a patient identifier and not a stable key in vitals (vitals is also transactional). Without a patient/demographics table, this is better treated as a shared join key rather than a true FK to vitals.",
+        "llm_inferred": true
+      },
+      {
+        "source_table": "ward_vitals",
+        "target_table": "labs",
+        "source_column": "subject_id",
+        "target_column": "subject_id",
+        "relation_type": "N:1",
+        "confidence": 0.5,
+        "description": "Shared subject_id indicates both are patient-linked events; however labs is not a parent entity for ward_vitals, so this is not a true FK relationship (more of a common dimension for analytics).",
+        "llm_inferred": true
+      },
+      {
+        "source_table": "ward_vitals",
+        "target_table": "diagnosis",
+        "source_column": "subject_id",
+        "target_column": "subject_id",
+        "relation_type": "N:1",
+        "confidence": 0.5,
+        "description": "Diagnosis is not a parent of vitals; both are event tables keyed by subject_id and time. Treat as co-fact tables rather than FK-linked tables.",
+        "llm_inferred": true
+      },
+      {
+        "source_table": "ward_vitals",
+        "target_table": "medications",
+        "source_column": "subject_id",
+        "target_column": "subject_id",
+        "relation_type": "N:1",
+        "confidence": 0.5,
+        "description": "Medications is another transactional table; shared subject_id does not imply ward_vitals rows reference a medications row. Not a true FK.",
+        "llm_inferred": true
+      },
+      {
+        "source_table": "ward_vitals",
+        "target_table": "operations",
+        "source_column": "subject_id",
+        "target_column": "subject_id",
+        "relation_type": "N:1",
+        "confidence": 0.5,
+        "description": "Operations is encounter/procedure-level; ward_vitals lacks op_id/hadm_id so cannot reliably reference operations. subject_id alone is insufficient for a true FK.",
+        "llm_inferred": true
+      }
+    ],
+    "hierarchy": [
+      {
+        "level": 1,
+        "entity_name": "Patient",
+        "anchor_column": "subject_id",
+        "mapping_table": null,
+        "confidence": 0.75
+      },
+      {
+        "level": 2,
+        "entity_name": "Encounter/Stay (not present in provided tables)",
+        "anchor_column": "hadm_id (missing in ward_vitals)",
+        "mapping_table": null,
+        "confidence": 0.4
+      },
+      {
+        "level": 3,
+        "entity_name": "Clinical Event Streams (transactional facts)",
+        "anchor_column": "subject_id",
+        "mapping_table": null,
+        "confidence": 0.7
+      },
+      {
+        "level": 4,
+        "entity_name": "Ward Vital Measurement",
+        "anchor_column": "subject_id + chart_time + item_name",
+        "mapping_table": null,
+        "confidence": 0.8
+      }
+    ],
+    "reasoning": "Given the provided existing tables, there is no clear parent/dimension table (e.g., patients, admissions, ward_stays) to which ward_vitals can safely declare a foreign key. The FK candidates are driven by shared column names (subject_id, chart_time, item_name, value), but those columns appear in multiple transactional fact tables (labs, vitals, etc.) and do not uniquely identify a referenced parent row. The CARDINALITY output marks all columns as UNIQUE, which is inconsistent with typical vitals data (normally repeated per subject and time) and therefore cannot be used to justify FK directionality. Domain-wise, ward_vitals is best modeled as a fact table at the measurement level, sharing conformed dimensions (subject_id, time, item_name) with other fact tables rather than referencing them via FKs. A more defensible FK would be ward_vitals.subject_id -> patients.subject_id and ward_vitals.(stay_id/ward_stay_id) -> ward_stays, but those parent tables/keys are not present in the provided schema."
+  },
+  "prompt_hash": "97f7c5662f86cc94ee23c1405426e66b",
+  "cached_at": "2025-12-21T20:55:25.666543",
+  "context_summary": {
+    "filename": "unknown",
+    "num_columns": 0
+  }
+}
