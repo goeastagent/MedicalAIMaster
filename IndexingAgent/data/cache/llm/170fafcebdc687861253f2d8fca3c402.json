@@ -2,7 +2,7 @@
   "result": {
     "is_metadata": true,
     "confidence": 0.97,
-    "reasoning": "Filename 'schema.csv' strongly suggests a data dictionary/schema. The columns ['Table','Variable','Type','Description'] match a classic metadata/codebook structure describing fields in another table (e.g., operations). Sample values include variable names (op_id, subject_id) and long descriptive text (avg_text_length ~38.6) rather than actual measurements/records, indicating documentation rather than transactional rows.",
+    "reasoning": "Filename 'schema.csv' strongly suggests a data schema/definition file. The columns ['Table','Variable','Type','Description'] match a codebook/dictionary structure describing fields in another table (e.g., 'operations') rather than containing actual event records. The 'Description' column contains long explanatory text (avg_text_length ~38.6) and the 'Type' column lists data types/categories, which are characteristic of metadata.",
     "indicators": {
       "filename_hint": "strong",
       "structure_hint": "dictionary-like",
@@ -10,7 +10,7 @@
     }
   },
   "prompt_hash": "170fafcebdc687861253f2d8fca3c402",
-  "cached_at": "2025-12-21T20:54:23.730649",
+  "cached_at": "2025-12-21T21:07:31.242492",
   "context_summary": {
     "filename": "schema.csv",
     "num_columns": 4

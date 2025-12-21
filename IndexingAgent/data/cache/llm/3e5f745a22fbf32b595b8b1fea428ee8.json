@@ -2,7 +2,7 @@
   "result": {
     "is_metadata": true,
     "confidence": 0.96,
-    "reasoning": "Filename 'parameters.csv' strongly suggests a parameter/codebook file. The columns (Table, Label, Unit, Description) form a dictionary-like structure describing variables (lab labels) rather than recording measurements. Content consists of lab test names, units, and human-readable descriptions, with no timestamps, subject IDs, or numeric result values typical of transactional lab records.",
+    "reasoning": "Filename 'parameters.csv' strongly suggests a parameter/codebook file. The columns (Table, Label, Unit, Description) form a dictionary-like structure describing variables (lab test labels) with their units and human-readable descriptions, rather than containing measured results or event records. Sample values are lab analyte names and explanatory text, not transactional measurements.",
     "indicators": {
       "filename_hint": "strong",
       "structure_hint": "dictionary-like",
@@ -10,7 +10,7 @@
     }
   },
   "prompt_hash": "3e5f745a22fbf32b595b8b1fea428ee8",
-  "cached_at": "2025-12-21T20:54:17.023763",
+  "cached_at": "2025-12-21T21:07:24.106231",
   "context_summary": {
     "filename": "parameters.csv",
     "num_columns": 4

@@ -1,0 +1,66 @@
+{
+  "result": {
+    "relationships": [
+      {
+        "source_table": "diagnosis_table",
+        "target_table": "operations_table",
+        "source_column": "subject_id",
+        "target_column": "subject_id",
+        "relation_type": "N:1",
+        "confidence": 0.78,
+        "description": "Both tables share subject_id; diagnoses are typically many per patient, while operations_table appears (per provided cardinality) to have one row per subject_id in this extract. This supports diagnosis_table (child) -> operations_table (parent) at the patient level, but confidence is limited because operations are usually multiple per patient and the uniqueness signals may be an artifact of sampling/preprocessing.",
+        "llm_inferred": true
+      },
+      {
+        "source_table": "labs_table",
+        "target_table": "operations_table",
+        "source_column": "subject_id",
+        "target_column": "subject_id",
+        "relation_type": "N:1",
+        "confidence": 0.78,
+        "description": "Both tables share subject_id; labs are typically many per patient. operations_table is treated as a patient-anchored table here due to subject_id being marked UNIQUE. Confidence is limited because operations are commonly event-level (multiple per patient) and the uniqueness ratios may not reflect the full dataset.",
+        "llm_inferred": true
+      },
+      {
+        "source_table": "medications_table",
+        "target_table": "operations_table",
+        "source_column": "subject_id",
+        "target_column": "subject_id",
+        "relation_type": "N:1",
+        "confidence": 0.78,
+        "description": "Both tables share subject_id; medications are typically many per patient. operations_table is treated as parent at the patient level only because subject_id is marked UNIQUE in the provided cardinality output; in many clinical schemas, medications would instead relate to an encounter/admission or perioperative case.",
+        "llm_inferred": true
+      }
+    ],
+    "hierarchy": [
+      {
+        "level": 1,
+        "entity_name": "Patient",
+        "anchor_column": "subject_id",
+        "mapping_table": null,
+        "confidence": 0.82
+      },
+      {
+        "level": 2,
+        "entity_name": "Operation / Surgical Case",
+        "anchor_column": "op_id",
+        "mapping_table": "operations_table",
+        "confidence": 0.8
+      },
+      {
+        "level": 3,
+        "entity_name": "Clinical Observations (Labs, Diagnoses, Medications)",
+        "anchor_column": "chart_time",
+        "mapping_table": null,
+        "confidence": 0.76
+      }
+    ],
+    "reasoning": "Validated FK candidates: only subject_id is a plausible cross-table foreign key among the provided tables. Other shared columns listed in FK candidates are self-matches to operations_table and do not define inter-table relationships. Relationship direction and type were inferred using domain knowledge (labs/diagnoses/medications are typically many records per patient) and the provided cardinality signals that subject_id is UNIQUE in operations_table, implying operations_table behaves like a patient-anchored (or one-row-per-subject) table in this extract. However, operations are usually event-level (multiple per subject), so confidence is kept below 0.8. No reliable FK can be asserted on hadm_id/case_id/op_id because those keys do not exist in the other tables."
+  },
+  "prompt_hash": "92fa79ee09a9a5cd10ed840f50cc8e3c",
+  "cached_at": "2025-12-21T21:06:49.962791",
+  "context_summary": {
+    "filename": "unknown",
+    "num_columns": 0
+  }
+}
