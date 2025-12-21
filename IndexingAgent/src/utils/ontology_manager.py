@@ -127,7 +127,7 @@ class OntologyManager:
                     query = f"""
                         MATCH (s:Concept {{name: $source}})
                         MATCH (t:Concept {{name: $target}})
-                        MERGE (s)-[r:{rel_type}]->(t)
+                        MERGE (s)-[r:`{rel_type}`]->(t)
                         SET r.source_column = $src_col,
                             r.target_column = $tgt_col,
                             r.confidence = $conf
