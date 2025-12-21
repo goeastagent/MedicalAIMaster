@@ -288,8 +288,10 @@ def main():
     vital_files = sorted(glob.glob(str(data_dir / "Open_VitalDB_1.0.0/*.vital")))
     
     # 모든 파일 합치기 (CSV 먼저, 그 다음 VitalDB)
-    all_files = csv_files + vital_files
-    
+    # all_files = csv_files + vital_files
+    # 요청에 의해 .csv 파일만 indexing하도록 설정
+    all_files = csv_files
+    ㅇㄹ
     if not all_files:
         print(f"❌ 파일을 찾을 수 없습니다: {data_dir}")
         return

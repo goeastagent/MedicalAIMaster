@@ -1,0 +1,13 @@
+# ExtractionAgent Requirements
+
+# 공통 의존성 (IndexingAgent와 공유)
+pandas>=2.0.0
+psycopg2-binary>=2.9.0
+python-dotenv>=1.0.0
+
+# 결과 저장용
+openpyxl>=3.1.0  # Excel 저장용
+pyarrow>=14.0.0  # Parquet 저장용
+
+# LLM 클라이언트는 IndexingAgent의 requirements.txt 참조
+

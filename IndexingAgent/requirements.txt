@@ -46,6 +46,9 @@ python-dotenv>=1.0.0
 # PostgreSQL adapter (필수)
 psycopg2-binary>=2.9.0
 
+# Neo4j driver
+neo4j>=5.0.0
+
 # SQLAlchemy (pandas to_sql용)
 sqlalchemy>=2.0.0
 

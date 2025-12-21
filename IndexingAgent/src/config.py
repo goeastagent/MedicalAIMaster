@@ -5,6 +5,13 @@ from dotenv import load_dotenv
 # .env 파일이 있다면 로드
 load_dotenv()
 
+class Neo4jConfig:
+    """Neo4j 데이터베이스 설정"""
+    URI = os.getenv("NEO4J_URI", "bolt://localhost:7687")
+    USER = os.getenv("NEO4J_USER", "neo4j")
+    PASSWORD = os.getenv("NEO4J_PASSWORD", "password") # 초기 비밀번호 확인 필요
+    DATABASE = os.getenv("NEO4J_DATABASE", "neo4j")
+
 class LLMConfig:
     # --- 1. 활성화할 Provider 선택 (openai, anthropic, google 중 택1) ---
     # 환경변수 'LLM_PROVIDER'가 설정되어 있으면 그걸 쓰고, 아니면 'openai'를 기본값으로 사용
