@@ -1227,7 +1227,7 @@ def _summarize_existing_tables(ontology_context: dict, processed_files_data: dic
     # file_tags에서 데이터 파일들만 추출
     for file_path, tag_info in ontology_context.get("file_tags", {}).items():
         if tag_info.get("type") == "transactional_data":
-            table_name = os.path.basename(file_path).replace(".csv", "").replace(".", "_")
+            table_name = os.path.basename(file_path).replace(".csv", "_table").replace(".", "_")
             
             # 컬럼 정보 (저장된 것이 있으면 사용)
             columns = tag_info.get("columns", [])
@@ -1427,7 +1427,7 @@ def _summarize_existing_tables(ontology_context: dict, processed_files_data: dic
     # file_tags에서 데이터 파일들만 추출
     for file_path, tag_info in ontology_context.get("file_tags", {}).items():
         if tag_info.get("type") == "transactional_data":
-            table_name = os.path.basename(file_path).replace(".csv", "").replace(".", "_")
+            table_name = os.path.basename(file_path).replace(".csv", "_table").replace(".", "_")
             
             # 컬럼 정보 (저장된 것 사용)
             columns = tag_info.get("columns", [])
@@ -1643,7 +1643,7 @@ def ontology_builder_node(state: AgentState) -> Dict[str, Any]:
             print(f"   - 기존 데이터 파일: {len(existing_data_files)}개")
             
             # 관계 추론 (LLM)
-            table_name = os.path.basename(file_path).replace(".csv", "").replace(".", "_")
+            table_name = os.path.basename(file_path).replace(".csv", "_table").replace(".", "_")
             
             relationship_result = _infer_relationships_with_llm(
                 current_table_name=table_name,
