@@ -26,4 +26,3 @@ class Config:
     # Output Settings
     OUTPUT_DIR = "ExtractionAgent/outputs"
 
-

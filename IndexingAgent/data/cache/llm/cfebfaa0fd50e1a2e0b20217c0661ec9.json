@@ -1,0 +1,63 @@
+{
+  "result": {
+    "relationships": [
+      {
+        "source_table": "labs",
+        "target_table": "diagnosis",
+        "source_column": "subject_id",
+        "target_column": "subject_id",
+        "relation_type": "M:N",
+        "confidence": 0.78,
+        "description": "Both labs and diagnosis are transactional clinical events keyed by subject_id; each subject can have many lab rows and many diagnosis rows, so joining on subject_id alone creates a many-to-many relationship (not a true FK). This is better modeled via a shared parent entity (Patient) rather than a direct FK.",
+        "llm_inferred": true
+      },
+      {
+        "source_table": "labs",
+        "target_table": "diagnosis",
+        "source_column": "chart_time",
+        "target_column": "chart_time",
+        "relation_type": "M:N",
+        "confidence": 0.62,
+        "description": "chart_time is repeated (not unique) and represents event time in both tables; matching on chart_time does not imply referential integrity and can produce many-to-many matches. Treat as a temporal alignment attribute, not a foreign key.",
+        "llm_inferred": true
+      }
+    ],
+    "hierarchy": [
+      {
+        "level": 1,
+        "entity_name": "Patient",
+        "anchor_column": "subject_id",
+        "mapping_table": null,
+        "confidence": 0.86
+      },
+      {
+        "level": 2,
+        "entity_name": "Clinical Event (timestamped record)",
+        "anchor_column": "chart_time",
+        "mapping_table": null,
+        "confidence": 0.74
+      },
+      {
+        "level": 3,
+        "entity_name": "Lab Result",
+        "anchor_column": "item_name",
+        "mapping_table": "labs",
+        "confidence": 0.84
+      },
+      {
+        "level": 3,
+        "entity_name": "Diagnosis",
+        "anchor_column": "icd10_cm",
+        "mapping_table": "diagnosis",
+        "confidence": 0.84
+      }
+    ],
+    "reasoning": "The shared columns (subject_id, chart_time) between labs and diagnosis are common integration keys but do not establish a true FK because neither table is a clear parent of the other; both are transactional fact tables. Cardinality indicates chart_time is repeated, supporting that it is an event attribute rather than a unique referenced key. The filename hints also indicate labs is a measurement/event table, reinforcing that it should roll up to a higher-level Patient (subject_id) entity. Therefore, no high-confidence FK from labs to diagnosis is asserted; instead, both tables should reference a Patient dimension (not provided) and optionally an Encounter/Visit/Event dimension if available."
+  },
+  "prompt_hash": "cfebfaa0fd50e1a2e0b20217c0661ec9",
+  "cached_at": "2025-12-21T19:02:47.763050",
+  "context_summary": {
+    "filename": "unknown",
+    "num_columns": 0
+  }
+}

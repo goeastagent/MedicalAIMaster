@@ -8,13 +8,13 @@ ExtractionAgent 사용 예시
 import sys
 import os
 
-# IndexingAgent의 경로 추가 (환경변수 설정용)
-sys.path.insert(0, os.path.join(os.path.dirname(__file__), '../IndexingAgent'))
+# 프로젝트 루트(MedicalAIMaster)를 path에 추가하여 ExtractionAgent 패키지를 찾을 수 있게 함
+sys.path.append(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
 from dotenv import load_dotenv
 load_dotenv()  # .env 파일 로드
 
-from src.extraction_agent import ExtractionAgent
+from ExtractionAgent.src.extraction_agent import ExtractionAgent
 
 
 def example_basic():

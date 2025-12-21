@@ -6,21 +6,15 @@ SQL 쿼리 실행기
 """
 
 from typing import Dict, Any, List, Optional
-import sys
-import os
 import pandas as pd
-
-# IndexingAgent의 경로 추가
-sys.path.insert(0, os.path.join(os.path.dirname(__file__), '../../IndexingAgent'))
-
-from src.database.connection import get_db_manager
+from ExtractionAgent.src.database.postgres import PostgresConnector
 
 
 class QueryExecutor:
     """SQL 쿼리 실행기"""
     
     def __init__(self):
-        self.db_manager = get_db_manager()
+        self.db_manager = PostgresConnector()
     
     def execute(self, sql: str, limit: int = None) -> Dict[str, Any]:
         """

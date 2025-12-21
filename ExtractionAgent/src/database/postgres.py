@@ -2,19 +2,17 @@ import os
 import psycopg2
 from psycopg2.extras import RealDictCursor
 from typing import List, Dict, Any, Optional
-from dotenv import load_dotenv
-
-load_dotenv()
+from ExtractionAgent.src.config import Config
 
 class PostgresConnector:
     """PostgreSQL 연결 및 데이터 조회를 담당하는 클래스 (Read-only 권장)"""
     
     def __init__(self):
-        self.host = os.getenv("POSTGRES_HOST", "localhost")
-        self.port = os.getenv("POSTGRES_PORT", "5432")
-        self.dbname = os.getenv("POSTGRES_DB", "medical_data")
-        self.user = os.getenv("POSTGRES_USER", "postgres")
-        self.password = os.getenv("POSTGRES_PASSWORD", "")
+        self.host = Config.POSTGRES_HOST
+        self.port = Config.POSTGRES_PORT
+        self.dbname = Config.POSTGRES_DB
+        self.user = Config.POSTGRES_USER
+        self.password = Config.POSTGRES_PASSWORD
 
     def get_connection(self):
         return psycopg2.connect(

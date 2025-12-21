@@ -6,26 +6,14 @@ IndexingAgent가 구축한 온톨로지 정보를 로드하고 프롬프트에 �
 """
 
 from typing import Dict, List, Any
-import sys
-import os
-
-# IndexingAgent의 경로 추가
-sys.path.insert(0, os.path.join(os.path.dirname(__file__), '../../IndexingAgent'))
-
-from src.utils.ontology_manager import get_ontology_manager
+from ExtractionAgent.src.database.neo4j import Neo4jConnector
 
 
 class OntologyContextBuilder:
     """온톨로지 컨텍스트 빌더"""
     
-    def __init__(self, ontology_path: str = None):
-        """
-        Args:
-            ontology_path: 온톨로지 파일 경로 (None이면 기본 경로 사용)
-        """
-        self.ontology_manager = get_ontology_manager()
-        if ontology_path:
-            self.ontology_manager.db_path = ontology_path
+    def __init__(self):
+        self.neo4j_connector = Neo4jConnector()
         self._ontology_cache = None
     
     def load_ontology(self) -> Dict[str, Any]:
@@ -38,7 +26,7 @@ class OntologyContextBuilder:
         if self._ontology_cache is not None:
             return self._ontology_cache
         
-        ontology = self.ontology_manager.load()
+        ontology = self.neo4j_connector.get_ontology_context()
         self._ontology_cache = ontology
         return ontology
     

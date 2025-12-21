@@ -1,0 +1,18 @@
+{
+  "result": {
+    "is_metadata": true,
+    "confidence": 0.9,
+    "reasoning": "The filename 'department.csv' and the two-column structure (Abbreviations, Full name) indicate a reference lookup table mapping department codes to their full descriptions. The content is categorical codes and names, not event/measurement records, which aligns with metadata/master data used to interpret other datasets.",
+    "indicators": {
+      "filename_hint": "weak",
+      "structure_hint": "dictionary-like",
+      "content_type": "descriptive"
+    }
+  },
+  "prompt_hash": "0911d8664b318297094b0216df44635b",
+  "cached_at": "2025-12-21T19:00:30.855133",
+  "context_summary": {
+    "filename": "department.csv",
+    "num_columns": 2
+  }
+}

@@ -1,0 +1,23 @@
+Directories in use:
+home:         /opt/homebrew/Cellar/neo4j/2025.08.0/libexec
+config:       /opt/homebrew/Cellar/neo4j/2025.08.0/libexec/conf
+logs:         /opt/homebrew/var/log/neo4j
+plugins:      /opt/homebrew/Cellar/neo4j/2025.08.0/libexec/plugins
+import:       /opt/homebrew/Cellar/neo4j/2025.08.0/libexec/import
+data:         /opt/homebrew/var/neo4j/data
+certificates: /opt/homebrew/Cellar/neo4j/2025.08.0/libexec/certificates
+licenses:     /opt/homebrew/Cellar/neo4j/2025.08.0/libexec/licenses
+run:          /opt/homebrew/Cellar/neo4j/2025.08.0/libexec/run
+Starting Neo4j.
+2025-12-21 10:20:18.984+0000 INFO  Logging config in use: File '/opt/homebrew/Cellar/neo4j/2025.08.0/libexec/conf/user-logs.xml'
+2025-12-21 10:20:18.988+0000 INFO  Starting...
+2025-12-21 10:20:19.533+0000 INFO  This instance is ServerId{f1c949ee} (f1c949ee-d669-4088-8c86-075a398cb1ae)
+2025-12-21 10:20:20.083+0000 INFO  ======== Neo4j 2025.08.0 ========
+2025-12-21 10:20:21.032+0000 INFO  Anonymous Usage Data is being sent to Neo4j, see https://neo4j.com/docs/usage-data/
+2025-12-21 10:20:21.254+0000 INFO  Bolt enabled on localhost:7687.
+2025-12-21 10:20:21.570+0000 INFO  HTTP enabled on localhost:7474.
+2025-12-21 10:20:21.570+0000 INFO  Remote interface available at http://localhost:7474/
+2025-12-21 10:20:21.572+0000 INFO  id: 140DCF8579BBCD1A43B5F0634EEC719B3A565981F7C05CA9B0A797916318A2FD
+2025-12-21 10:20:21.572+0000 INFO  name: system
+2025-12-21 10:20:21.572+0000 INFO  creationDate: 2025-09-23T07:43:18.81Z
+2025-12-21 10:20:21.572+0000 INFO  Started.

@@ -8,9 +8,9 @@ ExtractionAgent - 메인 에이전트 클래스
 from typing import Dict, Any, Optional
 from datetime import datetime
 
-from .nl_to_sql import NLToSQLConverter
-from .query_executor import QueryExecutor
-from .result_exporter import ResultExporter
+from .processors.nl_to_sql import NLToSQLConverter
+from .processors.query_executor import QueryExecutor
+from .utils.result_exporter import ResultExporter
 
 
 class ExtractionAgent:

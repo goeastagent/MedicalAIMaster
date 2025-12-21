@@ -6,23 +6,17 @@
 """
 
 from typing import Dict, Any, Optional
-import sys
-import os
 import re
-
-# IndexingAgent의 경로 추가
-sys.path.insert(0, os.path.join(os.path.dirname(__file__), '../../IndexingAgent'))
-
-from src.utils.llm_client import get_llm_client
-from src.schema_collector import SchemaCollector
-from src.ontology_context import OntologyContextBuilder
+from ExtractionAgent.src.utils.llm_client import LLMClient
+from ExtractionAgent.src.processors.schema_collector import SchemaCollector
+from ExtractionAgent.src.knowledge.ontology_context import OntologyContextBuilder
 
 
 class NLToSQLConverter:
     """자연어 → SQL 변환기"""
     
     def __init__(self):
-        self.llm_client = get_llm_client()
+        self.llm_client = LLMClient()
         self.schema_collector = SchemaCollector()
         self.ontology_builder = OntologyContextBuilder()
     

@@ -1,0 +1,63 @@
+{
+  "result": {
+    "relationships": [
+      {
+        "source_table": "labs",
+        "target_table": "diagnosis",
+        "source_column": "subject_id",
+        "target_column": "subject_id",
+        "relation_type": "M:N",
+        "confidence": 0.6,
+        "description": "Both tables share subject_id, but subject_id appears UNIQUE in labs per provided cardinality (likely an artifact). Without a patient/demographics table, subject_id cannot be validated as a true FK to diagnosis; it more plausibly indicates both are patient-scoped fact tables.",
+        "llm_inferred": true
+      },
+      {
+        "source_table": "labs",
+        "target_table": "diagnosis",
+        "source_column": "chart_time",
+        "target_column": "chart_time",
+        "relation_type": "M:N",
+        "confidence": 0.55,
+        "description": "chart_time is REPEATED in labs, but timestamps are not stable identifiers and are unlikely to be a FK. At best, it can be used for temporal alignment between lab events and diagnosis events, not referential integrity.",
+        "llm_inferred": true
+      }
+    ],
+    "hierarchy": [
+      {
+        "level": 1,
+        "entity_name": "Patient",
+        "anchor_column": "subject_id",
+        "mapping_table": null,
+        "confidence": 0.75
+      },
+      {
+        "level": 2,
+        "entity_name": "Clinical Event (time-stamped record)",
+        "anchor_column": "chart_time",
+        "mapping_table": null,
+        "confidence": 0.65
+      },
+      {
+        "level": 3,
+        "entity_name": "Lab Result",
+        "anchor_column": "item_name",
+        "mapping_table": "labs",
+        "confidence": 0.8
+      },
+      {
+        "level": 3,
+        "entity_name": "Diagnosis Record",
+        "anchor_column": "icd10_cm",
+        "mapping_table": "diagnosis",
+        "confidence": 0.8
+      }
+    ],
+    "reasoning": "The only overlapping columns between labs and diagnosis are subject_id and chart_time. These overlaps suggest shared context (same patient, potentially same time window) rather than true foreign keys. A true FK typically points to a parent table with a unique key; neither diagnosis nor labs is a clear parent of the other, and chart_time is not a reliable identifier. Domain-wise, both labs and diagnosis are transactional fact tables under a higher-level Patient entity (subject_id). Therefore, relationships are marked as weak/uncertain (confidence < 0.8) and treated as many-to-many associations for analytical joining rather than enforced referential constraints."
+  },
+  "prompt_hash": "1534149ec51c9110e18f3cd72efc8f2a",
+  "cached_at": "2025-12-21T19:22:34.297670",
+  "context_summary": {
+    "filename": "unknown",
+    "num_columns": 0
+  }
+}

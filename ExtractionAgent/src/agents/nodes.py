@@ -3,10 +3,10 @@ import pandas as pd
 from datetime import datetime
 from typing import Dict, Any, List
 from ExtractionAgent.src.agents.state import ExtractionState
-from ExtractionAgent.src.connectors.postgres import PostgresConnector
-from ExtractionAgent.src.connectors.neo4j import Neo4jConnector
-from ExtractionAgent.src.core.llm_client import LLMClient
-from ExtractionAgent.config import Config
+from ExtractionAgent.src.database.postgres import PostgresConnector
+from ExtractionAgent.src.database.neo4j import Neo4jConnector
+from ExtractionAgent.src.utils.llm_client import LLMClient
+from ExtractionAgent.src.config import Config
 
 # 싱글톤 인스턴스들
 pg_connector = PostgresConnector()

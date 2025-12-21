@@ -1,0 +1,18 @@
+{
+  "result": {
+    "is_metadata": false,
+    "confidence": 0.93,
+    "reasoning": "Filename 'diagnosis.csv' suggests a clinical event/record table rather than a dictionary. Columns are typical transactional fields: subject_id (entity identifier), chart_time (event time), and icd10_cm (diagnosis code). Sample values are IDs, numeric time-like values, and short ICD-10 codes—not long descriptive text or column definitions. Structure is a simple event log (one row per diagnosis occurrence) rather than a codebook with descriptions/units/types.",
+    "indicators": {
+      "filename_hint": "strong",
+      "structure_hint": "tabular",
+      "content_type": "transactional"
+    }
+  },
+  "prompt_hash": "b2ba85ce2f7e732ffeede464a8fb9a26",
+  "cached_at": "2025-12-21T19:00:37.828064",
+  "context_summary": {
+    "filename": "diagnosis.csv",
+    "num_columns": 3
+  }
+}

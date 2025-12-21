@@ -2,7 +2,7 @@ import os
 import json
 import re
 from typing import Dict, Any, Optional
-from ExtractionAgent.config import Config
+from ExtractionAgent.src.config import Config
 
 class LLMClient:
     """ExtractionAgent 전용 LLM 클라이언트"""
