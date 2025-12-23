@@ -21,3 +21,6 @@ Starting Neo4j.
 2025-12-23 16:14:26.281+0000 INFO  name: system
 2025-12-23 16:14:26.281+0000 INFO  creationDate: 2025-11-28T15:21:16.924Z
 2025-12-23 16:14:26.281+0000 INFO  Started.
+2025-12-23 17:28:13.992+0000 INFO  Neo4j Server shutdown initiated by request
+2025-12-23 17:28:13.993+0000 INFO  Stopping...
+2025-12-23 17:28:24.820+0000 INFO  Stopped.
