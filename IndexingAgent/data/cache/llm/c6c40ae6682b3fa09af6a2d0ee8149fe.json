@@ -1,6 +1,6 @@
 {
   "result": {
-    "entity_type": "Operations (Operational/Business Operations)",
+    "entity_type": "Operations",
     "scope": "event",
     "suggested_level": 2,
     "data_type_indicator": "transactional",
@@ -11,13 +11,11 @@
       "operations_dim",
       "operations_master",
       "operations_dict",
-      "operations_parameters",
       "operations_info",
-      "operations_detail",
-      "operations_header"
+      "operations_parameters"
     ],
     "confidence": 0.62,
-    "reasoning": "Base name 'operations' most commonly denotes operational activities/processes (often modeled as events/transactions). Suffix 'table' suggests a dataset/table artifact rather than metadata; without stronger cues (e.g., 'dict', 'dim'), it is most consistent with a transactional fact-like table at an event level (e.g., work orders, operational actions).",
+    "reasoning": "Base name 'operations' most commonly refers to operational events/activities (e.g., business operations or surgical operations). Suffix 'table' indicates a dataset/table artifact rather than metadata; without stronger domain cues, it is treated as a transactional event table. Operations are typically modeled at an event/encounter level (level 2) rather than patient-level or measurement-level.",
     "filename": "operations_table",
     "base_name": "operations",
     "parts": [
@@ -26,7 +24,7 @@
     ]
   },
   "prompt_hash": "c6c40ae6682b3fa09af6a2d0ee8149fe",
-  "cached_at": "2025-12-21T21:06:35.901778",
+  "cached_at": "2025-12-22T04:02:17.159105",
   "context_summary": {
     "filename": "unknown",
     "num_columns": 0

@@ -2,7 +2,7 @@
   "result": {
     "is_metadata": false,
     "confidence": 0.93,
-    "reasoning": "Filename 'ward_vitals' suggests clinical vital sign measurements. Columns are typical for event/measurement records: subject_id (entity), chart_time (time), item_name (vital type), value (numeric reading). Sample values are short codes and numbers rather than long descriptive text, indicating actual observations rather than a data dictionary/codebook.",
+    "reasoning": "Filename 'ward_vitals' suggests clinical vital sign measurements. Columns form an event/measurement record: subject_id (entity), chart_time (time), item_name (vital type), value (measured numeric). Sample values are short codes and numbers rather than long descriptive text, and there are no definition/description/unit fields typical of metadata/codebooks.",
     "indicators": {
       "filename_hint": "strong",
       "structure_hint": "tabular",
@@ -10,7 +10,7 @@
     }
   },
   "prompt_hash": "4bb28f5f395e3edc740d53daf8795934",
-  "cached_at": "2025-12-21T21:08:06.169594",
+  "cached_at": "2025-12-22T04:54:27.513151",
   "context_summary": {
     "filename": "ward_vitals.csv",
     "num_columns": 4

@@ -8,19 +8,15 @@
       "medications_data",
       "medications_records",
       "medications_events",
-      "medication_table",
-      "medication_data",
-      "medication_records",
-      "medication_events",
-      "medications_dict",
+      "medication_orders",
+      "medication_administrations",
       "medications_dim",
       "medications_master",
-      "medication_dict",
-      "medication_dim",
-      "medication_master"
+      "medications_dict",
+      "medications_info"
     ],
     "confidence": 0.78,
-    "reasoning": "Base name 'medications' strongly indicates medication-related treatment data. Suffix 'table' suggests a tabular dataset (likely a fact/transaction table rather than metadata), but it is not as specific as 'events' or 'records', so confidence is moderate. Medication tables are typically detailed line items (orders/administrations) that sit below patient/visit in a clinical hierarchy.",
+    "reasoning": "Base name 'medications' maps to the clinical domain entity Medication (drug orders/administrations). Suffix 'table' suggests a tabular dataset rather than a dictionary; in most pipelines this corresponds to transactional fact-like content. Medication data is typically detail-level (multiple rows per patient/encounter), so a lower hierarchy level is appropriate.",
     "filename": "medications_table",
     "base_name": "medications",
     "parts": [
@@ -29,7 +25,7 @@
     ]
   },
   "prompt_hash": "1ff9d34ef6700d6e86f6159ebd7bc4da",
-  "cached_at": "2025-12-21T21:05:56.759330",
+  "cached_at": "2025-12-22T03:49:15.222160",
   "context_summary": {
     "filename": "unknown",
     "num_columns": 0

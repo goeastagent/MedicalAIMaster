@@ -2,7 +2,7 @@
   "result": {
     "is_metadata": false,
     "confidence": 0.93,
-    "reasoning": "Filename 'diagnosis.csv' suggests a clinical diagnosis fact table rather than a dictionary/codebook. The columns (subject_id, chart_time, icd10_cm) match an event/record structure: an entity identifier, a time field, and a diagnosis code. Sample values are IDs, numeric time-like values, and ICD-10 codes (short categorical codes), not long descriptive text or definitions. No columns resemble typical metadata fields like description/unit/type.",
+    "reasoning": "Filename 'diagnosis.csv' suggests a clinical event table rather than a dictionary/codebook. The columns (subject_id, chart_time, icd10_cm) match a transactional structure: an entity identifier, a time field, and a diagnosis code per record. Sample values are IDs, numeric time-like values, and short ICD-10 codes—not long descriptive text or definition fields typical of metadata.",
     "indicators": {
       "filename_hint": "strong",
       "structure_hint": "tabular",
@@ -10,7 +10,7 @@
     }
   },
   "prompt_hash": "b2ba85ce2f7e732ffeede464a8fb9a26",
-  "cached_at": "2025-12-21T21:05:02.252750",
+  "cached_at": "2025-12-22T03:35:31.718851",
   "context_summary": {
     "filename": "diagnosis.csv",
     "num_columns": 3

@@ -307,8 +307,8 @@ def main():
     # 모든 파일 처리
     
     # [TEST] 속도 향상을 위해 데이터 로드 제한 설정 (1000행)
-    os.environ["TEST_ROW_LIMIT"] = "1000"
-    print("\n⚠️  [TEST MODE] 데이터 로드 제한 설정됨 (TEST_ROW_LIMIT=1000)")
+    # os.environ["TEST_ROW_LIMIT"] = "1000"
+    # print("\n⚠️  [TEST MODE] 데이터 로드 제한 설정됨 (TEST_ROW_LIMIT=1000)")
     
     test_multiple_files_with_interrupt(all_files)
     

@@ -2,7 +2,7 @@
   "result": {
     "is_metadata": true,
     "confidence": 0.9,
-    "reasoning": "Filename includes 'icd10' and 'excluded', suggesting a reference/list rather than event records. The 2-column structure (ICD-10-CM code(s) -> Causes description) is dictionary-like mapping of codes to category labels, not transactional measurements. Content consists of ICD code ranges/lists and descriptive disease group names, typical of a codebook/exclusion list used to interpret or filter other datasets.",
+    "reasoning": "Filename 'icd10_excluded.csv' suggests a reference/list related to ICD-10 codes. The 2-column structure (ICD-10-CM, Causes) is dictionary-like, mapping code ranges/groups to descriptive cause labels, not recording events or measurements. Values are categorical codes and human-readable descriptions, consistent with a codebook/exclusion list used to describe or filter other datasets rather than transactional records.",
     "indicators": {
       "filename_hint": "strong",
       "structure_hint": "dictionary-like",
@@ -10,7 +10,7 @@
     }
   },
   "prompt_hash": "9f9be1c60720fba02c584ba5d6454422",
-  "cached_at": "2025-12-21T21:05:14.736488",
+  "cached_at": "2025-12-22T03:36:49.329540",
   "context_summary": {
     "filename": "icd10_excluded.csv",
     "num_columns": 2

@@ -15,7 +15,7 @@
       "vitals_master"
     ],
     "confidence": 0.78,
-    "reasoning": "Base name 'vitals' commonly denotes vital signs measurements (e.g., HR, BP, RR, SpO2, Temp). Suffix 'table' suggests a tabular dataset rather than a dictionary, so it most likely contains measurement records (transactional). As vitals are measurements, it fits hierarchy level 4; related patterns typically include a data/records file plus parameter/dictionary/reference companions.",
+    "reasoning": "Base name 'vitals' commonly denotes vital signs measurements (e.g., HR, BP, RR, Temp). Suffix 'table' suggests a tabular dataset rather than a dictionary/reference, so it most likely contains measurement records (transactional). Vitals are typically a measurement-level entity (level 4) and often have companion metadata/dictionary files describing codes/units and possibly a dimension/master list of vital types.",
     "filename": "vitals_table",
     "base_name": "vitals",
     "parts": [
@@ -24,7 +24,7 @@
     ]
   },
   "prompt_hash": "fbdd9f34b07b1b59854fe9d70db80665",
-  "cached_at": "2025-12-21T21:07:44.227266",
+  "cached_at": "2025-12-22T04:03:55.432621",
   "context_summary": {
     "filename": "unknown",
     "num_columns": 0

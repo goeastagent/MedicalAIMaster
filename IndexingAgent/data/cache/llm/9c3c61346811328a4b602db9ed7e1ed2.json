@@ -1,6 +1,6 @@
 {
   "result": {
-    "entity_type": "Laboratory / Lab Results",
+    "entity_type": "Laboratory (Lab Results)",
     "scope": "measurement",
     "suggested_level": 4,
     "data_type_indicator": "transactional",
@@ -8,19 +8,17 @@
       "labs_data",
       "labs_records",
       "labs_events",
-      "lab_table",
       "lab_results",
-      "labs_results",
-      "labs_parameters",
-      "lab_parameters",
+      "lab_table",
       "labs_dict",
-      "lab_dict",
+      "labs_parameters",
       "labs_info",
-      "labs_dim",
-      "lab_dim"
+      "lab_test_dict",
+      "lab_item_dim",
+      "lab_master"
     ],
     "confidence": 0.72,
-    "reasoning": "Base name 'labs' most commonly denotes laboratory measurements/results. Suffix 'table' suggests a primary tabular dataset rather than a dictionary, so it likely contains transactional measurement records at the measurement level (e.g., per test/time). Related patterns include data/records/events variants and supporting metadata like parameters/dict/info.",
+    "reasoning": "Base name 'labs' strongly suggests laboratory/lab results domain. Scope aligns with measurements. Suffix 'table' indicates a tabular dataset (likely fact/transactional rather than reference), though it is generic and could also be a curated/derived table; hence moderate confidence. Related patterns include likely companion metadata/dictionary and alternative naming variants (lab vs labs, results, records).",
     "filename": "labs_table",
     "base_name": "labs",
     "parts": [
@@ -29,7 +27,7 @@
     ]
   },
   "prompt_hash": "9c3c61346811328a4b602db9ed7e1ed2",
-  "cached_at": "2025-12-21T21:05:25.454882",
+  "cached_at": "2025-12-22T03:37:01.292752",
   "context_summary": {
     "filename": "unknown",
     "num_columns": 0

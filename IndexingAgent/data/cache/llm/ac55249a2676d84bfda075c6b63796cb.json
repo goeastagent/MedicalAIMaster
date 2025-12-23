@@ -12,11 +12,12 @@
       "ward_vitals_parameters",
       "ward_vitals_dict",
       "ward_vitals_info",
+      "ward_dim",
       "ward_master",
-      "ward_dim"
+      "ward_info"
     ],
-    "confidence": 0.78,
-    "reasoning": "Base name 'ward' most likely refers to a hospital ward/unit (care location). The presence of 'vitals' indicates vital sign measurements, and 'table' suggests a structured dataset/table, typically transactional fact data. Related patterns include a vitals dictionary/parameters (metadata) and ward reference/master data (dim).",
+    "confidence": 0.74,
+    "reasoning": "Base name 'ward' most commonly denotes a hospital ward/unit (care location). The presence of 'vitals' indicates physiologic measurements, and 'table' suggests a stored dataset/table rather than a dictionary. Therefore the scope is measurement and the hierarchy level aligns with measurement-level (Level 4), likely keyed by ward and time (and possibly patient/stay). Suffix 'table' implies a transactional dataset rather than reference/metadata.",
     "filename": "ward_vitals_table",
     "base_name": "ward",
     "parts": [
@@ -26,7 +27,7 @@
     ]
   },
   "prompt_hash": "ac55249a2676d84bfda075c6b63796cb",
-  "cached_at": "2025-12-21T21:08:10.064966",
+  "cached_at": "2025-12-22T04:54:31.902749",
   "context_summary": {
     "filename": "unknown",
     "num_columns": 0

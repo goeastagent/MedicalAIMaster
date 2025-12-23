@@ -1,16 +1,16 @@
 {
   "result": {
     "is_metadata": true,
-    "confidence": 0.93,
-    "reasoning": "The filename 'department.csv' suggests a reference/master list. The two-column structure (Abbreviations, Full name) is a classic code-to-description mapping used to label or interpret other datasets rather than record events. Values are categorical department codes and their human-readable names, with no transactional measures or timestamps.",
+    "confidence": 0.9,
+    "reasoning": "The filename 'department.csv' suggests a reference/master list. The table has only two categorical columns mapping short codes ('Abbreviations') to human-readable labels ('Full name'), which is characteristic of a lookup/dictionary used to describe or standardize values in other datasets rather than recording events or measurements.",
     "indicators": {
-      "filename_hint": "strong",
+      "filename_hint": "weak",
       "structure_hint": "dictionary-like",
       "content_type": "descriptive"
     }
   },
   "prompt_hash": "0911d8664b318297094b0216df44635b",
-  "cached_at": "2025-12-21T21:04:55.537793",
+  "cached_at": "2025-12-22T03:35:24.538484",
   "context_summary": {
     "filename": "department.csv",
     "num_columns": 2

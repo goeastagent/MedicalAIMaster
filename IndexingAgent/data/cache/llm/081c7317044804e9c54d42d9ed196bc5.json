@@ -2,7 +2,7 @@
   "result": {
     "is_metadata": false,
     "confidence": 0.93,
-    "reasoning": "Filename 'vitals' suggests clinical measurements. Columns include identifiers (op_id, subject_id), a time field (chart_time), a measured variable name (item_name), and its recorded value (value), which is a classic transactional key-value measurement/event log rather than a dictionary with descriptions/units. Sample values are short codes/numbers, not long descriptive text.",
+    "reasoning": "Filename 'vitals.csv' suggests clinical measurements. Columns include identifiers (op_id, subject_id), a time field (chart_time), a measurement name (item_name), and a numeric-like measurement value (value), which is a classic event/observation (long) transactional structure rather than a dictionary/codebook. Sample values are short codes/IDs and numeric readings, not long descriptive text.",
     "indicators": {
       "filename_hint": "weak",
       "structure_hint": "tabular",
@@ -10,7 +10,7 @@
     }
   },
   "prompt_hash": "081c7317044804e9c54d42d9ed196bc5",
-  "cached_at": "2025-12-21T21:07:39.487536",
+  "cached_at": "2025-12-22T04:03:51.610010",
   "context_summary": {
     "filename": "vitals.csv",
     "num_columns": 5
