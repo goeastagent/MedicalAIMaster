@@ -102,6 +102,43 @@ class Neo4jConnector:
                         "anchor_column": record["anchor"],
                         "confidence": record.get("confidence", 0)
                     })
+                
+                # 4. 컬럼 메타데이터 조회 (NEW)
+                col_query = """
+                MATCH (col:Column)
+                RETURN 
+                    col.table_name as table_name,
+                    col.original_name as original_name,
+                    col.full_name as full_name,
+                    col.description as description,
+                    col.description_kr as description_kr,
+                    col.data_type as data_type,
+                    col.unit as unit,
+                    col.typical_range as typical_range,
+                    col.is_pii as is_pii,
+                    col.confidence as confidence
+                """
+                results = session.run(col_query)
+                
+                context["column_metadata"] = {}
+                for record in results:
+                    table_name = record.get("table_name", "unknown")
+                    col_name = record.get("original_name", "unknown")
+                    
+                    if table_name not in context["column_metadata"]:
+                        context["column_metadata"][table_name] = {}
+                    
+                    context["column_metadata"][table_name][col_name] = {
+                        "original_name": col_name,
+                        "full_name": record.get("full_name"),
+                        "description": record.get("description"),
+                        "description_kr": record.get("description_kr"),
+                        "data_type": record.get("data_type"),
+                        "unit": record.get("unit"),
+                        "typical_range": record.get("typical_range"),
+                        "is_pii": record.get("is_pii", False),
+                        "confidence": record.get("confidence", 0)
+                    }
                     
         except Exception as e:
             print(f"⚠️ Neo4j 쿼리 중 에러 발생: {e}")

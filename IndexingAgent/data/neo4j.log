@@ -9,15 +9,15 @@ certificates: /opt/homebrew/Cellar/neo4j/2025.08.0/libexec/certificates
 licenses:     /opt/homebrew/Cellar/neo4j/2025.08.0/libexec/licenses
 run:          /opt/homebrew/Cellar/neo4j/2025.08.0/libexec/run
 Starting Neo4j.
-2025-12-21 10:20:18.984+0000 INFO  Logging config in use: File '/opt/homebrew/Cellar/neo4j/2025.08.0/libexec/conf/user-logs.xml'
-2025-12-21 10:20:18.988+0000 INFO  Starting...
-2025-12-21 10:20:19.533+0000 INFO  This instance is ServerId{f1c949ee} (f1c949ee-d669-4088-8c86-075a398cb1ae)
-2025-12-21 10:20:20.083+0000 INFO  ======== Neo4j 2025.08.0 ========
-2025-12-21 10:20:21.032+0000 INFO  Anonymous Usage Data is being sent to Neo4j, see https://neo4j.com/docs/usage-data/
-2025-12-21 10:20:21.254+0000 INFO  Bolt enabled on localhost:7687.
-2025-12-21 10:20:21.570+0000 INFO  HTTP enabled on localhost:7474.
-2025-12-21 10:20:21.570+0000 INFO  Remote interface available at http://localhost:7474/
-2025-12-21 10:20:21.572+0000 INFO  id: 140DCF8579BBCD1A43B5F0634EEC719B3A565981F7C05CA9B0A797916318A2FD
-2025-12-21 10:20:21.572+0000 INFO  name: system
-2025-12-21 10:20:21.572+0000 INFO  creationDate: 2025-09-23T07:43:18.81Z
-2025-12-21 10:20:21.572+0000 INFO  Started.
+2025-12-23 16:14:22.914+0000 INFO  Logging config in use: File '/opt/homebrew/Cellar/neo4j/2025.08.0/libexec/conf/user-logs.xml'
+2025-12-23 16:14:22.919+0000 INFO  Starting...
+2025-12-23 16:14:24.223+0000 INFO  This instance is ServerId{81a614cf} (81a614cf-318d-4b89-8a31-43b068d9ba1e)
+2025-12-23 16:14:24.659+0000 INFO  ======== Neo4j 2025.08.0 ========
+2025-12-23 16:14:25.811+0000 INFO  Anonymous Usage Data is being sent to Neo4j, see https://neo4j.com/docs/usage-data/
+2025-12-23 16:14:26.009+0000 INFO  Bolt enabled on localhost:7687.
+2025-12-23 16:14:26.280+0000 INFO  HTTP enabled on localhost:7474.
+2025-12-23 16:14:26.280+0000 INFO  Remote interface available at http://localhost:7474/
+2025-12-23 16:14:26.281+0000 INFO  id: A9DC759CBD467068F9415E9661B6D129F50795D24397991F3B1ABDAB0CABA3C5
+2025-12-23 16:14:26.281+0000 INFO  name: system
+2025-12-23 16:14:26.281+0000 INFO  creationDate: 2025-11-28T15:21:16.924Z
+2025-12-23 16:14:26.281+0000 INFO  Started.

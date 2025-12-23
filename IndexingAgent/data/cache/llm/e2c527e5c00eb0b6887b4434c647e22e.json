@@ -1,0 +1,13 @@
+{
+  "result": {
+    "is_metadata": true,
+    "confidence": 0.97,
+    "reasoning": "Columns (Parameter, Data Source, Description, Unit) and sample rows describe variables (e.g., caseid, subjectid) rather than containing actual patient measurements, matching a data dictionary/codebook."
+  },
+  "prompt_hash": "e2c527e5c00eb0b6887b4434c647e22e",
+  "cached_at": "2025-12-24T01:14:46.383981",
+  "context_summary": {
+    "filename": "clinical_parameters.csv",
+    "num_columns": 4
+  }
+}

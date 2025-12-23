@@ -54,9 +54,9 @@ class OntologyManager:
             # 레벨 정렬
             self.ontology["hierarchy"].sort(key=lambda x: x.get("level", 99))
 
-            # 3. Relationships 로드
+            # 3. Relationships 로드 (Table 노드 간 관계)
             query_rels = """
-            MATCH (s:Concept)-[r]->(t:Concept)
+            MATCH (s:Table)-[r]->(t:Table)
             RETURN s.name as source, t.name as target, type(r) as type, properties(r) as props
             """
             results = self.neo4j.execute_query(query_rels)
@@ -76,9 +76,43 @@ class OntologyManager:
                 }
                 self.ontology["relationships"].append(rel_data)
 
+            # 4. Column Metadata 로드 (NEW)
+            query_cols = """
+            MATCH (c:Column)
+            RETURN c.table_name as table_name, c.original_name as original_name,
+                   c.full_name as full_name, c.description as description,
+                   c.description_kr as description_kr, c.data_type as data_type,
+                   c.unit as unit, c.typical_range as typical_range,
+                   c.is_pii as is_pii, c.confidence as confidence
+            """
+            results = self.neo4j.execute_query(query_cols)
+            
+            # 초기화
+            self.ontology["column_metadata"] = {}
+            
+            for record in results:
+                table_name = record.get("table_name", "unknown")
+                col_name = record.get("original_name", "unknown")
+                
+                if table_name not in self.ontology["column_metadata"]:
+                    self.ontology["column_metadata"][table_name] = {}
+                
+                self.ontology["column_metadata"][table_name][col_name] = {
+                    "original_name": col_name,
+                    "full_name": record.get("full_name"),
+                    "description": record.get("description"),
+                    "description_kr": record.get("description_kr"),
+                    "data_type": record.get("data_type"),
+                    "unit": record.get("unit"),
+                    "typical_range": record.get("typical_range"),
+                    "is_pii": record.get("is_pii", False),
+                    "confidence": record.get("confidence", 0)
+                }
+
             print("✅ [Ontology] Neo4j 데이터 로드 완료")
             print(f"   - 용어: {len(self.ontology.get('definitions', {}))}개")
             print(f"   - 관계: {len(self.ontology.get('relationships', []))}개")
+            print(f"   - 컬럼 메타: {len(self.ontology.get('column_metadata', {}))}개 테이블")
             
             return self.ontology
 
@@ -117,20 +151,21 @@ class OntologyManager:
                     """, name=h["entity_name"], level=h["level"], 
                          anchor=h.get("anchor_column"), conf=h.get("confidence"))
 
-                # 3. Relationships -> 엣지 생성
+                # 3. Relationships -> Table 노드 생성 후 엣지 생성
                 for rel in ontology.get("relationships", []):
                     # 관계 타입 정제 (공백 제거, 대문자화)
                     rel_type = rel["relation_type"].upper().replace(" ", "_")
                     
-                    # Cypher 쿼리 (관계 타입은 파라미터로 직접 쓸 수 없어 f-string 사용)
-                    # 내부 데이터이므로 SQL Injection 위험은 낮으나 주의 필요
+                    # ⭐ [FIX] Table 노드를 먼저 생성/확인 후 관계 설정
+                    # Concept 노드가 아닌 Table 노드 사용
                     query = f"""
-                        MATCH (s:Concept {{name: $source}})
-                        MATCH (t:Concept {{name: $target}})
+                        MERGE (s:Table {{name: $source}})
+                        MERGE (t:Table {{name: $target}})
                         MERGE (s)-[r:`{rel_type}`]->(t)
                         SET r.source_column = $src_col,
                             r.target_column = $tgt_col,
-                            r.confidence = $conf
+                            r.confidence = $conf,
+                            r.updated_at = datetime()
                     """
                     session.run(query, 
                         source=rel["source_table"],
@@ -139,6 +174,33 @@ class OntologyManager:
                         tgt_col=rel.get("target_column"),
                         conf=rel.get("confidence", 0)
                     )
+
+                # 4. Column Metadata -> Column 노드 생성 (NEW)
+                for table_name, columns in ontology.get("column_metadata", {}).items():
+                    for col_name, col_info in columns.items():
+                        session.run("""
+                            MERGE (col:Column {table_name: $table_name, original_name: $original_name})
+                            SET col.full_name = $full_name,
+                                col.description = $description,
+                                col.description_kr = $description_kr,
+                                col.data_type = $data_type,
+                                col.unit = $unit,
+                                col.typical_range = $typical_range,
+                                col.is_pii = $is_pii,
+                                col.confidence = $confidence,
+                                col.last_updated = datetime()
+                        """, 
+                            table_name=table_name,
+                            original_name=col_name,
+                            full_name=col_info.get("full_name"),
+                            description=col_info.get("description"),
+                            description_kr=col_info.get("description_kr"),
+                            data_type=col_info.get("data_type"),
+                            unit=col_info.get("unit"),
+                            typical_range=col_info.get("typical_range"),
+                            is_pii=col_info.get("is_pii", False),
+                            confidence=col_info.get("confidence", 0)
+                        )
 
                 print("✅ [Ontology] Neo4j 저장(동기화) 완료")
 
@@ -190,6 +252,21 @@ class OntologyManager:
                 self.ontology["file_tags"] = {}
             self.ontology["file_tags"].update(new_knowledge["file_tags"])
         
+        # 5. Column Metadata 병합 (NEW)
+        if "column_metadata" in new_knowledge:
+            if "column_metadata" not in self.ontology:
+                self.ontology["column_metadata"] = {}
+            
+            for table_name, columns in new_knowledge["column_metadata"].items():
+                if table_name not in self.ontology["column_metadata"]:
+                    self.ontology["column_metadata"][table_name] = {}
+                
+                # 컬럼별로 병합 (confidence가 높은 것 우선)
+                for col_name, col_info in columns.items():
+                    existing = self.ontology["column_metadata"][table_name].get(col_name)
+                    if not existing or col_info.get("confidence", 0) > existing.get("confidence", 0):
+                        self.ontology["column_metadata"][table_name][col_name] = col_info
+        
         # DB 저장
         self.save(self.ontology)
         
@@ -231,17 +308,19 @@ class OntologyManager:
     def _create_empty_ontology(self) -> Dict[str, Any]:
         """빈 온톨로지 구조 생성"""
         return {
-            "version": "1.0",
+            "version": "1.1",  # Version bump for column_metadata support
             "created_at": datetime.now().isoformat(),
             "last_updated": datetime.now().isoformat(),
             "definitions": {},
             "relationships": [],
             "hierarchy": [],
             "file_tags": {},
+            "column_metadata": {},  # NEW: table_name -> {col_name -> metadata}
             "metadata": {
                 "total_tables": 0,
                 "total_definitions": 0,
-                "total_relationships": 0
+                "total_relationships": 0,
+                "total_columns": 0
             }
         }
     

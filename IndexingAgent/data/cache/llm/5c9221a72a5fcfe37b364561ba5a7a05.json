@@ -1,0 +1,18 @@
+{
+  "result": {
+    "is_metadata": true,
+    "confidence": 0.96,
+    "reasoning": "Filename includes 'parameters', strongly suggesting a parameter dictionary/codebook. The 4-column structure (Parameter, Data Source, Description, Unit) is dictionary-like and matches typical metadata layouts. Sample values in 'Parameter' are variable names (caseid, subjectid, casestart) and 'Description' contains long explanatory text (avg_text_length ~42), indicating documentation about fields rather than actual patient/event records.",
+    "indicators": {
+      "filename_hint": "strong",
+      "structure_hint": "dictionary-like",
+      "content_type": "descriptive"
+    }
+  },
+  "prompt_hash": "5c9221a72a5fcfe37b364561ba5a7a05",
+  "cached_at": "2025-12-24T01:15:15.060842",
+  "context_summary": {
+    "filename": "clinical_parameters.csv",
+    "num_columns": 4
+  }
+}

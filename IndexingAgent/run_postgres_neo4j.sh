@@ -1,125 +1,131 @@
 #!/bin/bash
 # run_postgres_neo4j.sh
-# PostgreSQL + Neo4j 서비스 관리 스크립트
+# PostgreSQL + Neo4j Service Management Script
 #
-# 실행: PostgreSQL 및 Neo4j 시작 후 대기
-# Ctrl-C: 두 서비스 모두 종료
+# Run: Start PostgreSQL and Neo4j, then wait
+# Ctrl-C: Terminate both services
 
-set -e  # 에러 시 중단
+set -e  # Stop on error
+
+# PostgreSQL version configuration (upgraded to 18)
+export PATH="/opt/homebrew/opt/postgresql@18/bin:$PATH"
+export LDFLAGS="-L/opt/homebrew/opt/postgresql@18/lib"
+export CPPFLAGS="-I/opt/homebrew/opt/postgresql@18/include"
+export LC_ALL="en_US.UTF-8"  # Prevent PostgreSQL multithread issue
 
 echo "=========================================="
-echo "🗄️  PostgreSQL & 🧠 Neo4j 서비스 관리"
+echo "🗄️  PostgreSQL & 🧠 Neo4j Service Manager"
 echo "=========================================="
 
-# PostgreSQL 설정
+# PostgreSQL configuration
 PG_DATA_DIR="./data/postgres_data"
 PG_LOG_FILE="./data/postgres.log"
 PG_PORT=5432
 PG_PID_FILE="./data/postgres.pid"
 
-# Neo4j 설정 (NEO4J_ENABLED=0 이면 비활성화)
+# Neo4j configuration (set NEO4J_ENABLED=0 to disable)
 NEO4J_ENABLED=${NEO4J_ENABLED:-1}
 NEO4J_BIN=${NEO4J_BIN:-neo4j}
 NEO4J_PID_FILE="./data/neo4j.pid"
 NEO4J_LOG_FILE="./data/neo4j.log"
 
-# Cleanup 함수 (Ctrl-C 시 호출)
+# Cleanup function (called on Ctrl-C)
 cleanup() {
     echo ""
     echo "=========================================="
-    echo "🛑 종료 신호 감지 (Ctrl-C)"
+    echo "🛑 Shutdown signal detected (Ctrl-C)"
     echo "=========================================="
     
-    # PostgreSQL 종료
+    # Stop PostgreSQL
     if [ -f "$PG_PID_FILE" ]; then
         PG_PID=$(cat $PG_PID_FILE)
         
         if kill -0 $PG_PID 2>/dev/null; then
-            echo "🐘 PostgreSQL 종료 중 (PID: $PG_PID)..."
+            echo "🐘 Stopping PostgreSQL (PID: $PG_PID)..."
             
-            # SIGTERM 전송 (정상 종료)
+            # Send SIGTERM (graceful shutdown)
             kill -TERM $PG_PID
             
-            # 종료 대기 (최대 10초)
+            # Wait for shutdown (max 10 seconds)
             for i in {1..10}; do
                 if ! kill -0 $PG_PID 2>/dev/null; then
-                    echo "✅ PostgreSQL 정상 종료됨"
+                    echo "✅ PostgreSQL stopped gracefully"
                     break
                 fi
                 sleep 1
             done
             
-            # 아직 살아있으면 강제 종료
+            # Force kill if still running
             if kill -0 $PG_PID 2>/dev/null; then
-                echo "⚠️  응답 없음 - 강제 종료 중..."
+                echo "⚠️  No response - forcing shutdown..."
                 kill -9 $PG_PID
                 sleep 1
-                echo "✅ PostgreSQL 강제 종료됨"
+                echo "✅ PostgreSQL force stopped"
             fi
         else
-            echo "⚠️  PostgreSQL 프로세스가 이미 종료되었습니다."
+            echo "⚠️  PostgreSQL process already terminated."
         fi
         
         rm -f $PG_PID_FILE
     else
-        echo "⚠️  PID 파일 없음 (PostgreSQL이 실행 중이 아닐 수 있습니다)"
+        echo "⚠️  PID file not found (PostgreSQL may not be running)"
     fi
 
-    # Neo4j 종료 (neo4j stop 명령어 사용)
+    # Stop Neo4j (using neo4j stop command)
     if lsof -i :7687 >/dev/null 2>&1 || [ -f "$NEO4J_PID_FILE" ]; then
-        echo "🧠 Neo4j 종료 중..."
+        echo "🧠 Stopping Neo4j..."
         
-        # 1. neo4j stop 명령어로 정상 종료 시도
+        # 1. Try graceful shutdown with neo4j stop
         if command -v "$NEO4J_BIN" >/dev/null 2>&1; then
             "$NEO4J_BIN" stop 2>/dev/null || true
             sleep 3
         fi
         
-        # 2. 아직 실행 중이면 pkill로 모든 Neo4j 관련 프로세스 종료
+        # 2. If still running, use pkill
         if lsof -i :7687 >/dev/null 2>&1; then
-            echo "   - neo4j stop 실패, pkill 시도..."
+            echo "   - neo4j stop failed, trying pkill..."
             pkill -f "org.neo4j" 2>/dev/null || true
             sleep 2
         fi
         
-        # 3. 그래도 실행 중이면 강제 종료
+        # 3. Force kill if still running
         if lsof -i :7687 >/dev/null 2>&1; then
-            echo "   - 강제 종료 (SIGKILL)..."
+            echo "   - Force kill (SIGKILL)..."
             pkill -9 -f "org.neo4j" 2>/dev/null || true
             sleep 1
         fi
         
-        # 최종 확인
+        # Final check
         if lsof -i :7687 >/dev/null 2>&1; then
-            echo "⚠️  Neo4j 종료 실패 - 수동 종료 필요"
+            echo "⚠️  Failed to stop Neo4j - manual intervention required"
         else
-            echo "✅ Neo4j 종료됨"
+            echo "✅ Neo4j stopped"
         fi
         
         rm -f $NEO4J_PID_FILE
     else
-        echo "⚠️  Neo4j가 실행 중이 아닙니다."
+        echo "⚠️  Neo4j is not running."
     fi
     
-    echo "✅ 종료 완료"
+    echo "✅ Shutdown complete"
     exit 0
 }
 
-# 시그널 트랩 설정 (Ctrl-C 감지)
+# Set signal trap (detect Ctrl-C)
 trap cleanup SIGINT SIGTERM
 
 # ==========================================
-# 0. 기존 실행 중인 서비스 종료
+# 0. Stop existing running services
 # ==========================================
 
 echo ""
-echo "0️⃣  기존 실행 중인 서비스 확인 및 종료..."
+echo "0️⃣  Checking and stopping existing services..."
 
-# PostgreSQL 종료 (포트 체크)
+# Stop PostgreSQL (port check)
 if lsof -i :$PG_PORT >/dev/null 2>&1; then
-    echo "⚠️  PostgreSQL이 이미 실행 중입니다 (Port: $PG_PORT). 종료 중..."
+    echo "⚠️  PostgreSQL is already running (Port: $PG_PORT). Stopping..."
     
-    # PID 파일이 있으면 해당 PID로 종료 시도
+    # Try to stop using PID file
     if [ -f "$PG_PID_FILE" ]; then
         OLD_PG_PID=$(cat $PG_PID_FILE)
         if [[ "$OLD_PG_PID" =~ ^[0-9]+$ ]] && kill -0 $OLD_PG_PID 2>/dev/null; then
@@ -128,144 +134,146 @@ if lsof -i :$PG_PORT >/dev/null 2>&1; then
         fi
     fi
     
-    # 아직 실행 중이면 pkill로 강제 종료
+    # Force kill if still running
     if lsof -i :$PG_PORT >/dev/null 2>&1; then
+        # Try multiple patterns (port-based or data directory-based)
         pkill -f "postgres.*-p.*$PG_PORT" 2>/dev/null || true
+        pkill -f "postgres.*-D.*postgres_data" 2>/dev/null || true
         sleep 2
     fi
     
-    # 최종 확인
+    # Final check
     if lsof -i :$PG_PORT >/dev/null 2>&1; then
-        echo "❌ PostgreSQL 종료 실패. 수동으로 종료해주세요."
+        echo "❌ Failed to stop PostgreSQL. Please stop it manually."
         exit 1
     fi
     
-    echo "✅ 기존 PostgreSQL 종료됨"
+    echo "✅ Existing PostgreSQL stopped"
     rm -f $PG_PID_FILE
 else
-    echo "✅ PostgreSQL: 실행 중인 인스턴스 없음"
+    echo "✅ PostgreSQL: No running instance found"
 fi
 
-# Neo4j 종료 (포트 체크)
+# Stop Neo4j (port check)
 if [ "$NEO4J_ENABLED" != "0" ]; then
     if lsof -i :7687 >/dev/null 2>&1; then
-        echo "⚠️  Neo4j가 이미 실행 중입니다 (Port: 7687). 종료 중..."
+        echo "⚠️  Neo4j is already running (Port: 7687). Stopping..."
         
-        # 1. neo4j stop 명령어로 정상 종료 시도 (가장 안전)
+        # 1. Try graceful shutdown with neo4j stop
         if command -v "$NEO4J_BIN" >/dev/null 2>&1; then
             "$NEO4J_BIN" stop 2>/dev/null || true
             sleep 3
         fi
         
-        # 2. 아직 실행 중이면 pkill로 모든 Neo4j Java 프로세스 종료
+        # 2. If still running, use pkill
         if lsof -i :7687 >/dev/null 2>&1; then
-            echo "   - neo4j stop 실패, pkill 시도..."
+            echo "   - neo4j stop failed, trying pkill..."
             pkill -f "org.neo4j" 2>/dev/null || true
             sleep 2
         fi
         
-        # 3. 그래도 실행 중이면 강제 종료 (SIGKILL)
+        # 3. Force kill (SIGKILL) if still running
         if lsof -i :7687 >/dev/null 2>&1; then
-            echo "   - 강제 종료 (SIGKILL)..."
+            echo "   - Force kill (SIGKILL)..."
             pkill -9 -f "org.neo4j" 2>/dev/null || true
             sleep 1
         fi
         
-        # 최종 확인
+        # Final check
         if lsof -i :7687 >/dev/null 2>&1; then
-            echo "❌ Neo4j 종료 실패. 수동으로 종료해주세요."
+            echo "❌ Failed to stop Neo4j. Please stop it manually."
             exit 1
         fi
         
-        echo "✅ 기존 Neo4j 종료됨"
+        echo "✅ Existing Neo4j stopped"
         rm -f $NEO4J_PID_FILE
     else
-        echo "✅ Neo4j: 실행 중인 인스턴스 없음"
+        echo "✅ Neo4j: No running instance found"
     fi
 fi
 
 # ==========================================
-# 1. PostgreSQL 초기화 및 시작
+# 1. Initialize and start PostgreSQL
 # ==========================================
 
 echo ""
-echo "1️⃣  PostgreSQL 초기화 중..."
+echo "1️⃣  Initializing PostgreSQL..."
 
-# 데이터 디렉토리가 없으면 생성
+# Create data directory if not exists
 if [ ! -d "$PG_DATA_DIR" ]; then
-    echo "📦 PostgreSQL 데이터 디렉토리 생성 중..."
+    echo "📦 Creating PostgreSQL data directory..."
     mkdir -p $(dirname $PG_DATA_DIR)
     
-    # initdb (PostgreSQL 초기화)
+    # initdb (PostgreSQL initialization)
     initdb -D $PG_DATA_DIR -U postgres --no-locale --encoding=UTF8
     
-    echo "✅ 초기화 완료"
+    echo "✅ Initialization complete"
 else
-    echo "✅ 데이터 디렉토리 존재: $PG_DATA_DIR"
+    echo "✅ Data directory exists: $PG_DATA_DIR"
 fi
 
 echo ""
-echo "2️⃣a PostgreSQL 시작 중..."
+echo "2️⃣a Starting PostgreSQL..."
 
-# PostgreSQL 시작 (포그라운드 아님, 백그라운드)
+# Start PostgreSQL (background)
 postgres -D $PG_DATA_DIR -p $PG_PORT > $PG_LOG_FILE 2>&1 &
 PG_PID=$!
 
-# PID 저장
+# Save PID
 echo $PG_PID > $PG_PID_FILE
 
-echo "✅ PostgreSQL 시작됨 (PID: $PG_PID)"
+echo "✅ PostgreSQL started (PID: $PG_PID)"
 echo "   - Port: $PG_PORT"
 echo "   - Log: $PG_LOG_FILE"
 
-# 시작 대기 (최대 10초)
-echo "   - 시작 대기 중..."
+# Wait for startup (max 10 seconds)
+echo "   - Waiting for startup..."
 
 for i in {1..10}; do
     if pg_isready -p $PG_PORT > /dev/null 2>&1; then
-        echo "✅ PostgreSQL 준비 완료"
+        echo "✅ PostgreSQL ready"
         break
     fi
     sleep 1
 done
 
 if ! pg_isready -p $PG_PORT > /dev/null 2>&1; then
-    echo "❌ PostgreSQL 시작 실패"
-    echo "로그 확인: cat $PG_LOG_FILE"
+    echo "❌ PostgreSQL startup failed"
+    echo "Check log: cat $PG_LOG_FILE"
     cleanup
     exit 1
 fi
 
 # ==========================================
-# 2.5 Neo4j 시작 (옵션)
+# 2.5 Start Neo4j (optional)
 # ==========================================
 if [ "$NEO4J_ENABLED" != "0" ]; then
     echo ""
-    echo "2️⃣b Neo4j 시작 중..."
+    echo "2️⃣b Starting Neo4j..."
     
-    # 기존 Neo4j 프로세스 정리 (안전장치)
+    # Clean up existing Neo4j processes (safety)
     pkill -f "neo4j" 2>/dev/null || true
     
     if ! command -v "$NEO4J_BIN" >/dev/null 2>&1; then
-        echo "⚠️  Neo4j 실행 파일을 찾을 수 없습니다 (NEO4J_BIN=$NEO4J_BIN)."
-        echo "    Neo4j는 건너뜁니다."
+        echo "⚠️  Neo4j executable not found (NEO4J_BIN=$NEO4J_BIN)."
+        echo "    Skipping Neo4j."
     else
         mkdir -p "$(dirname "$NEO4J_LOG_FILE")"
         
-        # Neo4j 시작
+        # Start Neo4j
         "$NEO4J_BIN" console > "$NEO4J_LOG_FILE" 2>&1 &
         NEO4J_PID=$!
         echo $NEO4J_PID > $NEO4J_PID_FILE
         
-        # 시작 대기 (포트 리스닝 확인)
-        echo "   - Neo4j 시작 대기 중..."
+        # Wait for startup (check port listening)
+        echo "   - Waiting for Neo4j startup..."
         for i in {1..30}; do
             if lsof -i :7687 >/dev/null 2>&1; then
-                echo "✅ Neo4j 시작됨 (PID: $NEO4J_PID, Port: 7687)"
+                echo "✅ Neo4j started (PID: $NEO4J_PID, Port: 7687)"
                 break
             fi
             if ! kill -0 $NEO4J_PID 2>/dev/null; then
-                 echo "❌ Neo4j 시작 실패 (프로세스 종료됨). 로그 확인: $NEO4J_LOG_FILE"
+                 echo "❌ Neo4j startup failed (process terminated). Check log: $NEO4J_LOG_FILE"
                  break
             fi
             sleep 1
@@ -275,108 +283,125 @@ if [ "$NEO4J_ENABLED" != "0" ]; then
     fi
 else
     echo ""
-    echo "2️⃣b Neo4j 시작 스킵 (NEO4J_ENABLED=0)"
+    echo "2️⃣b Neo4j startup skipped (NEO4J_ENABLED=0)"
 fi
 
 # ==========================================
-# 3. 데이터베이스 생성
+# 3. Create database
 # ==========================================
 
 echo ""
-echo "3️⃣  PostgreSQL 데이터베이스 생성/확인 중..."
+echo "3️⃣  Creating/checking PostgreSQL database..."
 
 DB_NAME="medical_data"
 
-# 데이터베이스 존재 확인
+# Check if database exists
 if psql -U postgres -p $PG_PORT -lqt | cut -d \| -f 1 | grep -qw $DB_NAME; then
-    echo "✅ 데이터베이스 '$DB_NAME' 존재"
+    echo "✅ Database '$DB_NAME' exists"
 else
-    echo "📦 데이터베이스 '$DB_NAME' 생성 중..."
+    echo "📦 Creating database '$DB_NAME'..."
     createdb -U postgres -p $PG_PORT $DB_NAME
-    echo "✅ 데이터베이스 생성 완료"
+    echo "✅ Database created"
 fi
 
 # ==========================================
-# 4. .env 파일 설정
+# 3.5 Check pgvector extension (auto-install in Python)
 # ==========================================
 
 echo ""
-echo "4️⃣  환경변수 설정 중..."
+echo "3️⃣.5 Checking pgvector extension..."
 
-# .env 파일 생성/업데이트
+# Only check - actual installation is done by VectorStore.initialize()
+PGVECTOR_INSTALLED=$(psql -U postgres -p $PG_PORT -d $DB_NAME -tAc "SELECT 1 FROM pg_extension WHERE extname='vector'" 2>/dev/null || echo "0")
+
+if [ "$PGVECTOR_INSTALLED" = "1" ]; then
+    echo "✅ pgvector extension installed"
+else
+    echo "ℹ️  pgvector extension not installed - will be auto-installed by VectorStore"
+    echo "   (Pre-install: brew install pgvector or apt install postgresql-XX-pgvector)"
+fi
+
+# ==========================================
+# 4. Configure .env file
+# ==========================================
+
+echo ""
+echo "4️⃣  Configuring environment variables..."
+
+# Create/update .env file
 cat > .env.postgres << EOF
-# PostgreSQL 설정
+# PostgreSQL Configuration
 POSTGRES_HOST=localhost
 POSTGRES_PORT=$PG_PORT
 POSTGRES_DB=$DB_NAME
 POSTGRES_USER=postgres
 POSTGRES_PASSWORD=
 
-# LLM 설정 (기존 .env에서 복사)
+# LLM Configuration (copied from existing .env)
 EOF
 
-# 기존 .env에서 LLM 설정 복사
+# Copy LLM settings from existing .env
 if [ -f ".env" ]; then
     grep "LLM_PROVIDER\|API_KEY" .env >> .env.postgres 2>/dev/null || true
 fi
 
-# .env 백업 후 교체
+# Backup and replace .env
 if [ -f ".env" ]; then
     mv .env .env.backup
-    echo "   - 기존 .env 백업: .env.backup"
+    echo "   - Existing .env backed up: .env.backup"
 fi
 
 mv .env.postgres .env
-echo "✅ .env 파일 설정 완료"
+echo "✅ .env file configured"
 
 # ==========================================
-# 5. 대기 (Ctrl-C로 종료할 때까지)
+# 5. Wait (until Ctrl-C)
 # ==========================================
 
 echo ""
 echo "=========================================="
-echo "✅ 서비스 실행 중 (PostgreSQL & Neo4j)"
+echo "✅ Services running (PostgreSQL & Neo4j)"
 echo "=========================================="
 echo ""
-echo "📊 PostgreSQL 연결 정보:"
+echo "📊 PostgreSQL Connection Info:"
 echo "   - Host: localhost"
 echo "   - Port: $PG_PORT"
 echo "   - Database: $DB_NAME"
 echo "   - User: postgres"
 if [ "$NEO4J_ENABLED" != "0" ] && [ -f "$NEO4J_PID_FILE" ]; then
 echo ""
-echo "🧠 Neo4j 정보:"
-echo "   - PID 파일: $NEO4J_PID_FILE"
-echo "   - 로그: $NEO4J_LOG_FILE"
-echo "   - 명령: $NEO4J_BIN console"
+echo "🧠 Neo4j Info:"
+echo "   - PID file: $NEO4J_PID_FILE"
+echo "   - Log: $NEO4J_LOG_FILE"
+echo "   - Command: $NEO4J_BIN console"
 fi
 echo ""
-echo "🔌 Agent 실행 방법:"
+echo "🔌 Run Agent:"
 echo "   python test_agent_with_interrupt.py"
 echo ""
-echo "🛑 종료 방법:"
-echo "   Ctrl-C를 누르면 PostgreSQL과 Neo4j가 함께 종료됩니다."
+echo "🛑 To stop:"
+echo "   Press Ctrl-C to stop both PostgreSQL and Neo4j."
 echo ""
 echo "----------------------------------------"
-echo "대기 중... (Ctrl-C로 종료)"
+echo "Waiting... (Press Ctrl-C to stop)"
 echo "----------------------------------------"
 
-# 무한 대기 (Ctrl-C까지)
+# Infinite wait (until Ctrl-C)
 while true; do
-    # PostgreSQL이 살아있는지 체크
+    # Check if PostgreSQL is alive
     if ! kill -0 $PG_PID 2>/dev/null; then
         echo ""
-        echo "❌ PostgreSQL 프로세스가 예기치 않게 종료되었습니다."
-        echo "로그 확인: cat $PG_LOG_FILE"
+        echo "❌ PostgreSQL process terminated unexpectedly."
+        echo "Check log: cat $PG_LOG_FILE"
         cleanup
         exit 1
     fi
-    # Neo4j가 켜진 경우 상태 체크
+    # Check Neo4j status if enabled
     if [ "$NEO4J_ENABLED" != "0" ] && [ -f "$NEO4J_PID_FILE" ]; then
         NEO4J_PID=$(cat $NEO4J_PID_FILE)
         if ! kill -0 $NEO4J_PID 2>/dev/null; then
             echo ""
-            echo "⚠️  Neo4j 프로세스가 종료되었습니다. 로그 확인: $NEO4J_LOG_FILE"
+            echo "⚠️  Neo4j process terminated. Check log: $NEO4J_LOG_FILE"
             rm -f $NEO4J_PID_FILE
         fi
     fi

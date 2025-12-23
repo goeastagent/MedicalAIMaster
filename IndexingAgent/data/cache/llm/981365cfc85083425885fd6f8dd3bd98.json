@@ -1,0 +1,46 @@
+{
+  "result": {
+    "relationships": [
+      {
+        "source_table": "lab_data_table",
+        "target_table": "clinical_data_table",
+        "source_column": "caseid",
+        "target_column": "caseid",
+        "relation_type": "N:1",
+        "confidence": 0.86,
+        "description": "Lab results are measurement/observation records that occur multiple times within a clinical case/encounter. The shared key 'caseid' indicates lab_data_table rows belong to a single case in clinical_data_table (encounter-level).",
+        "llm_inferred": true
+      }
+    ],
+    "hierarchy": [
+      {
+        "level": 1,
+        "entity_name": "Patient",
+        "anchor_column": "subjectid",
+        "mapping_table": "clinical_data_table",
+        "confidence": 0.84
+      },
+      {
+        "level": 2,
+        "entity_name": "Case/Encounter",
+        "anchor_column": "caseid",
+        "mapping_table": "clinical_data_table",
+        "confidence": 0.9
+      },
+      {
+        "level": 3,
+        "entity_name": "Laboratory Measurement",
+        "anchor_column": null,
+        "mapping_table": "lab_data_table",
+        "confidence": 0.86
+      }
+    ],
+    "reasoning": "Validated FK candidates: only 'caseid' is a plausible foreign key from lab_data_table to clinical_data_table because it is the standard encounter identifier and aligns with the filename/domain hint (lab measurements under a case context). Columns dt/name/result are attributes of the lab event and do not correspond to parent keys in existing tables. Cardinality stats showing all columns as UNIQUE are likely an artifact of preprocessing or sampling; domain knowledge strongly supports multiple lab rows per case (N:1 from lab_data_table to clinical_data_table). Parent/child: clinical_data_table represents the more abstract encounter/case entity; lab_data_table is the more specific measurement-level child entity."
+  },
+  "prompt_hash": "981365cfc85083425885fd6f8dd3bd98",
+  "cached_at": "2025-12-24T01:19:31.518992",
+  "context_summary": {
+    "filename": "unknown",
+    "num_columns": 0
+  }
+}

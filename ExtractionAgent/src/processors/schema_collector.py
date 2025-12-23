@@ -250,4 +250,131 @@ class SchemaCollector:
     def clear_cache(self):
         """스키마 캐시 초기화"""
         self._schema_cache = None
+    
+    def get_sample_data(self, table_name: str, limit: int = 3) -> List[Dict[str, Any]]:
+        """
+        테이블의 샘플 데이터 조회
+        
+        Args:
+            table_name: 테이블명
+            limit: 샘플 행 개수
+        
+        Returns:
+            샘플 데이터 리스트 [{"col1": val1, "col2": val2}, ...]
+        """
+        conn = self.db_manager.get_connection()
+        cursor = conn.cursor()
+        
+        try:
+            # 테이블명 안전하게 인용 (SQL Injection 방지)
+            cursor.execute(f'SELECT * FROM "{table_name}" LIMIT %s', (limit,))
+            columns = [desc[0] for desc in cursor.description]
+            rows = cursor.fetchall()
+            
+            return [dict(zip(columns, row)) for row in rows]
+        except Exception as e:
+            print(f"샘플 데이터 조회 실패 ({table_name}): {e}")
+            return []
+    
+    def format_sample_data_for_prompt(self, table_name: str, limit: int = 3) -> str:
+        """
+        테이블의 샘플 데이터를 프롬프트용으로 포맷팅
+        
+        Args:
+            table_name: 테이블명
+            limit: 샘플 행 개수
+        
+        Returns:
+            포맷팅된 샘플 데이터 문자열
+        """
+        samples = self.get_sample_data(table_name, limit)
+        
+        if not samples:
+            return f"  (No sample data available for {table_name})"
+        
+        # 컬럼명
+        columns = list(samples[0].keys())
+        
+        # 헤더
+        lines = []
+        lines.append(f"  Sample data from '{table_name}':")
+        
+        # 테이블 형식으로 포맷팅 (간단한 형태)
+        header = " | ".join(columns[:8])  # 최대 8개 컬럼만 표시
+        lines.append(f"    | {header} |")
+        lines.append(f"    |{'-' * (len(header) + 2)}|")
+        
+        for row in samples:
+            values = []
+            for col in columns[:8]:
+                val = row.get(col, "")
+                # 긴 값은 자르기
+                val_str = str(val)[:20] if val is not None else "NULL"
+                values.append(val_str)
+            lines.append(f"    | {' | '.join(values)} |")
+        
+        return "\n".join(lines)
+    
+    def format_schema_with_samples_for_prompt(self, max_tables: int = None, sample_limit: int = 2) -> str:
+        """
+        스키마 정보 + 샘플 데이터를 함께 프롬프트용으로 포맷팅
+        
+        Args:
+            max_tables: 최대 테이블 수 (None이면 전체)
+            sample_limit: 테이블당 샘플 행 개수
+        
+        Returns:
+            포맷팅된 스키마 + 샘플 데이터 문자열
+        """
+        schema = self.collect_full_schema()
+        tables = schema["tables"]
+        
+        # 테이블 수 제한 (너무 많으면 일부만)
+        if max_tables and len(tables) > max_tables:
+            sorted_tables = sorted(
+                tables.items(),
+                key=lambda x: x[1]["row_count"],
+                reverse=True
+            )
+            tables = dict(sorted_tables[:max_tables])
+        
+        lines = []
+        lines.append("=" * 80)
+        lines.append("DATABASE SCHEMA WITH SAMPLE DATA")
+        lines.append("=" * 80)
+        lines.append(f"\nTotal Tables: {schema['summary']['total_tables']}")
+        lines.append("")
+        
+        for table_name, table_info in tables.items():
+            lines.append(f"Table: {table_name}")
+            lines.append(f"  Rows: {table_info['row_count']:,}")
+            
+            # Primary Keys
+            if table_info["primary_keys"]:
+                pk_str = ", ".join(table_info["primary_keys"])
+                lines.append(f"  Primary Keys: {pk_str}")
+            
+            # Foreign Keys
+            if table_info["foreign_keys"]:
+                lines.append("  Foreign Keys:")
+                for fk in table_info["foreign_keys"]:
+                    lines.append(
+                        f"    - {fk['column']} → {fk['references_table']}.{fk['references_column']}"
+                    )
+            
+            # Columns
+            lines.append("  Columns:")
+            for col in table_info["columns"]:
+                nullable = "NULL" if col["nullable"] else "NOT NULL"
+                pk_mark = " [PK]" if col["name"] in table_info["primary_keys"] else ""
+                lines.append(
+                    f"    - {col['name']}: {col['type']} {nullable}{pk_mark}"
+                )
+            
+            # 샘플 데이터 추가
+            lines.append("")
+            lines.append(self.format_sample_data_for_prompt(table_name, sample_limit))
+            lines.append("")
+        
+        return "\n".join(lines)
 

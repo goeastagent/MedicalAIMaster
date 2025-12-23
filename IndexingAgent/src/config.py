@@ -34,11 +34,40 @@ class EmbeddingConfig:
     
     # --- 1. 임베딩 Provider 선택 ---
     # "openai" 또는 "local"
-    PROVIDER = "openai"
+    PROVIDER = os.getenv("EMBEDDING_PROVIDER", "openai")
     
     # --- 2. OpenAI Embedding 설정 ---
-    OPENAI_MODEL = "text-embedding-3-large"  # 최고 성능 (3072 dimensions)
-    # 대안: "text-embedding-3-small" (1536 dims, 저렴함)
+    OPENAI_MODEL = "text-embedding-3-small"  # Good balance of performance & cost (1536 dimensions)
+    OPENAI_DIMENSIONS = 1536
+    # Alternative: "text-embedding-3-large" (3072 dims, highest performance)
     
     # --- 3. Local Embedding 설정 (무료) ---
     LOCAL_MODEL = "all-MiniLM-L6-v2"  # sentence-transformers 모델
+    LOCAL_DIMENSIONS = 384
+    
+    @classmethod
+    def get_dimensions(cls):
+        """현재 선택된 모델의 차원 수 반환"""
+        if cls.PROVIDER == "openai":
+            return cls.OPENAI_DIMENSIONS
+        else:
+            return cls.LOCAL_DIMENSIONS
+
+
+class HumanReviewConfig:
+    """Human-in-the-Loop 설정 (유연한 Threshold 관리)"""
+    
+    # --- 1. Confidence Thresholds ---
+    # 메타데이터 판단 시 Human Review 요청 기준 (이 값 미만이면 사람에게 물어봄)
+    METADATA_CONFIDENCE_THRESHOLD = 0.90
+    
+    # Anchor 매칭 시 Human Review 요청 기준
+    ANCHOR_CONFIDENCE_THRESHOLD = 0.90
+    
+    # --- 2. LLM 기반 판단 활성화 ---
+    # True: LLM이 직접 "Human Review가 필요한가" 판단 (더 유연하지만 비용 증가)
+    # False: 기존 Rule-based 조건만 사용 (빠르고 저렴)
+    USE_LLM_FOR_REVIEW_DECISION = True
+    
+    # --- 3. 자동 재시도 설정 ---
+    MAX_RETRY_COUNT = 3

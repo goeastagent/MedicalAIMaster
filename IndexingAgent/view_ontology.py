@@ -30,7 +30,7 @@ def main():
     print("🔌 Neo4j 연결 확인 중...")
     try:
         neo4j_conn = Neo4jConnection()
-        neo4j_conn.verify_connection()
+        neo4j_conn.connect()
         print("✅ Neo4j 연결 성공")
     except Exception as e:
         print(f"\n❌ Neo4j 연결 실패: {e}")

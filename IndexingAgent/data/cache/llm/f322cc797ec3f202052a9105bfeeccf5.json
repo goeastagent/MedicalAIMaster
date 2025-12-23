@@ -1,0 +1,36 @@
+{
+  "result": {
+    "entity_type": "Laboratory",
+    "scope": "measurement",
+    "suggested_level": 4,
+    "data_type_indicator": "transactional",
+    "related_file_patterns": [
+      "lab_data",
+      "lab_records",
+      "lab_events",
+      "lab_results",
+      "lab_observations",
+      "lab_parameters",
+      "lab_dict",
+      "lab_reference",
+      "lab_dim",
+      "lab_info",
+      "lab_master"
+    ],
+    "confidence": 0.78,
+    "reasoning": "Base name 'lab' most commonly denotes laboratory domain data. The presence of 'data' and 'table' suggests a tabular dataset of lab measurements/results (transactional/observational records) rather than a dictionary. As lab results are measurements, they typically sit at hierarchy level 4 (measurement-level) under a patient/encounter context.",
+    "filename": "lab_data_table",
+    "base_name": "lab",
+    "parts": [
+      "lab",
+      "data",
+      "table"
+    ]
+  },
+  "prompt_hash": "f322cc797ec3f202052a9105bfeeccf5",
+  "cached_at": "2025-12-24T01:19:21.114096",
+  "context_summary": {
+    "filename": "unknown",
+    "num_columns": 0
+  }
+}

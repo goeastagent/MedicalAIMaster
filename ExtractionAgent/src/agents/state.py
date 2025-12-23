@@ -4,6 +4,11 @@ import operator
 class ExtractionState(TypedDict):
     """
     ExtractionAgent의 워크플로우 상태를 관리하는 객체
+    
+    Self-Correction Loop 지원:
+    - 최대 3회까지 SQL 생성/실행 재시도
+    - 실패한 SQL과 에러 메시지를 히스토리로 축적
+    - 다음 시도에서 에러 컨텍스트를 LLM에 전달
     """
     # 사용자의 자연어 질문
     user_query: str
@@ -27,6 +32,14 @@ class ExtractionState(TypedDict):
     # 시스템 로그 (누적)
     logs: Annotated[List[str], operator.add]
     
-    # 재시도 횟수
+    # === Self-Correction Loop 필드 ===
+    
+    # 현재 재시도 횟수 (0부터 시작)
     retry_count: int
+    
+    # 최대 재시도 횟수 (기본값: 3)
+    max_retries: int
+    
+    # SQL 시도 히스토리: [{attempt, sql, error}, ...]
+    sql_history: List[Dict[str, Any]]
 

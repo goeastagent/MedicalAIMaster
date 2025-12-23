@@ -26,3 +26,20 @@ class Config:
     # Output Settings
     OUTPUT_DIR = "ExtractionAgent/outputs"
 
+
+class EmbeddingConfig:
+    """임베딩 모델 설정 (IndexingAgent와 동일하게 유지)"""
+    
+    # --- 1. 임베딩 Provider 선택 ---
+    # "openai" 또는 "local"
+    PROVIDER = os.getenv("EMBEDDING_PROVIDER", "openai")
+    
+    # --- 2. OpenAI Embedding 설정 ---
+    OPENAI_MODEL = "text-embedding-3-small"  # 1536 dimensions (good balance)
+    OPENAI_DIMENSIONS = 1536
+    # Alternative: "text-embedding-3-large" (3072 dims, highest performance)
+    
+    # --- 3. Local Embedding 설정 (무료) ---
+    LOCAL_MODEL = "all-MiniLM-L6-v2"  # sentence-transformers 모델
+    LOCAL_DIMENSIONS = 384
+

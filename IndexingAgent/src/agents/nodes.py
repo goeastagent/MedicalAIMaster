@@ -9,11 +9,12 @@ from src.processors.signal import SignalProcessor
 from src.utils.llm_client import get_llm_client
 from src.utils.ontology_manager import get_ontology_manager
 from src.utils.llm_cache import get_llm_cache
+from src.config import HumanReviewConfig
 
-# --- 전역 리소스 초기화 ---
+# --- Global resource initialization ---
 llm_client = get_llm_client()
 ontology_manager = get_ontology_manager()
-llm_cache = get_llm_cache()  # 전역 캐시 인스턴스
+llm_cache = get_llm_cache()  # Global cache instance
 processors = [
     TabularProcessor(llm_client),
     SignalProcessor(llm_client)
@@ -23,39 +24,39 @@ processors = [
 
 def load_data_node(state: AgentState) -> Dict[str, Any]:
     """
-    [Node 1] 파일 로드 및 기초 메타데이터 추출
+    [Node 1] Load file and extract basic metadata
     """
     file_path = state["file_path"]
     
     print("\n" + "="*80)
-    print(f"📂 [LOADER NODE] 시작 - {os.path.basename(file_path)}")
+    print(f"📂 [LOADER NODE] Starting - {os.path.basename(file_path)}")
     print("="*80)
     
-    # 1. 적절한 Processor 찾기
+    # 1. Find appropriate Processor
     selected_processor = next((p for p in processors if p.can_handle(file_path)), None)
     
     if not selected_processor:
         return {
-            "logs": [f"❌ Error: 지원하지 않는 파일 형식입니다 ({file_path})"],
+            "logs": [f"❌ Error: Unsupported file format ({file_path})"],
             "needs_human_review": True,
-            "human_question": "지원하지 않는 파일입니다. 처리 방법을 알려주시겠습니까?"
+            "human_question": "Unsupported file format. How would you like to process this file?"
         }
 
-    # 2. 메타데이터 추출 (여기서 Anchor 탐지도 수행됨)
+    # 2. Extract metadata (Anchor detection is also performed here)
     try:
         raw_metadata = selected_processor.extract_metadata(file_path)
         processor_type = raw_metadata.get("processor_type", "unknown")
         
-        # Processor가 Anchor를 못 찾았거나 모호하다고 판단했는지 확인
+        # Check if Processor failed to find or was uncertain about Anchor
         anchor_info = raw_metadata.get("anchor_info", {})
         anchor_status = anchor_info.get("status", "MISSING")
         anchor_msg = anchor_info.get("msg", "")
 
-        log_message = f"✅ [Loader] {processor_type.upper()} 분석 완료. Anchor Status: {anchor_status}"
+        log_message = f"✅ [Loader] {processor_type.upper()} analysis complete. Anchor Status: {anchor_status}"
 
-        print(f"\n✅ [LOADER NODE] 완료")
+        print(f"\n✅ [LOADER NODE] Complete")
         print(f"   - Processor: {processor_type}")
-        print(f"   - Columns: {len(raw_metadata.get('columns', []))}개")
+        print(f"   - Columns: {len(raw_metadata.get('columns', []))}")
         print(f"   - Anchor Status: {anchor_status}")
         print("="*80)
 
@@ -65,29 +66,29 @@ def load_data_node(state: AgentState) -> Dict[str, Any]:
             "logs": [log_message]
         }
     except Exception as e:
-        print(f"\n❌ [LOADER NODE] 에러: {str(e)}")
+        print(f"\n❌ [LOADER NODE] Error: {str(e)}")
         print("="*80)
         return {
-            "logs": [f"❌ [Loader] 치명적 오류 발생: {str(e)}"],
+            "logs": [f"❌ [Loader] Critical error: {str(e)}"],
             "error_message": str(e)
         }
 
 
 def analyze_semantics_node(state: AgentState) -> Dict[str, Any]:
     """
-    [Node 2] 의미론적 분석 (Semantic Reasoning)
-    Processor의 결과를 바탕으로 최종 스키마를 확정짓는 핵심 두뇌
-    [NEW] Global Context(Project Level)를 참조하여 파일 간 Anchor 통일성을 보장함.
+    [Node 2] Semantic Analysis (Semantic Reasoning)
+    Core brain that finalizes schema based on Processor results
+    [NEW] References Global Context (Project Level) to ensure Anchor consistency across files.
     """
     print("\n" + "="*80)
-    print("🧠 [ANALYZER NODE] 시작 - 의미론적 분석")
+    print("🧠 [ANALYZER NODE] Starting - Semantic Analysis")
     print("="*80)
     
     metadata = state["raw_metadata"]
     local_anchor_info = metadata.get("anchor_info", {})
     human_feedback = state.get("human_feedback")
     
-    # Global Context 가져오기 (없으면 초기값)
+    # Get Global Context (initialize if not exists)
     project_context = state.get("project_context", {
         "master_anchor_name": None, 
         "known_aliases": [], 
@@ -97,11 +98,11 @@ def analyze_semantics_node(state: AgentState) -> Dict[str, Any]:
     finalized_anchor = state.get("finalized_anchor")
     retry_count = state.get("retry_count", 0)
     
-    # 무한 루프 방지: 재시도가 3번 이상이면 강제로 처리
+    # Prevent infinite loop: force processing after 3+ retries
     if retry_count >= 3:
-        log_msg = f"⚠️ [Analyzer] 재시도 횟수 초과 ({retry_count}회). 로컬 Anchor를 강제 사용합니다."
+        log_msg = f"⚠️ [Analyzer] Retry count exceeded ({retry_count}). Forcing local Anchor."
         
-        # 로컬에서 찾은 Anchor를 그대로 사용
+        # Use locally found Anchor as-is
         finalized_anchor = {
             "status": "CONFIRMED",
             "column_name": local_anchor_info.get("target_column", "unknown"),
@@ -110,7 +111,7 @@ def analyze_semantics_node(state: AgentState) -> Dict[str, Any]:
             "mapped_to_master": project_context.get("master_anchor_name")
         }
         
-        # 스키마 분석 건너뛰고 완료
+        # Skip schema analysis and complete
         return {
             "finalized_anchor": finalized_anchor,
             "finalized_schema": [],
@@ -118,34 +119,61 @@ def analyze_semantics_node(state: AgentState) -> Dict[str, Any]:
             "needs_human_review": False,
             "human_feedback": None,
             "retry_count": retry_count,
-            "logs": [log_msg, "⚠️ [Analyzer] 스키마 분석 건너뜀 (재시도 초과)"]
+            "logs": [log_msg, "⚠️ [Analyzer] Schema analysis skipped (retry exceeded)"]
         }
 
-    # --- Scenario A: 사용자 피드백 처리 (재진입) ---
+    # --- Scenario A: Process user feedback (re-entry) ---
     if human_feedback:
-        log_msg = f"🗣️ [Feedback] 사용자 피드백 수신: '{human_feedback}'"
+        log_msg = f"🗣️ [Feedback] User feedback received: '{human_feedback}'"
         
-        # 피드백을 반영하여 Anchor 강제 확정
+        # ⭐ [FIX] Parse user input - distinguish column name vs description
+        parsed_column = _parse_human_feedback_to_column(
+            feedback=human_feedback,
+            available_columns=metadata.get("columns", []),
+            master_anchor=project_context.get("master_anchor_name"),
+            file_path=state.get("file_path", "")
+        )
+        
+        if parsed_column.get("action") == "skip":
+            # Skip request
+            log_msg += " → File skip requested"
+            return {
+                "finalized_anchor": None,
+                "finalized_schema": [],
+                "project_context": project_context,
+                "needs_human_review": False,
+                "human_feedback": None,
+                "skip_indexing": True,
+                "logs": [log_msg, "⏭️ [Analyzer] File skipped by user request"]
+            }
+        
+        determined_column = parsed_column.get("column_name", human_feedback.strip())
+        reasoning = parsed_column.get("reasoning", "User manually confirmed.")
+        
+        print(f"   → Parsing result: '{determined_column}'")
+        print(f"   → Reasoning: {reasoning}")
+        
+        # Force Anchor confirmation based on feedback
         finalized_anchor = {
             "status": "CONFIRMED",
-            "column_name": human_feedback.strip(),
+            "column_name": determined_column,
             "is_time_series": local_anchor_info.get("is_time_series", False),
-            "reasoning": "User manually confirmed.",
+            "reasoning": reasoning,
             "mapped_to_master": project_context.get("master_anchor_name") 
         }
         
-        # ⭐ [FIX] 피드백 처리 후 needs_human_confirmation 리셋
-        # check_confidence에서 다시 review_required로 빠지는 것을 방지
+        # ⭐ [FIX] Reset needs_human_confirmation after feedback processing
+        # Prevents re-entering review_required in check_confidence
         if "anchor_info" in metadata:
             metadata["anchor_info"]["needs_human_confirmation"] = False
             metadata["anchor_info"]["status"] = "CONFIRMED"
         
-        # 피드백 처리 완료 상태로 간주하고 진행 (리턴하지 않음)
+        # Consider feedback processing complete and proceed (don't return)
     
-    # --- Scenario B: Anchor가 아직 미확정 상태일 때 -> Global Context 확인 ---
+    # --- Scenario B: When Anchor is not yet finalized -> Check Global Context ---
     if not finalized_anchor:
         
-        # [NEW] Case 1: 프로젝트에 이미 합의된 Anchor(Leader)가 있는 경우
+        # [NEW] Case 1: Project already has agreed Anchor (Leader)
         if project_context.get("master_anchor_name"):
             master_name = project_context["master_anchor_name"]
             
@@ -156,15 +184,15 @@ def analyze_semantics_node(state: AgentState) -> Dict[str, Any]:
                 project_context=project_context
             )
             
-            # 디버깅: 비교 결과 로그
+            # Debug: comparison result log
             comparison_status = comparison.get("status", "UNKNOWN")
             comparison_msg = comparison.get("message", "")
-            print(f"\n[DEBUG] Global Anchor 비교 결과: {comparison_status}")
-            print(f"[DEBUG] 메시지: {comparison_msg}")
+            print(f"\n[DEBUG] Global Anchor comparison result: {comparison_status}")
+            print(f"[DEBUG] Message: {comparison_msg}")
             print(f"[DEBUG] Target Column: {comparison.get('target_column', 'N/A')}")
             
             if comparison["status"] == "MATCH":
-                # 매칭 성공 -> 자동 확정
+                # Match success -> auto confirm
                 target_col = comparison["target_column"]
                 finalized_anchor = {
                     "status": "CONFIRMED",
@@ -173,98 +201,130 @@ def analyze_semantics_node(state: AgentState) -> Dict[str, Any]:
                     "reasoning": f"Matched with global master anchor '{master_name}'",
                     "mapped_to_master": master_name
                 }
-                state["logs"].append(f"🔗 [Anchor Link] Global Anchor '{master_name}'와 매칭 성공 (Local: '{target_col}')")
+                state["logs"].append(f"🔗 [Anchor Link] Matched with Global Anchor '{master_name}' (Local: '{target_col}')")
             
             elif comparison["status"] == "INDIRECT_LINK":
-                # ⭐ [NEW] 간접 연결 성공 -> 자동 확정 (사람 개입 불필요!)
+                # ⭐ [NEW] Indirect link success -> auto confirm (no human intervention needed!)
                 via_col = comparison["target_column"]
                 via_table = comparison.get("via_table", "unknown")
                 
                 finalized_anchor = {
                     "status": "INDIRECT_LINK",
-                    "column_name": via_col,  # 연결 컬럼 (예: caseid)
+                    "column_name": via_col,  # Link column (e.g., caseid)
                     "is_time_series": local_anchor_info.get("is_time_series", False),
                     "reasoning": comparison.get("message"),
                     "mapped_to_master": master_name,
                     "via_table": via_table,
-                    "link_type": "indirect"  # FK를 통한 간접 연결
+                    "link_type": "indirect"  # Indirect link via FK
                 }
                 
-                print(f"\n✅ [INDIRECT_LINK] 간접 연결 자동 확정!")
-                print(f"   - 연결 컬럼: {via_col}")
-                print(f"   - 경유 테이블: {via_table}")
+                print(f"\n✅ [INDIRECT_LINK] Auto-confirmed indirect link!")
+                print(f"   - Link column: {via_col}")
+                print(f"   - Via table: {via_table}")
                 print(f"   - Master Anchor: {master_name}")
                 
                 state["logs"].append(
-                    f"🔗 [Indirect Link] '{via_col}'을 통해 '{via_table}'의 '{master_name}'와 간접 연결됨"
+                    f"🔗 [Indirect Link] Indirectly linked to '{master_name}' in '{via_table}' via '{via_col}'"
                 )
                 
             else:
-                # 충돌하거나(CONFLICT) 못 찾음(MISSING) -> 사람 개입
-                msg = comparison.get("message", "Anchor 불일치 발생")
+                # Conflict or missing -> human intervention
+                msg = comparison.get("message", "Anchor mismatch occurred")
+                
+                # Generate natural question with LLM
+                natural_question = _generate_natural_human_question(
+                    file_path=state.get("file_path", ""),
+                    context={
+                        "master_anchor": master_name,
+                        "candidates": local_anchor_info.get("target_column"),
+                        "reasoning": msg,
+                        "columns": metadata.get("columns", [])
+                    },
+                    issue_type="anchor_conflict"
+                )
+                
                 return {
                     "needs_human_review": True,
-                    "human_question": f"{msg}\n(프로젝트 표준 Anchor: '{master_name}')\n\n로컬 후보: {local_anchor_info.get('target_column', 'N/A')}",
-                    "retry_count": retry_count,  # 현재 재시도 횟수 유지
-                    "logs": [f"⚠️ [Analyzer] Global Anchor와 불일치 (Status: {comparison_status}). 재시도: {retry_count}/3"]
+                    "human_question": natural_question,
+                    "retry_count": retry_count,  # Keep current retry count
+                    "logs": [f"⚠️ [Analyzer] Global Anchor mismatch (Status: {comparison_status}). Retry: {retry_count}/3"]
                 }
 
-        # [NEW] Case 2: 이것이 첫 번째 파일인 경우 (Global Context 없음)
+        # [NEW] Case 2: This is the first file (no Global Context)
         else:
-            # 기존 로직: Local Anchor 정보만으로 판단
-            if local_anchor_info.get("needs_human_confirmation"):
-                question = (
-                    f"데이터 분석 결과, 환자 식별자(ID)가 명확하지 않습니다.\n"
-                    f"AI 의견: {local_anchor_info.get('msg')}\n"
-                    f"어떤 컬럼이 환자 ID 인가요? (컬럼명을 입력해주세요)"
+            # Flexible judgment: Processor uncertainty + LLM review
+            processor_confidence = local_anchor_info.get("confidence", 0.5 if local_anchor_info.get("needs_human_confirmation") else 0.9)
+            
+            review_decision = _should_request_human_review(
+                file_path=state.get("file_path", ""),
+                issue_type="anchor_detection",
+                context={
+                    "processor_msg": local_anchor_info.get("msg"),
+                    "candidates": local_anchor_info.get("target_column"),
+                    "columns": metadata.get("columns", []),
+                    "processor_needs_confirmation": local_anchor_info.get("needs_human_confirmation", False)
+                },
+                rule_based_confidence=processor_confidence
+            )
+            
+            if review_decision["needs_review"]:
+                question = _generate_natural_human_question(
+                    file_path=state.get("file_path", ""),
+                    context={
+                        "reasoning": local_anchor_info.get("msg"),
+                        "candidates": local_anchor_info.get("target_column", "None"),
+                        "columns": metadata.get("columns", [])
+                    },
+                    issue_type="anchor_uncertain"
                 )
+                
                 return {
                     "needs_human_review": True,
                     "human_question": question,
-                    "logs": ["⚠️ [Analyzer] Anchor 불확실 (첫 파일). 사용자 질의 생성."]
+                    "logs": [f"⚠️ [Analyzer] Anchor uncertain (first file). {review_decision['reason']}"]
                 }
             
-            # 확신하는 경우 -> 확정
+            # Confident -> confirm
             finalized_anchor = {
                 "status": "CONFIRMED",
                 "column_name": local_anchor_info.get("target_column"),
                 "is_time_series": local_anchor_info.get("is_time_series"),
                 "reasoning": local_anchor_info.get("reasoning"),
-                "mapped_to_master": None # 자신이 마스터가 될 예정
+                "mapped_to_master": None  # Will become master
             }
 
-    # --- 3. Global Context 업데이트 (First-Come Leader Strategy) ---
-    # Anchor가 확정되었고, 아직 마스터가 없다면 이 파일의 Anchor가 마스터가 됨
+    # --- 3. Update Global Context (First-Come Leader Strategy) ---
+    # If Anchor is confirmed and no master exists, this file's Anchor becomes master
     if finalized_anchor and not project_context.get("master_anchor_name"):
         project_context["master_anchor_name"] = finalized_anchor["column_name"]
         project_context["known_aliases"].append(finalized_anchor["column_name"])
-        state["logs"].append(f"👑 [Project Context] 새로운 Master Anchor 설정: '{finalized_anchor['column_name']}'")
+        state["logs"].append(f"👑 [Project Context] New Master Anchor set: '{finalized_anchor['column_name']}'")
 
-    # --- 4. 스키마 상세 분석 (공통) ---
+    # --- 4. Detailed schema analysis (common) ---
     schema_analysis = _analyze_columns_with_llm(
         columns=metadata.get("columns", []),
         sample_data=metadata.get("column_details", {}),
         anchor_context=finalized_anchor
     )
 
-    print(f"\n✅ [ANALYZER NODE] 완료")
+    print(f"\n✅ [ANALYZER NODE] Complete")
     print(f"   - Anchor: {finalized_anchor.get('column_name', 'N/A')}")
     print(f"   - Mapped to Master: {finalized_anchor.get('mapped_to_master', 'N/A')}")
-    print(f"   - Schema Columns: {len(schema_analysis)}개")
+    print(f"   - Schema Columns: {len(schema_analysis)}")
     print("="*80)
 
     result = {
         "finalized_anchor": finalized_anchor,
         "finalized_schema": schema_analysis,
-        "project_context": project_context, # 업데이트된 컨텍스트 반환
-        "raw_metadata": metadata,  # ⭐ [FIX] 업데이트된 raw_metadata 반환 (needs_human_confirmation 리셋됨)
+        "project_context": project_context,  # Return updated context
+        "raw_metadata": metadata,  # ⭐ [FIX] Return updated raw_metadata (needs_human_confirmation reset)
         "needs_human_review": False,
         "human_feedback": None, 
-        "logs": ["🧠 [Analyzer] 전체 스키마 및 온톨로지 분석 완료."]
+        "logs": ["🧠 [Analyzer] Complete schema and ontology analysis."]
     }
     
-    print(f"\n[DEBUG ANALYZER] 리턴값:")
-    print(f"   - finalized_schema: {len(result['finalized_schema'])}개")
+    print(f"\n[DEBUG ANALYZER] Return value:")
+    print(f"   - finalized_schema: {len(result['finalized_schema'])}")
     print(f"   - needs_human_review: {result['needs_human_review']}")
     
     return result
@@ -272,38 +332,38 @@ def analyze_semantics_node(state: AgentState) -> Dict[str, Any]:
 
 def human_review_node(state: AgentState) -> Dict[str, Any]:
     """
-    [Node 3] Human-in-the-loop 대기 노드
-    실제 실행 시에는 LangGraph의 interrupt 메커니즘에 의해 여기서 멈추게 됨
-    테스트 환경에서는 재시도 횟수를 증가시켜 무한 루프 방지
+    [Node 3] Human-in-the-loop waiting node
+    In actual execution, LangGraph's interrupt mechanism stops here
+    In test environment, increase retry count to prevent infinite loop
     """
     print("\n" + "="*80)
-    print("🛑 [HUMAN REVIEW NODE] 시작 - 사용자 확인 필요")
+    print("🛑 [HUMAN REVIEW NODE] Starting - User confirmation required")
     print("="*80)
     
-    question = state.get("human_question", "확인이 필요합니다.")
+    question = state.get("human_question", "Confirmation required.")
     retry_count = state.get("retry_count", 0)
     
-    # 재시도 횟수 증가
+    # Increase retry count
     new_retry_count = retry_count + 1
     
-    print(f"\n⚠️  질문: {question[:150]}...")
-    print(f"🔄 재시도 횟수: {new_retry_count}/3")
+    print(f"\n⚠️  Question: {question[:150]}...")
+    print(f"🔄 Retry count: {new_retry_count}/3")
     print("="*80)
     
     return {
         "retry_count": new_retry_count,
-        "logs": [f"🛑 [Human Review] 대기 중 (재시도: {new_retry_count}/3). 질문: {question[:100]}..."]
+        "logs": [f"🛑 [Human Review] Waiting (retry: {new_retry_count}/3). Question: {question[:100]}..."]
     }
 
 
 def index_data_node(state: AgentState) -> Dict[str, Any]:
     """
-    [Node 4 - Phase 3] PostgreSQL DB 구축 (온톨로지 기반)
+    [Node 4 - Phase 3] Build PostgreSQL DB (ontology-based)
     
-    전문가 피드백 반영:
-    - Chunk Processing (대용량 안전 처리)
-    - FK 제약조건 자동 생성 (ALTER TABLE)
-    - 인덱스 자동 생성 (Level 1-2)
+    Expert feedback applied:
+    - Chunk Processing (safe handling of large files)
+    - Auto FK constraint creation (ALTER TABLE)
+    - Auto index creation (Level 1-2)
     """
     import pandas as pd
     import os
@@ -312,46 +372,46 @@ def index_data_node(state: AgentState) -> Dict[str, Any]:
     from database.schema_generator import SchemaGenerator
     
     print("\n" + "="*80)
-    print("💾 [INDEXER NODE] 시작 - PostgreSQL DB 구축")
+    print("💾 [INDEXER NODE] Starting - PostgreSQL DB construction")
     print("="*80)
     
     schema = state.get("finalized_schema", [])
     file_path = state["file_path"]
     ontology = state.get("ontology_context", {})
     
-    # 테이블명 생성
+    # Generate table name
     table_name = os.path.basename(file_path).replace(".csv", "_table").replace(".", "_").replace("-", "_")
     
-    # DB 매니저
+    # DB manager
     db_manager = get_db_manager()
     
     try:
-        # === 1. 데이터 적재 (pandas가 자동으로 테이블 생성) ===
-        print(f"\n📥 [Data] 데이터 적재 중...")
+        # === 1. Load data (pandas auto-creates table) ===
+        print(f"\n📥 [Data] Loading data...")
         
-        # 파일 크기 확인
+        # Check file size
         file_size_mb = os.path.getsize(file_path) / (1024 * 1024)
-        print(f"   - 파일 크기: {file_size_mb:.1f}MB")
+        print(f"   - File size: {file_size_mb:.1f}MB")
         
         total_rows = 0
         
-        # PostgreSQL용 SQLAlchemy 엔진 (pandas to_sql용)
+        # SQLAlchemy engine for PostgreSQL (for pandas to_sql)
         engine = db_manager.get_sqlalchemy_engine()
         
-        # [TEST MODE] 행 개수 제한 (환경 변수 확인)
+        # [TEST MODE] Row limit (check environment variable)
         test_limit = os.environ.get("TEST_ROW_LIMIT")
         limit_kwargs = {}
         if test_limit:
             limit_rows = int(test_limit)
             limit_kwargs = {"nrows": limit_rows}
-            print(f"⚠️ [TEST MODE] 데이터 로드 제한 적용: 상위 {limit_rows}행만 처리")
+            print(f"⚠️ [TEST MODE] Data load limit applied: processing top {limit_rows} rows only")
 
-        if file_size_mb > 50:  # 50MB 이상이면 Chunk 처리
-            print(f"   - 대용량 파일 - Chunk Processing 적용 (100,000행씩)")
+        if file_size_mb > 50:  # Chunk processing for files > 50MB
+            print(f"   - Large file - Chunk Processing applied (100,000 rows per chunk)")
             
             chunk_size = 100000
-            # [TEST MODE] Chunk 처리 시에도 제한 적용
-            # nrows가 설정되면 chunksize와 함께 작동하여 전체 읽는 양을 제한함
+            # [TEST MODE] Apply limit even with chunk processing
+            # nrows works with chunksize to limit total rows read
             
             for i, chunk in enumerate(pd.read_csv(file_path, chunksize=chunk_size, **limit_kwargs)):
                 chunk.to_sql(
@@ -359,13 +419,13 @@ def index_data_node(state: AgentState) -> Dict[str, Any]:
                     engine, 
                     if_exists='append' if i > 0 else 'replace',
                     index=False,
-                    method='multi'  # PostgreSQL 최적화
+                    method='multi'  # PostgreSQL optimization
                 )
                 total_rows += len(chunk)
-                print(f"      • Chunk {i+1}: {len(chunk):,}행 적재 (누적: {total_rows:,}행)")
+                print(f"      • Chunk {i+1}: {len(chunk):,} rows loaded (cumulative: {total_rows:,} rows)")
         else:
-            # 작은 파일은 한 번에
-            print(f"   - 일반 파일 - 한 번에 적재")
+            # Load small files at once
+            print(f"   - Regular file - loading at once")
             df = pd.read_csv(file_path, **limit_kwargs)
             df.to_sql(
                 table_name, 
@@ -375,12 +435,12 @@ def index_data_node(state: AgentState) -> Dict[str, Any]:
                 method='multi'
             )
             total_rows = len(df)
-            print(f"   - {total_rows:,}행 적재 완료")
+            print(f"   - {total_rows:,} rows loaded")
         
-        print(f"✅ 데이터 적재 성공")
+        print(f"✅ Data loading successful")
         
-        # === 2. 인덱스 생성 (성능 최적화) ===
-        print(f"\n🔍 [Index] 인덱스 생성 중...")
+        # === 2. Create indices (performance optimization) ===
+        print(f"\n🔍 [Index] Creating indices...")
         
         indices = SchemaGenerator.generate_indices(
             table_name=table_name,
@@ -395,50 +455,83 @@ def index_data_node(state: AgentState) -> Dict[str, Any]:
         for idx_ddl in indices:
             try:
                 cursor.execute(idx_ddl)
-                # 인덱스명 추출
+                # Extract index name
                 idx_name = idx_ddl.split('"')[1] if '"' in idx_ddl else idx_ddl.split()[2]
                 indices_created.append(idx_name)
             except Exception as e:
-                print(f"⚠️  인덱스 생성 실패: {e}")
+                print(f"⚠️  Index creation failed: {e}")
         
         conn.commit()
         
         if indices_created:
-            print(f"   - 인덱스 {len(indices_created)}개 생성: {', '.join(indices_created)}")
+            print(f"   - {len(indices_created)} indices created: {', '.join(indices_created)}")
         else:
-            print(f"   - 생성된 인덱스 없음")
+            print(f"   - No indices created")
         
-        # === 3. 검증 ===
-        print(f"\n✅ [Verify] 검증 중...")
+        # === 3. Verification ===
+        print(f"\n✅ [Verify] Verifying...")
         
-        # 행 개수 확인 (PostgreSQL)
+        # Check row count (PostgreSQL)
         cursor.execute(f'SELECT COUNT(*) FROM "{table_name}"')
         actual_rows = cursor.fetchone()[0]
         
         if actual_rows == total_rows:
-            print(f"   - 행 개수 일치: {actual_rows:,}행 ✅")
+            print(f"   - Row count matches: {actual_rows:,} rows ✅")
         else:
-            print(f"   ⚠️ 행 개수 불일치: 예상 {total_rows:,}, 실제 {actual_rows:,}")
+            print(f"   ⚠️ Row count mismatch: expected {total_rows:,}, actual {actual_rows:,}")
+        
+        # === [NEW] Save Column Metadata (Neo4j) ===
+        if schema:
+            print(f"\n📋 [Column Metadata] Saving column metadata...")
+            
+            if "column_metadata" not in ontology:
+                ontology["column_metadata"] = {}
+            
+            ontology["column_metadata"][table_name] = {}
+            
+            for col_schema in schema:
+                col_name = col_schema.get("original_name", "unknown")
+                ontology["column_metadata"][table_name][col_name] = {
+                    "original_name": col_name,
+                    "full_name": col_schema.get("full_name"),
+                    "inferred_name": col_schema.get("inferred_name"),
+                    "description": col_schema.get("description"),
+                    "description_kr": col_schema.get("description_kr"),
+                    "data_type": col_schema.get("data_type"),
+                    "unit": col_schema.get("unit"),
+                    "typical_range": col_schema.get("typical_range"),
+                    "is_pii": col_schema.get("is_pii", False),
+                    "confidence": col_schema.get("confidence", 0)
+                }
+            
+            print(f"   - {len(schema)} column metadata generated")
+            
+            # Save to Neo4j
+            from src.utils.ontology_manager import get_ontology_manager
+            ontology_manager = get_ontology_manager()
+            ontology_manager.save(ontology)
+            print(f"   - Neo4j save complete")
         
         print("="*80)
         
         return {
+            "ontology_context": ontology,  # [NEW] Return updated ontology
             "logs": [
-                f"💾 [Indexer] {table_name} 생성 완료 ({total_rows:,}행)",
-                f"🔍 [Indexer] 인덱스: {len(indices_created)}개",
-                "✅ [Done] 인덱싱 프로세스 종료."
+                f"💾 [Indexer] {table_name} created ({total_rows:,} rows)",
+                f"🔍 [Indexer] Indices: {len(indices_created)}",
+                "✅ [Done] Indexing process complete."
             ]
         }
         
     except Exception as e:
-        print(f"\n❌ [Error] DB 저장 실패: {str(e)}")
+        print(f"\n❌ [Error] DB save failed: {str(e)}")
         print("="*80)
         
         import traceback
         traceback.print_exc()
         
         return {
-            "logs": [f"❌ [Indexer] DB 저장 실패: {str(e)}"],
+            "logs": [f"❌ [Indexer] DB save failed: {str(e)}"],
             "error_message": str(e)
         }
 
@@ -446,12 +539,18 @@ def index_data_node(state: AgentState) -> Dict[str, Any]:
 
 def _analyze_columns_with_llm(columns: List[str], sample_data: Any, anchor_context: Dict) -> List[ColumnSchema]:
     """
-    [Helper] LLM을 사용하여 각 컬럼의 의미, 데이터 타입, PII 여부를 분석
+    [Helper] Analyze column meaning, data type, PII status, units, etc. using LLM
+    
+    [Enhancements] Column metadata enrichment:
+    - full_name: Abbreviation expansion (e.g., sbp → Systolic Blood Pressure)
+    - unit: Measurement unit (e.g., mmHg, kg, cm)
+    - typical_range: Medical normal range
+    - sample_values: Actual sample values
     """
-    # LLM에게 보낼 문맥 요약
+    # Context summary for LLM
     prompt = f"""
-    You are a Medical Data Ontologist.
-    Analyze the columns of a dataset based on the provided sample data.
+    You are a Medical Data Ontologist specializing in clinical database design.
+    Analyze the columns of a medical dataset and provide DETAILED metadata.
     
     [Context]
     - Patient Identifier (Anchor): {anchor_context.get('column_name')}
@@ -460,7 +559,7 @@ def _analyze_columns_with_llm(columns: List[str], sample_data: Any, anchor_conte
     [Columns to Analyze]
     """
     
-    # sample_data가 리스트인 경우 (TabularProcessor에서 온 경우)
+    # If sample_data is a list (from TabularProcessor)
     if isinstance(sample_data, list):
         for col_detail in sample_data:
             col_name = col_detail.get('column_name', 'unknown')
@@ -474,52 +573,72 @@ def _analyze_columns_with_llm(columns: List[str], sample_data: Any, anchor_conte
                 min_val = col_detail.get('min', 'N/A')
                 max_val = col_detail.get('max', 'N/A')
                 prompt += f"- Column: '{col_name}' | Type: CONTINUOUS | Range: [{min_val}, {max_val}] | Samples: {samples}\n"
-    # sample_data가 딕셔너리인 경우 (이전 방식 호환)
+    # If sample_data is a dictionary (backward compatibility)
     elif isinstance(sample_data, dict):
         for col in columns:
             details = sample_data.get(col, {})
             samples = details.get("sample_values", [])
             prompt += f"- Column: '{col}', Samples: {samples}\n"
     else:
-        # 둘 다 아니면 컬럼 이름만 제공
+        # If neither, provide column names only
         for col in columns:
             prompt += f"- Column: '{col}'\n"
 
     prompt += """
     [Task]
-    For EACH column, provide a JSON object with:
-    1. inferred_name: Logical name (e.g., 'Systolic BP', 'Admission Date').
-    2. description: Brief medical description.
-    3. data_type: SQL compatible type (VARCHAR, INT, FLOAT, TIMESTAMP).
-    4. is_pii: Boolean (true if it contains name, phone, social security number).
-    5. confidence: 0.0 to 1.0.
+    For EACH column, provide a JSON object with DETAILED metadata:
+    
+    1. original_name: The exact column name as provided (REQUIRED)
+    2. inferred_name: Human-readable name (e.g., 'sbp' → 'Systolic Blood Pressure')
+    3. full_name: Full medical term without abbreviation (e.g., 'Systolic Blood Pressure')
+    4. description: Brief medical description (what does this column measure?)
+    5. description_kr: Korean description for Korean users (한글 설명)
+    6. data_type: SQL compatible type (VARCHAR, INT, FLOAT, TIMESTAMP, BOOLEAN)
+    7. unit: Measurement unit if applicable (e.g., "mmHg", "kg", "mg/dL", "bpm", "°C", null if N/A)
+    8. typical_range: Normal/typical value range in medical context (e.g., "90-140" for systolic BP, null if N/A)
+    9. is_pii: Boolean (true if it contains name, phone, address, social security number)
+    10. confidence: 0.0 to 1.0 (how confident are you about this analysis?)
+    
+    [Examples]
+    - 'sbp' → {"original_name": "sbp", "inferred_name": "Systolic BP", "full_name": "Systolic Blood Pressure", 
+               "description": "Peak arterial pressure during heart contraction", "description_kr": "심장 수축시 최고 동맥압 (수축기 혈압)",
+               "data_type": "FLOAT", "unit": "mmHg", "typical_range": "90-140", "is_pii": false, "confidence": 0.95}
+    - 'hr' → {"original_name": "hr", "inferred_name": "Heart Rate", "full_name": "Heart Rate",
+              "description": "Number of heartbeats per minute", "description_kr": "분당 심박수",
+              "data_type": "INT", "unit": "bpm", "typical_range": "60-100", "is_pii": false, "confidence": 0.95}
+    - 'age' → {"original_name": "age", "inferred_name": "Patient Age", "full_name": "Patient Age",
+               "description": "Age of the patient", "description_kr": "환자 나이",
+               "data_type": "INT", "unit": "years", "typical_range": "0-120", "is_pii": false, "confidence": 0.90}
 
-    Respond with a list of JSON objects.
+    Respond with a JSON object: {"columns": [list of column objects]}
     """
     
-    # LLM 호출
+    # LLM call
     response = llm_client.ask_json(prompt)
     
-    # 응답이 리스트인지 딕셔너리(리스트를 감싼)인지 확인 후 파싱
+    # Check if response is list or dict (wrapping list) and parse
     if isinstance(response, dict) and "columns" in response:
         result_list = response["columns"]
     elif isinstance(response, list):
         result_list = response
     else:
-        result_list = [] # 에러 처리 필요
+        result_list = []  # Error handling needed
 
-    # 결과 매핑
+    # Map results
     final_schema = []
     for idx, item in enumerate(result_list):
-        # 원본 컬럼명 매칭 (순서가 보장된다고 가정하거나 LLM에게 원본명을 뱉게 해야 함)
-        # 안전하게 원본 컬럼명을 LLM 응답에 포함시키는 것이 좋음
-        original = columns[idx] if idx < len(columns) else "unknown"
+        # Use original_name if available, otherwise match by index
+        original = item.get("original_name") or (columns[idx] if idx < len(columns) else "unknown")
         
         final_schema.append({
             "original_name": original,
             "inferred_name": item.get("inferred_name", original),
+            "full_name": item.get("full_name", item.get("inferred_name", original)),
             "description": item.get("description", ""),
+            "description_kr": item.get("description_kr", ""),
             "data_type": item.get("data_type", "VARCHAR"),
+            "unit": item.get("unit"),  # None if not applicable
+            "typical_range": item.get("typical_range"),  # None if not applicable
             "standard_concept_id": None, 
             "is_pii": item.get("is_pii", False),
             "confidence": item.get("confidence", 0.5)
@@ -530,16 +649,16 @@ def _analyze_columns_with_llm(columns: List[str], sample_data: Any, anchor_conte
 
 def _compare_with_global_context(local_metadata: Dict, local_anchor_info: Dict, project_context: Dict) -> Dict[str, Any]:
     """
-    [Helper] 현재 파일의 데이터와 프로젝트 Global Anchor 정보를 비교 (LLM 활용)
+    [Helper] Compare current file data with project Global Anchor info (using LLM)
     
-    ⭐ [NEW] 온톨로지의 relationships를 확인하여 간접 연결도 처리
-    예: lab_data에 subjectid가 없어도 caseid를 통해 clinical_data.subjectid와 연결 가능
+    ⭐ [NEW] Check ontology relationships for indirect connections
+    e.g., lab_data without subjectid can link to clinical_data.subjectid via caseid
     """
     master_name = project_context["master_anchor_name"]
     local_cols = local_metadata.get("columns", [])
     local_candidate = local_anchor_info.get("target_column")
     
-    # 현재 파일명에서 테이블명 추출
+    # Extract table name from current filename
     file_path = local_metadata.get("file_path", "")
     current_table = os.path.basename(file_path).replace(".csv", "").replace(".CSV", "")
     
@@ -621,24 +740,24 @@ def _compare_with_global_context(local_metadata: Dict, local_anchor_info: Dict, 
 
 
 # ============================================================================
-# 간접 연결 확인 (Ontology 기반)
+# Indirect Link Check (Ontology-based)
 # ============================================================================
 
 def _check_indirect_link_via_ontology(current_table: str, local_cols: list, master_anchor: str) -> Optional[Dict]:
     """
-    ⭐ [NEW] 온톨로지의 relationships를 확인하여 간접 연결 확인
+    ⭐ [NEW] Check ontology relationships for indirect connections
     
-    예시:
-    - lab_data에 subjectid가 없음
-    - 하지만 ontology에 "lab_data.caseid → clinical_data.caseid" 관계가 있음
-    - clinical_data에 subjectid가 있음
-    - 따라서 lab_data는 caseid를 통해 subjectid와 간접 연결됨
+    Example:
+    - lab_data does not have subjectid
+    - But ontology has "lab_data.caseid → clinical_data.caseid" relationship
+    - clinical_data has subjectid
+    - Therefore lab_data is indirectly connected to subjectid via caseid
     
     Returns:
-        간접 연결 정보 dict 또는 None
+        Indirect link info dict or None
     """
     try:
-        # 온톨로지 로드
+        # Load ontology
         ontology = ontology_manager.load()
         if not ontology:
             return None
@@ -647,27 +766,27 @@ def _check_indirect_link_via_ontology(current_table: str, local_cols: list, mast
         file_tags = ontology.get("file_tags", {})
         
         print(f"\n🔗 [Indirect Link Check] {current_table}")
-        print(f"   - 온톨로지 관계 수: {len(relationships)}개")
+        print(f"   - Ontology relationships: {len(relationships)}")
         
-        # 현재 테이블이 source인 관계 찾기
+        # Find relationships where current table is source
         for rel in relationships:
             source_table = rel.get("source_table", "")
             target_table = rel.get("target_table", "")
             source_column = rel.get("source_column", "")
             target_column = rel.get("target_column", "")
             
-            # current_table이 source인 경우
+            # If current_table is source
             if current_table.lower() in source_table.lower() or source_table.lower() in current_table.lower():
-                # 연결 컬럼이 현재 파일에 있는지 확인
+                # Check if link column exists in current file
                 if source_column in local_cols:
-                    # target_table에 master_anchor가 있는지 확인
+                    # Check if target_table has master_anchor
                     target_has_master = _check_table_has_column(file_tags, target_table, master_anchor)
                     
                     if target_has_master:
                         message = (
-                            f"✅ 간접 연결 발견! "
-                            f"'{current_table}.{source_column}' → '{target_table}.{target_column}' 관계를 통해 "
-                            f"'{master_anchor}'에 연결됨"
+                            f"✅ Indirect link found! "
+                            f"'{current_table}.{source_column}' → '{target_table}.{target_column}' relation "
+                            f"connects to '{master_anchor}'"
                         )
                         print(f"   {message}")
                         
@@ -678,20 +797,20 @@ def _check_indirect_link_via_ontology(current_table: str, local_cols: list, mast
                             "message": message
                         }
         
-        print(f"   - 간접 연결 없음")
+        print(f"   - No indirect link found")
         return None
         
     except Exception as e:
-        print(f"   ⚠️ 간접 연결 확인 오류: {e}")
+        print(f"   ⚠️ Indirect link check error: {e}")
         return None
 
 
 def _check_table_has_column(file_tags: Dict, table_name: str, column_name: str) -> bool:
     """
-    file_tags에서 특정 테이블에 특정 컬럼이 있는지 확인
+    Check if a specific table has a specific column in file_tags
     """
     for file_path, tag_info in file_tags.items():
-        # 파일명에서 테이블명 추출
+        # Extract table name from filename
         file_table = os.path.basename(file_path).replace(".csv", "").replace(".CSV", "")
         
         if table_name.lower() in file_table.lower() or file_table.lower() in table_name.lower():
@@ -703,27 +822,27 @@ def _check_table_has_column(file_tags: Dict, table_name: str, column_name: str) 
 
 
 # ============================================================================
-# Ontology Builder 관련 함수들 (Phase 0-1)
+# Ontology Builder Functions (Phase 0-1)
 # ============================================================================
 
 def _collect_negative_evidence(col_name: str, samples: list, unique_vals: list) -> dict:
     """
-    [Rule] 부정 증거 수집 (데이터 품질 이슈 감지)
+    [Rule] Collect negative evidence (detect data quality issues)
     
     Args:
-        col_name: 컬럼명
-        samples: 샘플 값 리스트
-        unique_vals: unique 값 리스트
+        col_name: Column name
+        samples: Sample values list
+        unique_vals: Unique values list
     
     Returns:
-        부정 증거 딕셔너리
+        Negative evidence dictionary
     """
     import numpy as np
     
     total = len(samples)
     unique = len(unique_vals)
     
-    # null 계산
+    # Calculate nulls
     null_count = sum(
         1 for s in samples 
         if s is None or s == '' or (isinstance(s, float) and np.isnan(s))
@@ -731,7 +850,7 @@ def _collect_negative_evidence(col_name: str, samples: list, unique_vals: list) 
     
     negative_evidence = []
     
-    # 1. 거의 unique인데 중복 있음 (데이터 오류 가능성)
+    # 1. Near unique but has duplicates (possible data error)
     if total > 0 and unique / total > 0.95 and unique != total:
         dup_rate = (total - unique) / total
         negative_evidence.append({
@@ -740,7 +859,7 @@ def _collect_negative_evidence(col_name: str, samples: list, unique_vals: list) 
             "severity": "medium"
         })
     
-    # 2. ID 같은데 null 있음 (PK 불가)
+    # 2. ID-like but has nulls (cannot be PK)
     if 'id' in col_name.lower() and null_count > 0:
         null_rate = null_count / total
         negative_evidence.append({
@@ -749,7 +868,7 @@ def _collect_negative_evidence(col_name: str, samples: list, unique_vals: list) 
             "severity": "high" if null_rate > 0.1 else "low"
         })
     
-    # 3. Cardinality 너무 높음 (free text 가능성)
+    # 3. Cardinality too high (possible free text)
     if unique > 100:
         negative_evidence.append({
             "type": "high_cardinality",
@@ -766,14 +885,14 @@ def _collect_negative_evidence(col_name: str, samples: list, unique_vals: list) 
 
 def _summarize_long_values(values: list, max_length: int = 50) -> list:
     """
-    [Rule] 긴 텍스트 요약 (Context Window 관리)
+    [Rule] Summarize long text (Context Window management)
     
     Args:
-        values: 값 리스트
-        max_length: 최대 길이 (이상이면 요약)
+        values: Values list
+        max_length: Maximum length (summarize if exceeded)
     
     Returns:
-        요약된 값 리스트
+        Summarized values list
     """
     summarized = []
     
@@ -781,7 +900,7 @@ def _summarize_long_values(values: list, max_length: int = 50) -> list:
         val_str = str(val)
         
         if len(val_str) > max_length:
-            # 메타 정보로 대체 (토큰 절약)
+            # Replace with meta info (save tokens)
             preview = val_str[:20].replace('\n', ' ')
             summarized.append(f"[Text: {len(val_str)} chars, starts='{preview}...']")
         else:
@@ -792,13 +911,13 @@ def _summarize_long_values(values: list, max_length: int = 50) -> list:
 
 def _parse_metadata_content(file_path: str) -> dict:
     """
-    [Rule] 메타데이터 파일 파싱 (CSV → Dictionary)
+    [Rule] Parse metadata file (CSV → Dictionary)
     
     Args:
-        file_path: 메타데이터 파일 경로
+        file_path: Metadata file path
     
     Returns:
-        definitions 딕셔너리 {parameter: description}
+        definitions dictionary {parameter: description}
     """
     import pandas as pd
     
@@ -807,7 +926,7 @@ def _parse_metadata_content(file_path: str) -> dict:
     try:
         df = pd.read_csv(file_path)
         
-        # 일반적인 메타데이터 구조: [Parameter/Name, Description, ...]
+        # Common metadata structure: [Parameter/Name, Description, ...]
         if len(df.columns) >= 2:
             key_col = df.columns[0]
             desc_col = df.columns[1]
@@ -816,7 +935,7 @@ def _parse_metadata_content(file_path: str) -> dict:
                 key = str(row[key_col]).strip()
                 desc = str(row[desc_col]).strip()
                 
-                # 추가 정보 결합 (Unit, Type 등)
+                # Combine additional info (Unit, Type, etc.)
                 extra_info = []
                 for col in df.columns[2:]:
                     val = row[col]
@@ -837,55 +956,55 @@ def _parse_metadata_content(file_path: str) -> dict:
 
 def _build_metadata_detection_context(file_path: str, metadata: dict) -> dict:
     """
-    [Rule] 메타데이터 감지를 위한 컨텍스트 구성 (전처리)
+    [Rule] Build context for metadata detection (preprocessing)
     
     Args:
-        file_path: 파일 경로
-        metadata: Processor가 추출한 raw_metadata
+        file_path: File path
+        metadata: raw_metadata extracted by Processor
     
     Returns:
-        LLM에게 제공할 컨텍스트
+        Context to provide to LLM
     """
     basename = os.path.basename(file_path)
     name_without_ext = os.path.splitext(basename)[0]
     extension = os.path.splitext(basename)[1]
     
-    # Rule: 파일명 파싱
+    # Rule: Parse filename
     parts = name_without_ext.split('_')
     base_name = parts[0] if parts else name_without_ext
     
     columns = metadata.get("columns", [])
     column_details = metadata.get("column_details", [])
     
-    # Rule: 샘플 데이터 정리
+    # Rule: Organize sample data
     sample_summary = []
     total_text_length = 0
     
-    for col_info in column_details[:5]:  # 처음 5개 컬럼만
+    for col_info in column_details[:5]:  # First 5 columns only
         col_name = col_info.get('column_name', 'unknown')
         samples = col_info.get('samples', [])
         col_type = col_info.get('column_type', 'unknown')
         
-        # Categorical이면 unique values도 제공
+        # If categorical, also provide unique values
         if col_type == 'categorical':
             unique_vals = col_info.get('unique_values', [])[:20]
-            # 긴 텍스트 요약 (Rule)
+            # Summarize long text (Rule)
             unique_vals_summarized = _summarize_long_values(unique_vals, max_length=50)
         else:
             unique_vals = samples[:10]
             unique_vals_summarized = _summarize_long_values(unique_vals, max_length=50)
         
-        # Rule: 평균 텍스트 길이 계산
+        # Rule: Calculate average text length
         avg_length = 0.0
         if samples:
             text_lengths = [len(str(s)) for s in samples]
             avg_length = sum(text_lengths) / len(text_lengths)
             total_text_length += avg_length
         
-        # [NEW] Negative Evidence 수집 (Rule)
+        # [NEW] Collect negative evidence (Rule)
         negative_evidence = _collect_negative_evidence(col_name, samples, unique_vals if unique_vals else [])
         
-        # 샘플도 요약
+        # Summarize samples too
         samples_summarized = _summarize_long_values(samples[:3], max_length=50)
         
         sample_summary.append({
@@ -898,10 +1017,10 @@ def _build_metadata_detection_context(file_path: str, metadata: dict) -> dict:
             "negative_evidence": negative_evidence.get("issues", [])  # [NEW]
         })
     
-    # Context 크기 추정
+    # Estimate context size
     context_size = len(json.dumps(sample_summary))
     
-    # 너무 크면 샘플 축소 (Rule)
+    # If too large, reduce samples (Rule)
     if context_size > 3000:
         sample_summary = sample_summary[:3]
         context_size = len(json.dumps(sample_summary))
@@ -921,21 +1040,21 @@ def _build_metadata_detection_context(file_path: str, metadata: dict) -> dict:
 
 def _ask_llm_is_metadata(context: dict) -> dict:
     """
-    [LLM] 메타데이터 여부 판단
+    [LLM] Determine if file is metadata
     
     Args:
-        context: Rule로 전처리된 컨텍스트
+        context: Pre-processed context by Rules
     
     Returns:
-        판단 결과 {is_metadata, confidence, reasoning, indicators}
+        Judgment result {is_metadata, confidence, reasoning, indicators}
     """
-    # 전역 캐시 사용
-    # 캐시 확인
+    # Use global cache
+    # Check cache
     cached = llm_cache.get("metadata_detection", context)
     if cached:
         return cached
     
-    # LLM 프롬프트
+    # LLM prompt
     prompt = f"""
 You are a Data Classification Expert.
 
@@ -943,7 +1062,7 @@ I have pre-processed file information using rules. Based on these facts, determi
 
 [PRE-PROCESSED FILE INFORMATION - Extracted by Rules]
 Filename: {context['filename']}
-Parsed Name Parts: {context['name_parts']}  ← Rule로 파싱
+Parsed Name Parts: {context['name_parts']}  (parsed by Rule)
 Base Name: {context['base_name']}
 Extension: {context['extension']}
 Number of Columns: {context['num_columns']}
@@ -1005,10 +1124,10 @@ You interpret the MEANING of these pre-processed facts.
     try:
         result = llm_client.ask_json(prompt)
         
-        # 캐시 저장
+        # Save to cache
         llm_cache.set("metadata_detection", context, result)
         
-        # 확신도 검증
+        # Validate confidence
         confidence = result.get("confidence", 0.0)
         if confidence < 0.75:
             print(f"⚠️  [Metadata Detection] Low confidence ({confidence:.2%})")
@@ -1020,7 +1139,7 @@ You interpret the MEANING of these pre-processed facts.
         print(f"❌ [Metadata Detection] LLM Error: {e}")
         # Fallback
         return {
-            "is_metadata": False,  # 보수적 기본값
+            "is_metadata": False,  # Conservative default
             "confidence": 0.0,
             "reasoning": f"LLM error: {str(e)}",
             "indicators": {},
@@ -1030,21 +1149,21 @@ You interpret the MEANING of these pre-processed facts.
 
 def _find_common_columns(current_cols: List[str], existing_tables: dict) -> List[dict]:
     """
-    [Rule] 현재 테이블과 기존 테이블들 사이의 공통 컬럼 찾기 (FK 후보 검색)
+    [Rule] Find common columns between current table and existing tables (FK candidate search)
     
     Args:
-        current_cols: 현재 테이블의 컬럼 리스트
-        existing_tables: 기존 테이블들 정보 {table_name: {columns: [...], ...}}
+        current_cols: Column list of current table
+        existing_tables: Existing tables info {table_name: {columns: [...], ...}}
     
     Returns:
-        FK 후보 리스트
+        FK candidate list
     """
     candidates = []
     
     for table_name, table_info in existing_tables.items():
         existing_cols = table_info.get("columns", [])
         
-        # 완전 일치하는 컬럼 찾기 (Rule - 정확한 매칭)
+        # Find exact matching columns (Rule - exact match)
         common_cols = set(current_cols) & set(existing_cols)
         
         for common_col in common_cols:
@@ -1053,17 +1172,17 @@ def _find_common_columns(current_cols: List[str], existing_tables: dict) -> List
                 "current_table": "new_table",
                 "existing_table": table_name,
                 "match_type": "exact_name",
-                "confidence_hint": 0.9  # 이름이 완전히 같으면 높은 확률로 FK
+                "confidence_hint": 0.9  # Same name = high probability of FK
             })
     
-    # 유사한 이름 찾기 (Rule - 단순 문자열 정규화)
-    # 예: patient_id vs patientid, subjectid vs subject_id
+    # Find similar names (Rule - simple string normalization)
+    # e.g., patient_id vs patientid, subjectid vs subject_id
     for table_name, table_info in existing_tables.items():
         existing_cols = table_info.get("columns", [])
         
         for curr_col in current_cols:
             for exist_col in existing_cols:
-                # 언더스코어 제거 후 비교 (Rule)
+                # Compare after removing underscores (Rule)
                 curr_normalized = curr_col.replace('_', '').lower()
                 exist_normalized = exist_col.replace('_', '').lower()
                 
@@ -1073,7 +1192,7 @@ def _find_common_columns(current_cols: List[str], existing_tables: dict) -> List
                         "existing_col": exist_col,
                         "existing_table": table_name,
                         "match_type": "similar_name",
-                        "confidence_hint": 0.7  # 유사하면 중간 확률
+                        "confidence_hint": 0.7  # Similar = medium probability
                     })
     
     return candidates
@@ -1081,33 +1200,33 @@ def _find_common_columns(current_cols: List[str], existing_tables: dict) -> List
 
 def _extract_filename_hints(filename: str) -> dict:
     """
-    [Rule + LLM] 파일명에서 의미론적 힌트 추출
+    [Rule + LLM] Extract semantic hints from filename
     
-    1단계 (Rule): 파일명 구조 분석
-    2단계 (LLM): 의미 추론 (Entity Type, Level)
+    Step 1 (Rule): Analyze filename structure
+    Step 2 (LLM): Infer meaning (Entity Type, Level)
     
     Args:
-        filename: 파일명 또는 파일 경로
+        filename: Filename or file path
     
     Returns:
-        파일명 힌트 딕셔너리
+        Filename hints dictionary
     """
-    # 전역 캐시 사용
+    # Use global cache
     
-    # === 1단계: Rule-based 파일명 파싱 ===
+    # === Step 1: Rule-based filename parsing ===
     basename = os.path.basename(filename)
     name_without_ext = os.path.splitext(basename)[0]
     extension = os.path.splitext(basename)[1]
     
-    # 언더스코어로 분리 (Rule)
+    # Split by underscore (Rule)
     parts = name_without_ext.split('_')
     base_name = parts[0] if parts else name_without_ext
     
-    # 접두사/접미사 추출 (Rule)
+    # Extract prefix/suffix (Rule)
     prefix = parts[0] if len(parts) >= 2 else None
     suffix = parts[-1] if len(parts) >= 2 else None
     
-    # Rule로 추출한 구조 정보
+    # Structure info extracted by Rule
     parsed_structure = {
         "original_filename": basename,
         "name_without_ext": name_without_ext,
@@ -1120,14 +1239,14 @@ def _extract_filename_hints(filename: str) -> dict:
         "num_parts": len(parts)
     }
     
-    # === 2단계: LLM 기반 의미 추론 ===
+    # === Step 2: LLM-based semantic inference ===
     
-    # 캐시 확인
+    # Check cache
     cached = llm_cache.get("filename_hints", parsed_structure)
     if cached:
         return cached
     
-    # LLM 프롬프트
+    # LLM prompt
     prompt = f"""
 You are a Data Architecture Analyst.
 
@@ -1177,25 +1296,25 @@ Using the PARSED STRUCTURE, infer:
 """
     
     try:
-        # 전역 llm_client 사용
+        # Use global llm_client
         hints = llm_client.ask_json(prompt)
         
-        # 기본 필드 추가
+        # Add default fields
         hints["filename"] = basename
         hints["base_name"] = base_name
         hints["parts"] = parts
         
-        # 캐시 저장
+        # Save to cache
         llm_cache.set("filename_hints", parsed_structure, hints)
         
-        # Confidence 검증
+        # Validate confidence
         if hints.get("confidence", 1.0) < 0.7:
             print(f"⚠️  [Filename Analysis] Low confidence ({hints.get('confidence'):.2%}) for {basename}")
         
         return hints
         
     except Exception as e:
-        # LLM 실패 시 최소 정보만 반환
+        # On LLM failure, return minimal info
         print(f"❌ [Filename Analysis] LLM Error: {e}")
         return {
             "filename": basename,
@@ -1213,14 +1332,14 @@ Using the PARSED STRUCTURE, infer:
 
 def _summarize_existing_tables(ontology_context: dict, processed_files_data: dict = None) -> dict:
     """
-    [Rule] 기존 테이블 정보 요약 (LLM에게 제공용)
+    [Rule] Summarize existing table info (for LLM)
     
     Args:
-        ontology_context: 현재 온톨로지 컨텍스트
-        processed_files_data: 처리된 파일들의 컬럼 정보 (optional)
+        ontology_context: Current ontology context
+        processed_files_data: Column info of processed files (optional)
     
     Returns:
-        테이블 요약 딕셔너리
+        Table summary dictionary
     """
     tables = {}
     
@@ -1413,14 +1532,14 @@ Be conservative: confidence < 0.8 if unsure.
 
 def _summarize_existing_tables(ontology_context: dict, processed_files_data: dict = None) -> dict:
     """
-    [Rule] 기존 테이블 정보 요약 (LLM에게 제공용)
+    [Rule] Summarize existing table info (for LLM)
     
     Args:
-        ontology_context: 현재 온톨로지 컨텍스트
-        processed_files_data: 처리된 파일들의 컬럼 정보 (optional)
+        ontology_context: Current ontology context
+        processed_files_data: Column info of processed files (optional)
     
     Returns:
-        테이블 요약 딕셔너리
+        Table summary dictionary
     """
     tables = {}
     
@@ -1441,78 +1560,432 @@ def _summarize_existing_tables(ontology_context: dict, processed_files_data: dic
     return tables
 
 
-def _generate_specific_human_question(
+# ============================================================================
+# LLM 기반 Human Review 판단 (유연한 조건)
+# ============================================================================
+
+def _should_request_human_review(
     file_path: str,
-    llm_result: dict,
-    context: dict
-) -> str:
+    issue_type: str,
+    context: Dict[str, Any],
+    rule_based_confidence: float = 1.0
+) -> Dict[str, Any]:
     """
-    [Rule] LLM reasoning을 활용한 구체적 질문 생성
+    [Helper] Human Review가 필요한지 판단 (Rule + LLM Hybrid)
     
     Args:
-        file_path: 파일 경로
-        llm_result: LLM 판단 결과
-        context: 전처리된 컨텍스트
+        file_path: 처리 중인 파일 경로
+        issue_type: 이슈 유형 ("metadata_classification", "anchor_detection", "anchor_conflict", etc.)
+        context: 판단에 필요한 컨텍스트 정보
+        rule_based_confidence: Rule-based 분석에서 얻은 confidence (0~1)
     
     Returns:
-        구체적인 질문 문자열
+        {
+            "needs_review": bool,
+            "reason": str,
+            "confidence": float,
+            "suggested_question": str (optional)
+        }
     """
     filename = os.path.basename(file_path)
-    confidence = llm_result.get("confidence", 0.0)
-    reasoning = llm_result.get("reasoning", "Unknown")
-    indicators = llm_result.get("indicators", {})
     
-    # LLM이 헷갈린 이유 분석
-    confusion_points = []
+    # === 1단계: Rule-based 판단 (빠르고 저렴) ===
+    threshold = _get_threshold_for_issue(issue_type)
     
-    if indicators.get("filename_hint") == "weak" or indicators.get("filename_hint") == "none":
-        confusion_points.append("파일명이 애매함")
+    rule_decision = {
+        "needs_review": rule_based_confidence < threshold,
+        "reason": f"Confidence {rule_based_confidence:.1%} < Threshold {threshold:.1%}",
+        "confidence": rule_based_confidence
+    }
     
-    if indicators.get("structure_hint") == "unclear" or indicators.get("structure_hint") == "mixed":
-        confusion_points.append("컬럼 구조가 혼합형")
+    # LLM 판단이 비활성화되어 있으면 Rule 결과만 반환
+    if not HumanReviewConfig.USE_LLM_FOR_REVIEW_DECISION:
+        print(f"   [Rule-only] {issue_type}: needs_review={rule_decision['needs_review']}")
+        return rule_decision
     
-    if indicators.get("content_type") == "mixed":
-        confusion_points.append("내용이 설명문과 데이터 혼재")
+    # === 2단계: LLM 기반 판단 (더 유연) ===
+    # Rule에서 이미 "확실히 필요"하다고 판단한 경우 LLM 호출 생략 (비용 절감)
+    if rule_based_confidence < 0.5:
+        print(f"   [Rule] Low confidence ({rule_based_confidence:.1%}), skipping LLM check")
+        return rule_decision
     
-    # 구체적 질문 생성
-    question = f"""
-━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
-파일: {filename}
-확신도: {confidence:.1%} (낮음 - 확인 필요)
-━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+    # LLM에게 판단 요청
+    llm_decision = _ask_llm_for_review_decision(
+        filename=filename,
+        issue_type=issue_type,
+        context=context,
+        rule_confidence=rule_based_confidence
+    )
+    
+    # === 3단계: Rule과 LLM 결과 종합 ===
+    # 둘 중 하나라도 "필요하다"고 하면 Human Review 요청
+    final_needs_review = rule_decision["needs_review"] or llm_decision.get("needs_review", False)
+    
+    combined_reason = []
+    if rule_decision["needs_review"]:
+        combined_reason.append(f"Rule: {rule_decision['reason']}")
+    if llm_decision.get("needs_review"):
+        combined_reason.append(f"LLM: {llm_decision.get('reason', 'LLM recommended review')}")
+    
+    result = {
+        "needs_review": final_needs_review,
+        "reason": " | ".join(combined_reason) if combined_reason else "No issues detected",
+        "confidence": rule_based_confidence,
+        "llm_opinion": llm_decision.get("reason", "N/A")
+    }
+    
+    print(f"   [Hybrid] {issue_type}: needs_review={final_needs_review}")
+    print(f"            Rule={rule_decision['needs_review']}, LLM={llm_decision.get('needs_review', 'N/A')}")
+    
+    return result
 
-🤔 AI가 헷갈린 이유:
-{reasoning}
 
-발견된 이슈:
-{chr(10).join('• ' + p for p in confusion_points) if confusion_points else '• (이슈 없음)'}
+def _get_threshold_for_issue(issue_type: str) -> float:
+    """이슈 유형별 Threshold 반환"""
+    thresholds = {
+        "metadata_classification": HumanReviewConfig.METADATA_CONFIDENCE_THRESHOLD,
+        "anchor_detection": HumanReviewConfig.ANCHOR_CONFIDENCE_THRESHOLD,
+        "anchor_conflict": HumanReviewConfig.ANCHOR_CONFIDENCE_THRESHOLD,
+        "general": 0.7
+    }
+    return thresholds.get(issue_type, 0.75)
 
-📋 참고 정보:
-- 파일명 구조: {context.get('name_parts', [])}
-- 컬럼 수: {context.get('num_columns', 0)}개
-- 컬럼 목록: {context.get('columns', [])[:5]}...
-- 샘플 데이터 일부:
+
+def _ask_llm_for_review_decision(
+    filename: str,
+    issue_type: str,
+    context: Dict[str, Any],
+    rule_confidence: float
+) -> Dict[str, Any]:
+    """LLM에게 Human Review 필요 여부 판단 요청"""
+    
+    prompt = f"""
+    You are an AI assistant helping with medical data processing.
+    Based on the following situation, decide if human intervention is needed.
+
+    [Situation]
+    - File: {filename}
+    - Issue Type: {issue_type}
+    - Rule-based Confidence: {rule_confidence:.1%}
+    - Context: {json.dumps(context, ensure_ascii=False, default=str)[:500]}...
+
+    [Issue Type Descriptions]
+    - metadata_classification: Determining if file is metadata (dictionary) or actual data
+    - anchor_detection: Finding the primary identifier column (e.g., patient_id)
+    - anchor_conflict: Mismatch between local and global anchor columns
+
+    [Decision Criteria]
+    Return "needs_review": true if:
+    1. The context shows ambiguous or conflicting information
+    2. Critical decisions might affect data integrity
+    3. Domain expertise is clearly needed (medical terminology, etc.)
+    4. Multiple valid interpretations exist
+
+    Return "needs_review": false if:
+    1. The situation is straightforward despite low confidence
+    2. Safe defaults can be applied
+    3. The issue can be auto-corrected later
+
+    Respond with JSON only:
+    {{
+        "needs_review": true or false,
+        "reason": "Brief explanation in Korean (한국어)"
+    }}
+    """
+    
+    try:
+        result = llm_client.ask_json(prompt)
+        return {
+            "needs_review": result.get("needs_review", False),
+            "reason": result.get("reason", "LLM did not provide reason")
+        }
+    except Exception as e:
+        print(f"   ⚠️ [LLM Review Decision] Error: {e}")
+        # LLM 실패 시 Rule 결과에 의존
+        return {"needs_review": False, "reason": f"LLM error: {str(e)}"}
+
+
+def _parse_human_feedback_to_column(
+    feedback: str,
+    available_columns: List[str],
+    master_anchor: Optional[str],
+    file_path: str
+) -> Dict[str, Any]:
+    """
+    [Helper] 사용자 피드백을 파싱하여 실제 컬럼명 추출
+    
+    입력 유형:
+    1. 실제 컬럼명 (예: "caseid", "subjectid") → 그대로 반환
+    2. "skip" → 스킵 액션 반환
+    3. 설명 (예: "subjectID는 환자ID이고 caseID는 수술 ID야") → LLM으로 해석
+    
+    Returns:
+        {"action": "use_column", "column_name": "caseid", "reasoning": "..."}
+        {"action": "skip", "reasoning": "사용자가 스킵 요청"}
+    """
+    feedback_lower = feedback.strip().lower()
+    
+    # Case 1: 스킵 요청
+    if feedback_lower in ["skip", "스킵", "건너뛰기", "pass"]:
+        return {"action": "skip", "reasoning": "사용자가 스킵 요청"}
+    
+    # Case 2: 실제 컬럼명과 정확히 일치
+    columns_lower = [c.lower() for c in available_columns]
+    if feedback_lower in columns_lower:
+        # 원래 대소문자 유지
+        idx = columns_lower.index(feedback_lower)
+        return {
+            "action": "use_column",
+            "column_name": available_columns[idx],
+            "reasoning": "User specified column name directly"
+        }
+    
+    # Case 3: Description or complex input → Interpret with LLM
+    print(f"   → User input is not a column name. Interpreting with LLM...")
+    
+    from src.utils.llm_client import get_llm_client
+    
+    try:
+        llm_client = get_llm_client()
+        
+        prompt = f"""The user has provided feedback about the identifier (Anchor) column of a data file.
+Interpret this feedback and determine which column should be used.
+
+[File Information]
+- Filename: {os.path.basename(file_path)}
+- Available Columns: {available_columns}
+- Project Master Anchor: {master_anchor or 'None'}
+
+[User Feedback]
+"{feedback}"
+
+[Analysis Request]
+1. Identify which column should be used as the Anchor based on the user's feedback.
+2. If the feedback describes relationships (e.g., "A is patient ID and B is surgery ID"),
+   select the most appropriate column from the file's columns.
+3. Prioritize columns that can link to the Master Anchor.
+
+[Response Format - JSON only]
+{{
+    "column_name": "Selected column name (from available columns list)",
+    "reasoning": "Reason for selection",
+    "user_intent": "Summary of user's intent"
+}}"""
+        
+        result = llm_client.ask_json(prompt)
+        
+        if "error" not in result and result.get("column_name"):
+            selected = result["column_name"]
+            
+            # 선택된 컬럼이 실제로 존재하는지 확인
+            if selected.lower() in columns_lower:
+                idx = columns_lower.index(selected.lower())
+                return {
+                    "action": "use_column",
+                    "column_name": available_columns[idx],
+                    "reasoning": result.get("reasoning", "LLM interpretation result"),
+                    "user_intent": result.get("user_intent", feedback)
+                }
+        
+        # LLM failed to return valid column → Use first column
+        print(f"   ⚠️ LLM failed to return valid column. Using first column: {available_columns[0]}")
+        return {
+            "action": "use_column",
+            "column_name": available_columns[0] if available_columns else "unknown",
+            "reasoning": f"LLM interpretation failed. Using default. User input: {feedback}"
+        }
+        
+    except Exception as e:
+        print(f"   ⚠️ LLM call failed: {e}")
+        # On LLM failure, use first column
+        return {
+            "action": "use_column",
+            "column_name": available_columns[0] if available_columns else feedback.strip(),
+            "reasoning": f"LLM failed. Using default. Error: {str(e)}"
+        }
+
+
+def _generate_natural_human_question(
+    file_path: str,
+    context: Dict[str, Any],
+    issue_type: str = "general_uncertainty"
+) -> str:
+    """
+    [Helper] Generate natural questions for users using LLM (Human-in-the-Loop)
+    
+    Returns:
+        Question string to show to the user (English)
+    """
+    from src.utils.llm_client import get_llm_client
+    
+    filename = os.path.basename(file_path)
+    
+    # Extract context
+    columns = context.get("columns", [])
+    candidates = context.get("candidates", "None")
+    reasoning = context.get("reasoning", "No information")
+    ai_msg = context.get("message", "")
+    global_master = context.get("master_anchor", "None")
+    
+    # Format column list
+    column_list = columns[:10] if len(columns) > 10 else columns
+    columns_str = ", ".join(column_list)
+    if len(columns) > 10:
+        columns_str += f" ... (and {len(columns) - 10} more)"
+    
+    # === Fallback messages (used when LLM fails) ===
+    fallback_messages = {
+        "anchor_conflict": f"""
+┌─────────────────────────────────────────────────────────────────────────────┐
+│  🔗 Anchor Column Mismatch - Confirmation Required                          │
+├─────────────────────────────────────────────────────────────────────────────┤
+│  📁 File: {filename}
+│  
+│  ❓ Issue:
+│     The project's Master Anchor is '{global_master}'.
+│     However, this file appears to use '{candidates}' as the identifier.
+│  
+│  💡 AI Analysis:
+│     {reasoning[:200]}{'...' if len(str(reasoning)) > 200 else ''}
+│  
+│  📋 Columns in file:
+│     {columns_str}
+│  
+│  🎯 Action Required:
+│     1. Is '{candidates}' the same as '{global_master}'? (e.g., both are Patient ID)
+│     2. If not, which column corresponds to '{global_master}'?
+│     3. If none exists, type 'skip'.
+└─────────────────────────────────────────────────────────────────────────────┘
+""",
+        "anchor_uncertain": f"""
+┌─────────────────────────────────────────────────────────────────────────────┐
+│  🔍 Anchor Column Identification Required                                    │
+├─────────────────────────────────────────────────────────────────────────────┤
+│  📁 File: {filename}
+│  
+│  ❓ Issue:
+│     AI could not identify a Patient/Case identifier (Anchor) column.
+│     Candidate: '{candidates}' (low confidence)
+│  
+│  💡 AI Analysis:
+│     {reasoning[:200]}{'...' if len(str(reasoning)) > 200 else ''}
+│  
+│  📋 Columns in file:
+│     {columns_str}
+│  
+│  🎯 Action Required:
+│     Please enter the column name that serves as the unique identifier
+│     (Patient ID, Subject ID, Case ID, etc.).
+│     Type 'skip' if none exists.
+└─────────────────────────────────────────────────────────────────────────────┘
+""",
+        "metadata_uncertain": f"""
+┌─────────────────────────────────────────────────────────────────────────────┐
+│  📖 File Type Confirmation Required                                          │
+├─────────────────────────────────────────────────────────────────────────────┤
+│  📁 File: {filename}
+│  
+│  ❓ Issue:
+│     AI cannot determine if this file is 'metadata (description/dictionary)'
+│     or 'actual data'.
+│  
+│  💡 AI Analysis:
+│     {reasoning[:200]}{'...' if len(str(reasoning)) > 200 else ''}
+│  
+│  📋 Columns in file:
+│     {columns_str}
+│  
+│  🎯 Action Required:
+│     - If metadata (column descriptions, code definitions): type 'metadata'
+│     - If actual patient/measurement data: type 'data'
+└─────────────────────────────────────────────────────────────────────────────┘
+""",
+        "general_uncertainty": f"""
+┌─────────────────────────────────────────────────────────────────────────────┐
+│  ⚠️ Confirmation Required                                                    │
+├─────────────────────────────────────────────────────────────────────────────┤
+│  📁 File: {filename}
+│  
+│  ❓ Issue:
+│     {ai_msg or 'Uncertainty occurred during data processing.'}
+│  
+│  📋 Columns in file:
+│     {columns_str}
+│  
+│  🎯 User confirmation is required.
+└─────────────────────────────────────────────────────────────────────────────┘
 """
+    }
     
-    # 샘플 추가
-    samples = context.get('sample_data', [])
-    if samples:
-        for i, s in enumerate(samples[:2]):
-            question += f"\n  컬럼 {i+1}: {s.get('column', '?')} = {s.get('samples', [])}"
+    # === LLM prompt ===
+    task_descriptions = {
+        "anchor_conflict": f"""
+In the current file '{filename}', the column '{candidates}' is presumed to be the identifier.
+However, the project's Master Anchor is '{global_master}'.
+Ask the user if these two columns have the same meaning, or if a different column should be selected.
+""",
+        "anchor_uncertain": f"""
+No clear identifier column was found in the current file '{filename}'.
+AI's candidate is '{candidates}' but with low confidence.
+Ask the user which column is the patient/case identifier.
+""",
+        "metadata_uncertain": f"""
+It is unclear whether the current file '{filename}' is metadata (description file) or actual data.
+Ask the user to confirm the type of file.
+""",
+        "general_uncertainty": f"Issue during data processing: {ai_msg}"
+    }
     
-    question += """
-
-❓ 질문: 이 파일은 메타데이터(설명서/코드북)입니까, 
-        아니면 실제 측정/트랜잭션 데이터입니까?
-
-답변 옵션:
-1. "메타데이터" - 다른 데이터를 설명하는 파일
-2. "데이터" - 실제 환자/측정 기록
-3. "모르겠음" - 추가 조사 필요
-
->>> 답변: """
+    task_desc = task_descriptions.get(issue_type, task_descriptions["general_uncertainty"])
     
-    return question
+    prompt = f"""You are an AI assistant helping a medical data engineer.
+An uncertainty occurred during data processing, and you need to ask the user a question.
+
+[Context]
+- Filename: {filename}
+- Columns in file: {columns_str}
+- AI Analysis: {reasoning}
+- Additional info: {ai_msg}
+
+[Issue to Resolve]
+{task_desc}
+
+[Question Guidelines]
+1. Write in clear, professional English.
+2. Be polite and specific in your question.
+3. Briefly explain why you're asking this question.
+4. Provide options or examples for the user to choose from.
+5. Reference specific column names from the column list.
+6. Keep it within 3-5 sentences.
+7. Do not use code or JSON format.
+
+Question:"""
+    
+    try:
+        llm_client = get_llm_client()
+        llm_response = llm_client.ask_text(prompt)
+        
+        # LLM 응답이 너무 짧으면 fallback 사용
+        if len(llm_response.strip()) < 20:
+            return fallback_messages.get(issue_type, fallback_messages["general_uncertainty"])
+        
+        # LLM 응답 포맷팅
+        formatted_response = f"""
+┌─────────────────────────────────────────────────────────────────────────────┐
+│  📁 파일: {filename}
+│  📋 컬럼: {columns_str}
+├─────────────────────────────────────────────────────────────────────────────┤
+
+{llm_response.strip()}
+
+└─────────────────────────────────────────────────────────────────────────────┘
+"""
+        return formatted_response
+        
+    except Exception as e:
+        print(f"⚠️ [Question Gen] LLM 호출 실패: {e}")
+        return fallback_messages.get(issue_type, fallback_messages["general_uncertainty"])
+
 
 
 def ontology_builder_node(state: AgentState) -> Dict[str, Any]:
@@ -1566,13 +2039,32 @@ def ontology_builder_node(state: AgentState) -> Dict[str, Any]:
     print(f"   - 확신도: {confidence:.2%}")
     print(f"   - Reasoning: {meta_result.get('reasoning', 'N/A')[:80]}...")
     
-    # === Step 3: Confidence Check ===
-    if confidence < 0.75:
+    # === Step 3: Confidence Check (유연한 판단) ===
+    review_decision = _should_request_human_review(
+        file_path=file_path,
+        issue_type="metadata_classification",
+        context={
+            "is_metadata": is_metadata,
+            "reasoning": meta_result.get("reasoning"),
+            "columns": context.get("columns", []),
+            "indicators": meta_result.get("indicators", {})
+        },
+        rule_based_confidence=confidence
+    )
+    
+    if review_decision["needs_review"]:
         print(f"\n⚠️  [Low Confidence] Human Review 요청")
+        print(f"   Reason: {review_decision['reason']}")
         
-        # 구체적 질문 생성
-        specific_question = _generate_specific_human_question(
-            file_path, meta_result, context
+        # 구체적 질문 생성 (LLM)
+        specific_question = _generate_natural_human_question(
+            file_path=file_path,
+            context={
+                "reasoning": meta_result.get("reasoning"),
+                "message": f"Confidence {confidence:.1%}",
+                "columns": context.get("columns", [])
+            },
+            issue_type="metadata_uncertain"
         )
         
         print("="*80)
@@ -1581,7 +2073,7 @@ def ontology_builder_node(state: AgentState) -> Dict[str, Any]:
             "needs_human_review": True,
             "human_question": specific_question,
             "ontology_context": ontology,  # 현재 상태 유지
-            "logs": [f"⚠️ [Ontology] 메타데이터 판단 불확실 ({confidence:.2%})"]
+            "logs": [f"⚠️ [Ontology] 메타데이터 판단 불확실 ({confidence:.2%}). {review_decision['reason']}"]
         }
     
     # === Step 4: Branching (확신도 높음) ===
@@ -1631,6 +2123,8 @@ def ontology_builder_node(state: AgentState) -> Dict[str, Any]:
             "detected_at": datetime.now().isoformat(),
             "columns": columns  # [NEW] 컬럼 저장
         }
+        
+        # Note: Column Metadata는 index_data_node에서 finalized_schema 확정 후 저장됨
         
         # === Phase 2: 관계 추론 (기존 테이블이 있을 때만) ===
         existing_data_files = [

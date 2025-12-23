@@ -1,8 +1,8 @@
 # src/nl_to_sql.py
 """
-자연어 → SQL 변환기
+Natural Language → SQL Converter
 
-스키마 정보와 온톨로지 정보를 컨텍스트로 제공하여 자연어 질의를 SQL로 변환합니다.
+Converts natural language queries to SQL by providing schema and ontology information as context.
 """
 
 from typing import Dict, Any, Optional
@@ -13,56 +13,67 @@ from ExtractionAgent.src.knowledge.ontology_context import OntologyContextBuilde
 
 
 class NLToSQLConverter:
-    """자연어 → SQL 변환기"""
+    """Natural Language → SQL Converter"""
     
     def __init__(self):
         self.llm_client = LLMClient()
         self.schema_collector = SchemaCollector()
         self.ontology_builder = OntologyContextBuilder()
     
-    def convert(self, natural_language_query: str, max_tables: int = 20) -> Dict[str, Any]:
+    def convert(self, natural_language_query: str, max_tables: int = 20, include_samples: bool = True) -> Dict[str, Any]:
         """
-        자연어 질의를 SQL로 변환
+        Convert natural language query to SQL
         
         Args:
-            natural_language_query: 자연어 질의
-            max_tables: 프롬프트에 포함할 최대 테이블 수
+            natural_language_query: Natural language query
+            max_tables: Maximum number of tables to include in prompt
+            include_samples: Whether to include sample data
         
         Returns:
             {
-                "sql": "생성된 SQL",
-                "explanation": "SQL 설명",
+                "sql": "Generated SQL",
+                "explanation": "SQL explanation",
                 "confidence": 0.0-1.0,
                 "tables_used": ["table1", "table2"],
                 "error": None or error message
             }
         """
         try:
-            # 1. 스키마 정보 수집
-            schema_text = self.schema_collector.format_schema_for_prompt(max_tables=max_tables)
+            # 1. Collect schema info (branch based on sample data inclusion)
+            if include_samples:
+                schema_text = self.schema_collector.format_schema_with_samples_for_prompt(
+                    max_tables=max_tables, 
+                    sample_limit=2
+                )
+            else:
+                schema_text = self.schema_collector.format_schema_for_prompt(max_tables=max_tables)
             
-            # 2. 온톨로지 정보 수집 (관련 정의만 추출하여 토큰 절약)
+            # 2. Collect ontology info (extract only relevant definitions to save tokens)
             relevant_defs = self.ontology_builder.get_relevant_definitions(
                 natural_language_query, 
                 top_k=20
             )
             ontology_text = self._format_relevant_ontology(relevant_defs)
             
-            # 3. 관계 정보 추가
+            # 3. Add relationship info
             relationships_text = self.ontology_builder.format_relationships_for_prompt()
             
-            # 4. 프롬프트 구성
+            # 4. Add column metadata info
+            column_metadata_text = self.ontology_builder.format_column_metadata_for_prompt()
+            
+            # 5. Build prompt
             prompt = self._build_prompt(
                 natural_language_query,
                 schema_text,
                 ontology_text,
-                relationships_text
+                relationships_text,
+                column_metadata_text
             )
             
-            # 5. LLM 호출
+            # 6. Call LLM
             response = self.llm_client.ask_json(prompt)
             
-            # 6. 응답 파싱 및 검증
+            # 7. Parse and validate response
             sql = self._extract_sql(response)
             explanation = response.get("explanation", "")
             confidence = response.get("confidence", 0.5)
@@ -86,7 +97,7 @@ class NLToSQLConverter:
             }
     
     def _format_relevant_ontology(self, definitions: Dict[str, str]) -> str:
-        """관련 정의만 포맷팅"""
+        """Format relevant definitions only"""
         if not definitions:
             return "No relevant definitions found."
         
@@ -107,9 +118,18 @@ class NLToSQLConverter:
         query: str,
         schema_text: str,
         ontology_text: str,
-        relationships_text: str
+        relationships_text: str,
+        column_metadata_text: str = ""
     ) -> str:
-        """SQL 생성 프롬프트 구성"""
+        """Build SQL generation prompt"""
+        
+        # Add column metadata section if available
+        column_section = ""
+        if column_metadata_text and column_metadata_text.strip():
+            column_section = f"""
+[COLUMN METADATA]
+{column_metadata_text}
+"""
         
         prompt = f"""You are a SQL query generator for a medical database.
 
@@ -123,19 +143,32 @@ Your task is to convert a natural language query into a valid PostgreSQL SQL que
 
 [TABLE RELATIONSHIPS]
 {relationships_text}
-
+{column_section}
 [USER QUERY]
 {query}
 
 [INSTRUCTIONS]
 1. Analyze the user's natural language query carefully.
 2. Use the database schema to identify relevant tables and columns.
-3. Use ontology definitions to map medical terms to column names (e.g., "환자 ID" → "subjectid").
-4. Use table relationships to create proper JOINs.
-5. Generate a valid PostgreSQL SQL query.
-6. Include appropriate WHERE clauses, JOINs, and aggregations as needed.
-7. For time-based queries, use proper timestamp comparisons (e.g., NOW() - INTERVAL '24 hours').
-8. For patient/subject queries, use the anchor columns (subjectid, caseid, etc.) identified in the hierarchy.
+3. Use ontology definitions to map medical terms to column names (e.g., "patient ID" → "subjectid").
+4. Use column metadata to understand abbreviations (e.g., "sbp" = "Systolic Blood Pressure", unit: mmHg).
+5. Use table relationships to create proper JOINs.
+6. Generate a valid PostgreSQL SQL query.
+7. Include appropriate WHERE clauses, JOINs, and aggregations as needed.
+
+[QUERY SCOPE RULES]
+✅ ALLOWED:
+   - Simple SELECT queries (SELECT * FROM table)
+   - Filtering by explicit values (WHERE patient_id = 123)
+   - Joining related tables
+   - Ordering and limiting results
+   - Aggregations (AVG, SUM, COUNT, GROUP BY)
+   - Derived calculations (e.g., BMI calculation)
+   
+⚠️ CAUTION (handle with low confidence):
+   - Complex medical judgments (e.g., "hypotensive patients" - what threshold defines hypotension?)
+   - Conditions with implicit medical thresholds that are not explicitly defined
+   - If you must interpret medical thresholds, use standard clinical values and note this in the explanation
 
 [OUTPUT FORMAT - JSON]
 {{
@@ -151,33 +184,33 @@ Your task is to convert a natural language query into a valid PostgreSQL SQL que
 - SQL must be syntactically correct PostgreSQL
 - Use double quotes for table/column names if they contain special characters
 - Be conservative with JOINs - only join tables that are necessary
-- Consider performance - avoid unnecessary subqueries if possible
+- For medical threshold queries, lower your confidence and explain assumptions
 """
         
         return prompt
     
     def _extract_sql(self, response: Dict[str, Any]) -> str:
-        """응답에서 SQL 추출 및 정리"""
+        """Extract and clean SQL from response"""
         sql = response.get("sql", "")
         
         if not sql:
             return ""
         
-        # Markdown 코드 블록 제거
+        # Remove markdown code blocks
         sql = re.sub(r"```sql\s*", "", sql, flags=re.IGNORECASE)
         sql = re.sub(r"```", "", sql)
         
-        # 앞뒤 공백 제거
+        # Trim whitespace
         sql = sql.strip()
         
         return sql
     
     def validate_sql(self, sql: str) -> Dict[str, Any]:
         """
-        SQL 문법 검증 (기본적인 검증만)
+        Validate SQL syntax (basic validation only)
         
         Args:
-            sql: 검증할 SQL
+            sql: SQL to validate
         
         Returns:
             {"valid": True/False, "error": "..."}
@@ -185,13 +218,13 @@ Your task is to convert a natural language query into a valid PostgreSQL SQL que
         if not sql:
             return {"valid": False, "error": "SQL is empty"}
         
-        # 기본적인 키워드 체크
+        # Basic keyword check
         sql_upper = sql.upper()
         
         if not sql_upper.startswith("SELECT"):
             return {"valid": False, "error": "SQL must start with SELECT"}
         
-        # 위험한 키워드 체크 (DROP, DELETE, UPDATE, INSERT 등)
+        # Check for dangerous keywords (DROP, DELETE, UPDATE, INSERT, etc.)
         dangerous_keywords = ["DROP", "DELETE", "UPDATE", "INSERT", "ALTER", "TRUNCATE"]
         for keyword in dangerous_keywords:
             if keyword in sql_upper:

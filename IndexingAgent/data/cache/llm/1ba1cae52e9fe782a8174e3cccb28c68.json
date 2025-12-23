@@ -1,0 +1,18 @@
+{
+  "result": {
+    "is_metadata": true,
+    "confidence": 0.95,
+    "reasoning": "The filename 'track_names.csv' suggests a naming/lookup list. The columns form a classic dictionary/codebook structure (Parameter, Description, Type/Hz, Unit) describing signals/variables rather than recording measurements. Sample values are parameter codes (e.g., 'SNUADC/ART') paired with human-readable descriptions and units, which is characteristic of metadata.",
+    "indicators": {
+      "filename_hint": "strong",
+      "structure_hint": "dictionary-like",
+      "content_type": "descriptive"
+    }
+  },
+  "prompt_hash": "1ba1cae52e9fe782a8174e3cccb28c68",
+  "cached_at": "2025-12-24T01:15:40.516086",
+  "context_summary": {
+    "filename": "track_names.csv",
+    "num_columns": 4
+  }
+}

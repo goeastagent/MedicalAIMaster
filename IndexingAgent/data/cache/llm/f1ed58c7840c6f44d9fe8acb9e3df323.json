@@ -1,0 +1,18 @@
+{
+  "result": {
+    "is_metadata": false,
+    "confidence": 0.92,
+    "reasoning": "Filename 'lab_data.csv' suggests lab measurements rather than a dictionary/definition file. Columns (caseid, dt, name, result) match an event/measurement record structure: an entity identifier, a time/date field, a test name code, and a numeric result. Sample values are short codes and numbers, not long descriptive text or column definitions.",
+    "indicators": {
+      "filename_hint": "weak",
+      "structure_hint": "tabular",
+      "content_type": "transactional"
+    }
+  },
+  "prompt_hash": "f1ed58c7840c6f44d9fe8acb9e3df323",
+  "cached_at": "2025-12-24T01:19:13.060221",
+  "context_summary": {
+    "filename": "lab_data.csv",
+    "num_columns": 4
+  }
+}
