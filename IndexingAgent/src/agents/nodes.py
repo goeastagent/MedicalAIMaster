@@ -3,13 +3,21 @@ import os
 from typing import List, Dict, Any, Optional
 from datetime import datetime
 
-from src.agents.state import AgentState, ColumnSchema, AnchorInfo, ProjectContext, OntologyContext
+from src.agents.state import (
+    AgentState, ColumnSchema, AnchorInfo, ProjectContext, OntologyContext,
+    FileClassification, ClassificationResult, ProcessingProgress,
+    ConversationHistory, ConversationTurn
+)
 from src.processors.tabular import TabularProcessor
 from src.processors.signal import SignalProcessor
 from src.utils.llm_client import get_llm_client
 from src.utils.ontology_manager import get_ontology_manager
 from src.utils.llm_cache import get_llm_cache
-from src.config import HumanReviewConfig
+from src.config import HumanReviewConfig, ProcessingConfig
+
+# Dataset-First Architecture imports
+from src.utils.naming import generate_table_name, generate_table_id, generate_schema_hash
+from src.utils.dataset_detector import detect_dataset_from_path, get_dataset_source_path
 
 # --- Global resource initialization ---
 llm_client = get_llm_client()
@@ -19,6 +27,170 @@ processors = [
     TabularProcessor(llm_client),
     SignalProcessor(llm_client)
 ]
+
+
+# =============================================================================
+# Conversation History Management (NEW)
+# =============================================================================
+
+def create_empty_conversation_history(dataset_id: str = "unknown") -> ConversationHistory:
+    """빈 대화 히스토리 생성"""
+    return {
+        "session_id": f"session_{datetime.now().strftime('%Y%m%d_%H%M%S')}",
+        "dataset_id": dataset_id,
+        "started_at": datetime.now().isoformat(),
+        "turns": [],
+        "classification_decisions": [],
+        "anchor_decisions": [],
+        "user_preferences": {}
+    }
+
+
+def add_conversation_turn(
+    history: ConversationHistory,
+    review_type: str,
+    agent_question: str,
+    human_response: str,
+    agent_action: str,
+    file_path: Optional[str] = None,
+    context_summary: Optional[str] = None
+) -> ConversationHistory:
+    """대화 히스토리에 새 턴 추가"""
+    turn: ConversationTurn = {
+        "turn_id": len(history.get("turns", [])) + 1,
+        "timestamp": datetime.now().isoformat(),
+        "file_path": file_path,
+        "review_type": review_type,
+        "agent_question": agent_question,
+        "human_response": human_response,
+        "agent_action": agent_action,
+        "context_summary": context_summary
+    }
+    
+    if "turns" not in history:
+        history["turns"] = []
+    history["turns"].append(turn)
+    
+    # 분류 결정 기록
+    if review_type == "classification":
+        if "classification_decisions" not in history:
+            history["classification_decisions"] = []
+        history["classification_decisions"].append({
+            "file": os.path.basename(file_path) if file_path else "unknown",
+            "response": human_response,
+            "timestamp": turn["timestamp"]
+        })
+    
+    # 앵커 결정 기록
+    elif review_type in ["anchor", "anchor_detection"]:
+        if "anchor_decisions" not in history:
+            history["anchor_decisions"] = []
+        history["anchor_decisions"].append({
+            "file": os.path.basename(file_path) if file_path else "unknown",
+            "response": human_response,
+            "timestamp": turn["timestamp"]
+        })
+    
+    return history
+
+
+def format_history_for_prompt(history: ConversationHistory, max_turns: int = 5) -> str:
+    """
+    대화 히스토리를 LLM 프롬프트용 텍스트로 변환
+    
+    Args:
+        history: 대화 히스토리
+        max_turns: 포함할 최대 턴 수 (최근 N개)
+    
+    Returns:
+        프롬프트에 삽입할 문자열
+    """
+    if not history or not history.get("turns"):
+        return ""
+    
+    turns = history.get("turns", [])[-max_turns:]  # 최근 N개만
+    
+    if not turns:
+        return ""
+    
+    lines = [
+        "\n[CONVERSATION HISTORY - Previous User Interactions]",
+        "The following shows previous questions and user responses during this indexing session.",
+        "Use this context to make better decisions and follow user preferences.",
+        ""
+    ]
+    
+    for turn in turns:
+        file_info = f" (File: {os.path.basename(turn['file_path'])})" if turn.get('file_path') else ""
+        lines.append(f"--- Turn {turn['turn_id']}{file_info} ---")
+        lines.append(f"Type: {turn['review_type']}")
+        lines.append(f"Agent Asked: {turn['agent_question'][:200]}...")
+        lines.append(f"User Response: {turn['human_response']}")
+        lines.append(f"Action Taken: {turn['agent_action']}")
+        lines.append("")
+    
+    # 학습된 패턴 요약
+    if history.get("user_preferences"):
+        lines.append("[LEARNED USER PREFERENCES]")
+        for key, value in history["user_preferences"].items():
+            lines.append(f"- {key}: {value}")
+        lines.append("")
+    
+    # 분류 결정 요약
+    if history.get("classification_decisions"):
+        lines.append("[PREVIOUS CLASSIFICATION DECISIONS]")
+        for dec in history["classification_decisions"][-3:]:
+            lines.append(f"- {dec['file']}: {dec['response']}")
+        lines.append("")
+    
+    # 앵커 결정 요약
+    if history.get("anchor_decisions"):
+        lines.append("[PREVIOUS ANCHOR DECISIONS]")
+        for dec in history["anchor_decisions"][-3:]:
+            lines.append(f"- {dec['file']}: {dec['response']}")
+        lines.append("")
+    
+    return "\n".join(lines)
+
+
+def extract_user_preferences(history: ConversationHistory) -> Dict[str, Any]:
+    """
+    대화 히스토리에서 사용자 선호도 패턴 추출
+    
+    예: 특정 유형의 파일을 항상 메타데이터로 분류하는 경향 등
+    """
+    preferences = {}
+    
+    turns = history.get("turns", [])
+    
+    # 분류 패턴 분석
+    classification_responses = [
+        t["human_response"].lower() 
+        for t in turns 
+        if t["review_type"] == "classification"
+    ]
+    
+    if classification_responses:
+        # "확인" 또는 "ok"가 자주 나오면 AI 판단을 신뢰하는 경향
+        approval_count = sum(1 for r in classification_responses if r in ["확인", "ok", "yes", "approve"])
+        if approval_count > len(classification_responses) * 0.7:
+            preferences["trusts_ai_classification"] = True
+    
+    # 앵커 패턴 분석
+    anchor_responses = [
+        t["human_response"].lower()
+        for t in turns
+        if t["review_type"] in ["anchor", "anchor_detection"]
+    ]
+    
+    if anchor_responses:
+        # 특정 컬럼명을 자주 지정하면 선호 앵커로 기록
+        from collections import Counter
+        common_anchors = Counter(anchor_responses).most_common(2)
+        if common_anchors and common_anchors[0][1] > 1:
+            preferences["preferred_anchor"] = common_anchors[0][0]
+    
+    return preferences
 
 
 
@@ -79,6 +251,7 @@ def analyze_semantics_node(state: AgentState) -> Dict[str, Any]:
     [Node 2] Semantic Analysis (Semantic Reasoning)
     Core brain that finalizes schema based on Processor results
     [NEW] References Global Context (Project Level) to ensure Anchor consistency across files.
+    [NEW] 대화 히스토리를 컨텍스트로 활용하여 더 정확한 판단
     """
     print("\n" + "="*80)
     print("🧠 [ANALYZER NODE] Starting - Semantic Analysis")
@@ -94,6 +267,17 @@ def analyze_semantics_node(state: AgentState) -> Dict[str, Any]:
         "known_aliases": [], 
         "example_id_values": []
     })
+    
+    # [NEW] 대화 히스토리 가져오기
+    dataset_id = state.get("current_dataset_id", "unknown")
+    conversation_history = state.get("conversation_history")
+    if not conversation_history:
+        conversation_history = create_empty_conversation_history(dataset_id)
+    
+    # 히스토리를 프롬프트용 텍스트로 변환
+    history_context = format_history_for_prompt(conversation_history, max_turns=5)
+    if history_context:
+        print(f"   📚 대화 히스토리 컨텍스트 로드됨 ({len(conversation_history.get('turns', []))}개 턴)")
     
     finalized_anchor = state.get("finalized_anchor")
     retry_count = state.get("retry_count", 0)
@@ -126,6 +310,12 @@ def analyze_semantics_node(state: AgentState) -> Dict[str, Any]:
     if human_feedback:
         log_msg = f"🗣️ [Feedback] User feedback received: '{human_feedback}'"
         
+        # [NEW] 사용자 피드백 시 관련 캐시 무효화
+        file_path = state.get("file_path", "")
+        if file_path:
+            filename = os.path.basename(file_path)
+            llm_cache.invalidate_for_file(filename)
+        
         # ⭐ [FIX] Parse user input - distinguish column name vs description
         parsed_column = _parse_human_feedback_to_column(
             feedback=human_feedback,
@@ -146,6 +336,35 @@ def analyze_semantics_node(state: AgentState) -> Dict[str, Any]:
                 "skip_indexing": True,
                 "logs": [log_msg, "⏭️ [Analyzer] File skipped by user request"]
             }
+        
+        # [NEW] Handle special case: filename as ID (for .vital files)
+        if parsed_column.get("action") == "use_filename_as_id":
+            caseid_value = parsed_column.get("caseid_value")
+            reasoning = parsed_column.get("reasoning", "Using filename as identifier")
+            
+            print(f"   → Using filename as ID: caseid={caseid_value}")
+            print(f"   → Reasoning: {reasoning}")
+            
+            # Update metadata with caseid info
+            if "anchor_info" not in metadata:
+                metadata["anchor_info"] = {}
+            
+            metadata["anchor_info"]["status"] = "FOUND"
+            metadata["anchor_info"]["target_column"] = "caseid"
+            metadata["anchor_info"]["caseid_value"] = caseid_value
+            metadata["anchor_info"]["is_time_series"] = True
+            metadata["anchor_info"]["needs_human_confirmation"] = False
+            
+            finalized_anchor = {
+                "status": "CONFIRMED",
+                "column_name": "caseid",
+                "caseid_value": caseid_value,
+                "is_time_series": metadata.get("is_time_series", True),
+                "reasoning": reasoning,
+                "mapped_to_master": project_context.get("master_anchor_name")
+            }
+            
+            # Don't return yet - continue to schema analysis
         
         determined_column = parsed_column.get("column_name", human_feedback.strip())
         reasoning = parsed_column.get("reasoning", "User manually confirmed.")
@@ -173,8 +392,53 @@ def analyze_semantics_node(state: AgentState) -> Dict[str, Any]:
     # --- Scenario B: When Anchor is not yet finalized -> Check Global Context ---
     if not finalized_anchor:
         
+        # [NEW] Signal 파일 특별 처리: LLM이 추론한 ID 정보 확인
+        file_type = state.get("file_type", "tabular")
+        if file_type == "signal" and local_anchor_info.get("id_value"):
+            id_column = local_anchor_info.get("target_column", "file_id")
+            id_value = local_anchor_info.get("id_value")
+            confidence = local_anchor_info.get("confidence", 0.5)
+            needs_confirmation = local_anchor_info.get("needs_human_confirmation", False)
+            
+            print(f"\n📡 [Signal File] LLM-inferred ID: {id_column}={id_value} (confidence: {confidence:.0%})")
+            
+            # 확신도가 낮으면 사용자 확인 요청
+            if needs_confirmation and confidence < 0.7:
+                question = _generate_natural_human_question(
+                    file_path=state.get("file_path", ""),
+                    context={
+                        "reasoning": local_anchor_info.get("reasoning", ""),
+                        "candidates": f"{id_column}={id_value}",
+                        "columns": [],  # Signal 파일은 컬럼이 없음
+                        "message": f"LLM inferred ID with {confidence:.0%} confidence. Please verify."
+                    },
+                    issue_type="anchor_uncertain",
+                    conversation_history=conversation_history  # [NEW] 대화 히스토리 전달
+                )
+                
+                return {
+                    "needs_human_review": True,
+                    "review_type": "anchor",  # [NEW]
+                    "human_question": question,
+                    "conversation_history": conversation_history,  # [NEW]
+                    "logs": [f"⚠️ [Analyzer] Signal file ID uncertain ({confidence:.0%}). Needs confirmation."]
+                }
+            
+            # 확신도가 높으면 자동 확정
+            finalized_anchor = {
+                "status": "CONFIRMED",
+                "column_name": id_column,
+                "id_value": id_value,
+                "is_time_series": True,
+                "reasoning": local_anchor_info.get("reasoning", "LLM inferred ID"),
+                "confidence": confidence,
+                "mapped_to_master": project_context.get("master_anchor_name")
+            }
+            
+            state["logs"].append(f"📡 [Signal] Auto-confirmed: {id_column}={id_value}")
+        
         # [NEW] Case 1: Project already has agreed Anchor (Leader)
-        if project_context.get("master_anchor_name"):
+        elif project_context.get("master_anchor_name"):
             master_name = project_context["master_anchor_name"]
             
             # LLM에게 비교 요청 (Global Context vs Local Data)
@@ -240,12 +504,15 @@ def analyze_semantics_node(state: AgentState) -> Dict[str, Any]:
                         "reasoning": msg,
                         "columns": metadata.get("columns", [])
                     },
-                    issue_type="anchor_conflict"
+                    issue_type="anchor_conflict",
+                    conversation_history=conversation_history  # [NEW] 대화 히스토리 전달
                 )
                 
                 return {
                     "needs_human_review": True,
+                    "review_type": "anchor",  # [NEW]
                     "human_question": natural_question,
+                    "conversation_history": conversation_history,  # [NEW]
                     "retry_count": retry_count,  # Keep current retry count
                     "logs": [f"⚠️ [Analyzer] Global Anchor mismatch (Status: {comparison_status}). Retry: {retry_count}/3"]
                 }
@@ -275,12 +542,15 @@ def analyze_semantics_node(state: AgentState) -> Dict[str, Any]:
                         "candidates": local_anchor_info.get("target_column", "None"),
                         "columns": metadata.get("columns", [])
                     },
-                    issue_type="anchor_uncertain"
+                    issue_type="anchor_uncertain",
+                    conversation_history=conversation_history  # [NEW] 대화 히스토리 전달
                 )
                 
                 return {
                     "needs_human_review": True,
+                    "review_type": "anchor",  # [NEW]
                     "human_question": question,
+                    "conversation_history": conversation_history,  # [NEW]
                     "logs": [f"⚠️ [Analyzer] Anchor uncertain (first file). {review_decision['reason']}"]
                 }
             
@@ -335,6 +605,8 @@ def human_review_node(state: AgentState) -> Dict[str, Any]:
     [Node 3] Human-in-the-loop waiting node
     In actual execution, LangGraph's interrupt mechanism stops here
     In test environment, increase retry count to prevent infinite loop
+    
+    [NEW] 대화 히스토리에 턴 기록
     """
     print("\n" + "="*80)
     print("🛑 [HUMAN REVIEW NODE] Starting - User confirmation required")
@@ -342,18 +614,69 @@ def human_review_node(state: AgentState) -> Dict[str, Any]:
     
     question = state.get("human_question", "Confirmation required.")
     retry_count = state.get("retry_count", 0)
+    human_feedback = state.get("human_feedback")
+    file_path = state.get("file_path", "")
+    review_type = state.get("review_type", "general")
+    
+    # 대화 히스토리 가져오기 (없으면 생성)
+    history = state.get("conversation_history")
+    dataset_id = state.get("current_dataset_id", "unknown")
+    
+    if not history:
+        history = create_empty_conversation_history(dataset_id)
+    
+    # 피드백이 있으면 히스토리에 기록 (재진입 시)
+    if human_feedback:
+        # 사용자 응답에 기반한 액션 결정
+        action_taken = _determine_action_from_feedback(human_feedback, review_type)
+        
+        history = add_conversation_turn(
+            history=history,
+            review_type=review_type,
+            agent_question=question,
+            human_response=human_feedback,
+            agent_action=action_taken,
+            file_path=file_path,
+            context_summary=f"Retry #{retry_count+1} for {os.path.basename(file_path)}"
+        )
+        
+        # 사용자 선호도 업데이트
+        history["user_preferences"] = extract_user_preferences(history)
+        
+        print(f"   📝 대화 히스토리에 기록됨 (턴 #{len(history['turns'])})")
     
     # Increase retry count
     new_retry_count = retry_count + 1
     
     print(f"\n⚠️  Question: {question[:150]}...")
     print(f"🔄 Retry count: {new_retry_count}/3")
+    print(f"📚 대화 히스토리: {len(history.get('turns', []))}개 턴")
     print("="*80)
     
     return {
         "retry_count": new_retry_count,
+        "conversation_history": history,
         "logs": [f"🛑 [Human Review] Waiting (retry: {new_retry_count}/3). Question: {question[:100]}..."]
     }
+
+
+def _determine_action_from_feedback(feedback: str, review_type: str) -> str:
+    """피드백에서 취한 액션 결정"""
+    feedback_lower = feedback.lower().strip()
+    
+    if feedback_lower in ["skip", "제외", "스킵"]:
+        return "Skipped file"
+    elif feedback_lower in ["확인", "ok", "yes", "approve", "y"]:
+        return "Approved AI decision"
+    elif review_type == "classification":
+        if "메타데이터" in feedback_lower or "metadata" in feedback_lower:
+            return "Reclassified as metadata"
+        elif "데이터" in feedback_lower or "data" in feedback_lower:
+            return "Reclassified as data"
+    elif review_type in ["anchor", "anchor_detection"]:
+        return f"Set anchor to: {feedback}"
+    
+    return f"Applied feedback: {feedback[:50]}"
 
 
 def index_data_node(state: AgentState) -> Dict[str, Any]:
@@ -364,12 +687,22 @@ def index_data_node(state: AgentState) -> Dict[str, Any]:
     - Chunk Processing (safe handling of large files)
     - Auto FK constraint creation (ALTER TABLE)
     - Auto index creation (Level 1-2)
+    
+    [NEW] Dataset-First Architecture:
+    - 테이블명에 데이터셋 prefix 추가
+    - 버전 관리 테이블에 인덱싱 기록
+    - 온톨로지에 dataset_id 포함
+    
+    [NEW] Signal file handling:
+    - .vital files are registered as metadata only (no raw data import)
+    - caseid is extracted from filename and linked to clinical_data
     """
     import pandas as pd
     import os
     
-    from database.connection import get_db_manager
-    from database.schema_generator import SchemaGenerator
+    from src.database.connection import get_db_manager
+    from src.database.schema_generator import SchemaGenerator
+    from src.database.version_manager import get_version_manager
     
     print("\n" + "="*80)
     print("💾 [INDEXER NODE] Starting - PostgreSQL DB construction")
@@ -377,10 +710,29 @@ def index_data_node(state: AgentState) -> Dict[str, Any]:
     
     schema = state.get("finalized_schema", [])
     file_path = state["file_path"]
+    file_type = state.get("file_type", "tabular")  # [NEW] 파일 타입 확인
+    metadata = state.get("raw_metadata", {})  # [NEW] 메타데이터 확인
     ontology = state.get("ontology_context", {})
     
-    # Generate table name
-    table_name = os.path.basename(file_path).replace(".csv", "_table").replace(".", "_").replace("-", "_")
+    # === Dataset-First: 데이터셋 ID 및 테이블명 생성 ===
+    dataset_id = state.get("current_dataset_id")
+    if not dataset_id:
+        # 경로에서 자동 감지
+        dataset_id = detect_dataset_from_path(file_path)
+        if not dataset_id:
+            dataset_id = "default_dataset"
+        print(f"📁 [Dataset] Auto-detected: {dataset_id}")
+    
+    # [NEW] Signal 파일 (.vital) 특별 처리
+    if file_type == "signal" and metadata.get("is_vital_file", False):
+        return _handle_vital_file_indexing(state, file_path, metadata, ontology)
+    
+    # Dataset-First: 테이블명에 prefix 추가
+    table_name = generate_table_name(file_path, dataset_id)
+    table_id = generate_table_id(dataset_id, table_name)
+    
+    print(f"   📋 Dataset: {dataset_id}")
+    print(f"   📋 Table: {table_name}")
     
     # DB manager
     db_manager = get_db_manager()
@@ -480,13 +832,15 @@ def index_data_node(state: AgentState) -> Dict[str, Any]:
         else:
             print(f"   ⚠️ Row count mismatch: expected {total_rows:,}, actual {actual_rows:,}")
         
-        # === [NEW] Save Column Metadata (Neo4j) ===
+        # === [NEW] Save Column Metadata (Neo4j) - Dataset-First ===
         if schema:
             print(f"\n📋 [Column Metadata] Saving column metadata...")
             
             if "column_metadata" not in ontology:
                 ontology["column_metadata"] = {}
             
+            # Dataset-First: 온톨로지에 dataset_id 설정
+            ontology["dataset_id"] = dataset_id
             ontology["column_metadata"][table_name] = {}
             
             for col_schema in schema:
@@ -506,18 +860,43 @@ def index_data_node(state: AgentState) -> Dict[str, Any]:
             
             print(f"   - {len(schema)} column metadata generated")
             
-            # Save to Neo4j
+            # Save to Neo4j (with dataset_id)
             from src.utils.ontology_manager import get_ontology_manager
             ontology_manager = get_ontology_manager()
-            ontology_manager.save(ontology)
-            print(f"   - Neo4j save complete")
+            ontology_manager.save(ontology, dataset_id=dataset_id)
+            print(f"   - Neo4j save complete (dataset: {dataset_id})")
+        
+        # === [NEW] Version Management - Dataset-First ===
+        print(f"\n📝 [Version] Recording indexing history...")
+        try:
+            version_manager = get_version_manager(db_manager)
+            schema_hash = generate_schema_hash(schema)
+            
+            version_info = version_manager.record_indexing(
+                table_id=table_id,
+                dataset_id=dataset_id,
+                table_name=table_name,
+                original_filename=os.path.basename(file_path),
+                original_filepath=file_path,
+                row_count=total_rows,
+                column_count=len(schema),
+                schema_hash=schema_hash
+            )
+            print(f"   - Version: v{version_info['version']}")
+            if version_info.get('is_schema_changed'):
+                print(f"   ⚠️ Schema changed from previous version!")
+        except Exception as ve:
+            print(f"   ⚠️ Version recording failed (non-critical): {ve}")
         
         print("="*80)
         
         return {
-            "ontology_context": ontology,  # [NEW] Return updated ontology
+            "current_dataset_id": dataset_id,        # [NEW] Dataset ID
+            "current_table_name": table_name,        # [NEW] Table name with prefix
+            "ontology_context": ontology,            # Updated ontology
             "logs": [
                 f"💾 [Indexer] {table_name} created ({total_rows:,} rows)",
+                f"📁 [Indexer] Dataset: {dataset_id}",
                 f"🔍 [Indexer] Indices: {len(indices_created)}",
                 "✅ [Done] Indexing process complete."
             ]
@@ -536,6 +915,439 @@ def index_data_node(state: AgentState) -> Dict[str, Any]:
         }
 
 # --- Helper Functions (Private) ---
+
+def _handle_vital_file_indexing(state: AgentState, file_path: str, metadata: Dict, ontology: Dict) -> Dict[str, Any]:
+    """
+    [옵션 B] Signal 파일 인덱싱 - 정규화된 테이블 구조
+    
+    두 개의 테이블로 정규화:
+    1. signal_files: 파일 기본 정보 (1 row per file)
+    2. signal_tracks: 트랙별 정보 (N rows per file, LLM이 의미 분석)
+    
+    Tabular 데이터와 동일한 패턴:
+    - Rule: 트랙 정보 수집
+    - LLM: 각 트랙의 의미/카테고리 분석
+    """
+    import pandas as pd
+    from src.database.connection import get_db_manager
+    from src.utils.ontology_manager import get_ontology_manager
+    
+    # anchor_info에서 ID 정보 추출 (LLM이 추론한 결과)
+    anchor_info = metadata.get("anchor_info", {})
+    id_column = anchor_info.get("target_column", "file_id")
+    id_value = anchor_info.get("id_value") or anchor_info.get("caseid_value")
+    confidence = anchor_info.get("confidence", 0.5)
+    needs_confirmation = anchor_info.get("needs_human_confirmation", False)
+    
+    tracks = metadata.get("columns", [])
+    column_details = metadata.get("column_details", {})
+    
+    print(f"\n📡 [Signal File] Processing signal file (Normalized Tables)...")
+    print(f"   - ID Column: {id_column}")
+    print(f"   - ID Value: {id_value}")
+    print(f"   - Confidence: {confidence:.0%}")
+    print(f"   - Tracks: {len(tracks)}")
+    print(f"   - File: {os.path.basename(file_path)}")
+    
+    # ID가 없으면 스킵
+    if id_value is None:
+        print(f"   ⚠️ ID not found. Skipping indexing.")
+        return {
+            "logs": [f"⚠️ [Indexer] Signal file skipped: ID not found"],
+            "skip_indexing": True,
+            "needs_human_review": True,
+            "human_question": f"Cannot determine ID for signal file '{os.path.basename(file_path)}'. Please specify the ID column and value."
+        }
+    
+    # 확신도가 낮으면 경고
+    if needs_confirmation:
+        print(f"   ⚠️ Low confidence ({confidence:.0%}). ID may need verification.")
+    
+    try:
+        db_manager = get_db_manager()
+        engine = db_manager.get_sqlalchemy_engine()
+        conn = db_manager.get_connection()
+        cursor = conn.cursor()
+        
+        # === 1. 테이블 생성 (정규화된 구조) ===
+        create_tables_sql = """
+        -- 파일 기본 정보 테이블
+        CREATE TABLE IF NOT EXISTS signal_files (
+            file_id SERIAL PRIMARY KEY,
+            id_column VARCHAR(50) NOT NULL,
+            id_value VARCHAR(100) NOT NULL,
+            file_path TEXT NOT NULL,
+            file_name VARCHAR(255),
+            file_format VARCHAR(20),
+            file_size_mb FLOAT,
+            duration_seconds FLOAT,
+            track_count INTEGER,
+            confidence FLOAT,
+            created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+            UNIQUE(file_path)
+        );
+        
+        CREATE INDEX IF NOT EXISTS idx_signal_files_id_value ON signal_files(id_value);
+        CREATE INDEX IF NOT EXISTS idx_signal_files_id_column ON signal_files(id_column);
+        
+        -- 트랙별 정보 테이블 (정규화)
+        CREATE TABLE IF NOT EXISTS signal_tracks (
+            track_id SERIAL PRIMARY KEY,
+            file_id INTEGER REFERENCES signal_files(file_id) ON DELETE CASCADE,
+            track_name VARCHAR(255) NOT NULL,
+            sample_rate FLOAT,
+            unit VARCHAR(50),
+            min_value FLOAT,
+            max_value FLOAT,
+            track_type VARCHAR(50),
+            inferred_name VARCHAR(255),
+            description TEXT,
+            clinical_category VARCHAR(100),
+            UNIQUE(file_id, track_name)
+        );
+        
+        CREATE INDEX IF NOT EXISTS idx_signal_tracks_file_id ON signal_tracks(file_id);
+        CREATE INDEX IF NOT EXISTS idx_signal_tracks_track_name ON signal_tracks(track_name);
+        CREATE INDEX IF NOT EXISTS idx_signal_tracks_category ON signal_tracks(clinical_category);
+        """
+        
+        for stmt in create_tables_sql.strip().split(';'):
+            if stmt.strip():
+                try:
+                    cursor.execute(stmt)
+                except Exception as e:
+                    pass  # Ignore duplicate errors
+        
+        conn.commit()
+        print(f"   ✅ Tables ready (signal_files, signal_tracks)")
+        
+        # === 2. signal_files 레코드 삽입 ===
+        ext = os.path.splitext(file_path)[1].lower()
+        format_map = {".vital": "vitaldb", ".edf": "edf", ".bdf": "bdf"}
+        file_format = format_map.get(ext, "unknown")
+        
+        insert_file_sql = """
+        INSERT INTO signal_files (id_column, id_value, file_path, file_name, file_format, 
+                                  file_size_mb, duration_seconds, track_count, confidence)
+        VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s)
+        ON CONFLICT (file_path) 
+        DO UPDATE SET 
+            id_column = EXCLUDED.id_column,
+            id_value = EXCLUDED.id_value,
+            file_size_mb = EXCLUDED.file_size_mb,
+            duration_seconds = EXCLUDED.duration_seconds,
+            track_count = EXCLUDED.track_count,
+            confidence = EXCLUDED.confidence
+        RETURNING file_id;
+        """
+        
+        cursor.execute(insert_file_sql, (
+            id_column,
+            str(id_value),
+            file_path,
+            os.path.basename(file_path),
+            file_format,
+            metadata.get("file_size_mb", 0),
+            metadata.get("duration", 0),
+            len(tracks),
+            confidence
+        ))
+        
+        file_id = cursor.fetchone()[0]
+        conn.commit()
+        print(f"   ✅ File registered: file_id={file_id}, {id_column}={id_value}")
+        
+        # === 3. LLM에게 트랙 의미 분석 요청 ===
+        track_analyses = _analyze_tracks_with_llm(tracks, column_details)
+        
+        # === 4. signal_tracks 레코드 삽입 ===
+        insert_track_sql = """
+        INSERT INTO signal_tracks (file_id, track_name, sample_rate, unit, min_value, max_value,
+                                   track_type, inferred_name, description, clinical_category)
+        VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s)
+        ON CONFLICT (file_id, track_name) 
+        DO UPDATE SET 
+            sample_rate = EXCLUDED.sample_rate,
+            unit = EXCLUDED.unit,
+            min_value = EXCLUDED.min_value,
+            max_value = EXCLUDED.max_value,
+            track_type = EXCLUDED.track_type,
+            inferred_name = EXCLUDED.inferred_name,
+            description = EXCLUDED.description,
+            clinical_category = EXCLUDED.clinical_category;
+        """
+        
+        tracks_inserted = 0
+        for track_name in tracks:
+            details = column_details.get(track_name, {})
+            analysis = track_analyses.get(track_name, {})
+            
+            cursor.execute(insert_track_sql, (
+                file_id,
+                track_name,
+                details.get("sample_rate"),
+                details.get("unit"),
+                details.get("min_val"),
+                details.get("max_val"),
+                details.get("column_type", "unknown"),
+                analysis.get("inferred_name", track_name),
+                analysis.get("description", ""),
+                analysis.get("clinical_category", "unknown")
+            ))
+            tracks_inserted += 1
+        
+        conn.commit()
+        print(f"   ✅ Tracks registered: {tracks_inserted} tracks")
+        
+        # === 5. 온톨로지 업데이트 (정규화된 구조 반영) ===
+        if ontology:
+            if "file_tags" not in ontology:
+                ontology["file_tags"] = {}
+            
+            # 트랙 분석 결과를 포함한 상세 정보 저장
+            ontology["file_tags"][file_path] = {
+                "type": "signal_data",
+                "format": file_format,
+                "file_id": file_id,
+                "id_column": id_column,
+                "id_value": id_value,
+                "track_count": len(tracks),
+                "confidence": confidence,
+                "track_analyses": track_analyses  # LLM이 분석한 트랙 정보
+            }
+            
+            # 정규화된 테이블 스키마 메타데이터
+            if "column_metadata" not in ontology:
+                ontology["column_metadata"] = {}
+            
+            # signal_files 테이블 메타데이터
+            ontology["column_metadata"]["signal_files"] = {
+                "file_id": {
+                    "original_name": "file_id",
+                    "description": "Unique file identifier (auto-generated)",
+                    "description_kr": "파일 고유 ID (자동 생성)",
+                    "data_type": "INT",
+                    "is_pii": False
+                },
+                "id_column": {
+                    "original_name": "id_column",
+                    "description": "Type of ID (caseid, patient_id, subject_id, etc.)",
+                    "description_kr": "ID 타입 (caseid, patient_id, subject_id 등)",
+                    "data_type": "VARCHAR",
+                    "is_pii": False
+                },
+                "id_value": {
+                    "original_name": "id_value",
+                    "description": "ID value extracted from filename",
+                    "description_kr": "파일명에서 추출된 ID 값",
+                    "data_type": "VARCHAR",
+                    "is_pii": False
+                },
+                "file_path": {
+                    "original_name": "file_path",
+                    "description": "Full path to signal file",
+                    "description_kr": "신호 파일 전체 경로",
+                    "data_type": "TEXT",
+                    "is_pii": False
+                },
+                "file_format": {
+                    "original_name": "file_format",
+                    "description": "Signal file format (vitaldb, edf, bdf)",
+                    "description_kr": "신호 파일 포맷",
+                    "data_type": "VARCHAR",
+                    "is_pii": False
+                }
+            }
+            
+            # signal_tracks 테이블 메타데이터
+            ontology["column_metadata"]["signal_tracks"] = {
+                "track_id": {
+                    "original_name": "track_id",
+                    "description": "Unique track identifier",
+                    "description_kr": "트랙 고유 ID",
+                    "data_type": "INT",
+                    "is_pii": False
+                },
+                "file_id": {
+                    "original_name": "file_id",
+                    "description": "Reference to signal_files.file_id",
+                    "description_kr": "signal_files.file_id 참조",
+                    "data_type": "INT",
+                    "is_pii": False
+                },
+                "track_name": {
+                    "original_name": "track_name",
+                    "description": "Original track name from signal file",
+                    "description_kr": "신호 파일의 원본 트랙명",
+                    "data_type": "VARCHAR",
+                    "is_pii": False
+                },
+                "sample_rate": {
+                    "original_name": "sample_rate",
+                    "description": "Sampling rate in Hz",
+                    "description_kr": "샘플링 레이트 (Hz)",
+                    "data_type": "FLOAT",
+                    "unit": "Hz",
+                    "is_pii": False
+                },
+                "unit": {
+                    "original_name": "unit",
+                    "description": "Measurement unit (mV, mmHg, %, etc.)",
+                    "description_kr": "측정 단위",
+                    "data_type": "VARCHAR",
+                    "is_pii": False
+                },
+                "inferred_name": {
+                    "original_name": "inferred_name",
+                    "description": "LLM-inferred human-readable track name",
+                    "description_kr": "LLM이 추론한 트랙 이름",
+                    "data_type": "VARCHAR",
+                    "is_pii": False
+                },
+                "clinical_category": {
+                    "original_name": "clinical_category",
+                    "description": "Clinical category (cardiac, respiratory, etc.)",
+                    "description_kr": "임상 카테고리",
+                    "data_type": "VARCHAR",
+                    "is_pii": False
+                }
+            }
+            
+            # Neo4j에 저장
+            ontology_manager = get_ontology_manager()
+            ontology_manager.save(ontology)
+            print(f"   ✅ Ontology updated")
+        
+        print("="*80)
+        
+        return {
+            "ontology_context": ontology,
+            "logs": [
+                f"📡 [Indexer] Signal file registered: file_id={file_id}, {id_column}={id_value}",
+                f"💾 [Indexer] Stored in normalized tables (signal_files + signal_tracks)",
+                f"🔍 [Indexer] {tracks_inserted} tracks analyzed by LLM",
+                "✅ [Done] Signal file indexing complete."
+            ]
+        }
+        
+    except Exception as e:
+        import traceback
+        print(f"\n❌ [Error] Vital file indexing failed: {str(e)}")
+        traceback.print_exc()
+        print("="*80)
+        
+        return {
+            "logs": [f"❌ [Indexer] Vital file indexing failed: {str(e)}"],
+            "error_message": str(e)
+        }
+
+
+def _analyze_tracks_with_llm(tracks: List[str], column_details: Dict) -> Dict[str, Dict]:
+    """
+    [LLM Decides] Signal 트랙의 의미를 LLM이 분석
+    
+    TabularProcessor의 _analyze_columns_with_llm과 동일한 패턴:
+    - Rule이 수집한 트랙 정보 (이름, 단위, 샘플레이트)를 LLM에게 전달
+    - LLM이 각 트랙의 의미, 카테고리, 설명을 추론
+    
+    Args:
+        tracks: 트랙명 리스트
+        column_details: 트랙별 상세 정보 {track_name: {unit, sample_rate, ...}}
+    
+    Returns:
+        {track_name: {inferred_name, description, clinical_category, ...}}
+    """
+    if not tracks:
+        return {}
+    
+    # 트랙 정보 요약 (LLM 프롬프트용)
+    tracks_summary = ""
+    for track_name in tracks[:20]:  # 최대 20개만 분석 (토큰 절약)
+        details = column_details.get(track_name, {})
+        unit = details.get("unit", "N/A")
+        sr = details.get("sample_rate", 0)
+        col_type = details.get("column_type", "unknown")
+        
+        tracks_summary += f"- Track: '{track_name}' | Unit: {unit} | Sample Rate: {sr}Hz | Type: {col_type}\n"
+    
+    if len(tracks) > 20:
+        tracks_summary += f"  ... and {len(tracks) - 20} more tracks\n"
+    
+    prompt = f"""You are a Medical Signal Processing Expert.
+Analyze the following signal tracks and provide detailed metadata for each.
+
+[SIGNAL TRACKS - Pre-processed by Rules]
+{tracks_summary}
+
+[TASK]
+For each track, determine:
+1. **inferred_name**: Human-readable name (e.g., 'SNUADC/ECG_II' → 'Lead II ECG')
+2. **description**: Brief medical description
+3. **clinical_category**: One of the following categories:
+   - cardiac_waveform: ECG, ABP waveforms
+   - cardiac_vital: HR, BP values
+   - respiratory: SpO2, RR, EtCO2
+   - neurological: EEG, BIS, EMG
+   - temperature: Body temperature
+   - anesthesia: MAC, Agent concentration
+   - other: Unknown or miscellaneous
+
+[CLINICAL HINTS]
+- 'ECG', 'EKG' → cardiac_waveform (Electrocardiogram)
+- 'ART', 'ABP', 'IBP' → cardiac_waveform (Arterial Blood Pressure)
+- 'NIBP', 'SBP', 'DBP', 'MBP' → cardiac_vital (Non-invasive BP)
+- 'SpO2', 'SaO2' → respiratory (Oxygen Saturation)
+- 'RR', 'RESP' → respiratory (Respiratory Rate)
+- 'EtCO2', 'ETCO2' → respiratory (End-tidal CO2)
+- 'BIS', 'SEF' → neurological (Brain monitoring)
+- 'MAC', 'FiO2', 'Agent' → anesthesia
+
+[RESPONSE FORMAT - JSON]
+{{
+    "tracks": {{
+        "SNUADC/ECG_II": {{
+            "inferred_name": "Lead II ECG",
+            "description": "Standard limb lead II electrocardiogram waveform",
+            "clinical_category": "cardiac_waveform"
+        }},
+        "Solar8000/SpO2": {{
+            "inferred_name": "Oxygen Saturation",
+            "description": "Peripheral oxygen saturation measured by pulse oximetry",
+            "clinical_category": "respiratory"
+        }}
+    }}
+}}
+
+Analyze ALL tracks provided. Be concise but accurate.
+"""
+    
+    try:
+        result = llm_client.ask_json(prompt)
+        
+        # 결과 파싱
+        tracks_analysis = result.get("tracks", {})
+        
+        # 분석되지 않은 트랙에 대해 기본값 설정
+        for track_name in tracks:
+            if track_name not in tracks_analysis:
+                tracks_analysis[track_name] = {
+                    "inferred_name": track_name,
+                    "description": "",
+                    "clinical_category": "other"
+                }
+        
+        print(f"   🧠 [LLM] Analyzed {len(tracks_analysis)} tracks")
+        return tracks_analysis
+        
+    except Exception as e:
+        print(f"   ⚠️ [LLM] Track analysis failed: {e}")
+        # LLM 실패 시 기본값 반환
+        return {track_name: {
+            "inferred_name": track_name,
+            "description": "",
+            "clinical_category": "other"
+        } for track_name in tracks}
+
 
 def _analyze_columns_with_llm(columns: List[str], sample_data: Any, anchor_context: Dict) -> List[ColumnSchema]:
     """
@@ -980,7 +1792,19 @@ def _build_metadata_detection_context(file_path: str, metadata: dict) -> dict:
     sample_summary = []
     total_text_length = 0
     
-    for col_info in column_details[:5]:  # First 5 columns only
+    # [FIX] column_details가 dict인 경우 (Signal 파일) vs list인 경우 (Tabular 파일) 처리
+    if isinstance(column_details, dict):
+        # dict인 경우: values를 list로 변환
+        column_details_list = list(column_details.values())[:5]
+    elif isinstance(column_details, list):
+        column_details_list = column_details[:5]
+    else:
+        column_details_list = []
+    
+    for col_info in column_details_list:  # First 5 columns only
+        # col_info가 dict가 아닌 경우 스킵
+        if not isinstance(col_info, dict):
+            continue
         col_name = col_info.get('column_name', 'unknown')
         samples = col_info.get('samples', [])
         col_type = col_info.get('column_type', 'unknown')
@@ -1129,7 +1953,7 @@ You interpret the MEANING of these pre-processed facts.
         
         # Validate confidence
         confidence = result.get("confidence", 0.0)
-        if confidence < 0.75:
+        if confidence < HumanReviewConfig.METADATA_DETECTION_CONFIDENCE_THRESHOLD:
             print(f"⚠️  [Metadata Detection] Low confidence ({confidence:.2%})")
             print(f"    Reasoning: {result.get('reasoning', 'N/A')[:100]}...")
         
@@ -1308,7 +2132,7 @@ Using the PARSED STRUCTURE, infer:
         llm_cache.set("filename_hints", parsed_structure, hints)
         
         # Validate confidence
-        if hints.get("confidence", 1.0) < 0.7:
+        if hints.get("confidence", 1.0) < HumanReviewConfig.FILENAME_ANALYSIS_CONFIDENCE_THRESHOLD:
             print(f"⚠️  [Filename Analysis] Low confidence ({hints.get('confidence'):.2%}) for {basename}")
         
         return hints
@@ -1513,7 +2337,7 @@ Be conservative: confidence < 0.8 if unsure.
         
         # Confidence 검증
         rels = result.get("relationships", [])
-        low_conf_rels = [r for r in rels if r.get("confidence", 0) < 0.8]
+        low_conf_rels = [r for r in rels if r.get("confidence", 0) < HumanReviewConfig.RELATIONSHIP_CONFIDENCE_THRESHOLD]
         
         if low_conf_rels:
             print(f"⚠️  [Relationship] Low confidence for {len(low_conf_rels)} relationships")
@@ -1528,36 +2352,6 @@ Be conservative: confidence < 0.8 if unsure.
             "reasoning": f"Error: {str(e)}",
             "error": True
         }
-
-
-def _summarize_existing_tables(ontology_context: dict, processed_files_data: dict = None) -> dict:
-    """
-    [Rule] Summarize existing table info (for LLM)
-    
-    Args:
-        ontology_context: Current ontology context
-        processed_files_data: Column info of processed files (optional)
-    
-    Returns:
-        Table summary dictionary
-    """
-    tables = {}
-    
-    # file_tags에서 데이터 파일들만 추출
-    for file_path, tag_info in ontology_context.get("file_tags", {}).items():
-        if tag_info.get("type") == "transactional_data":
-            table_name = os.path.basename(file_path).replace(".csv", "_table").replace(".", "_")
-            
-            # 컬럼 정보 (저장된 것 사용)
-            columns = tag_info.get("columns", [])
-            
-            tables[table_name] = {
-                "file_path": file_path,
-                "type": tag_info.get("type"),
-                "columns": columns
-            }
-    
-    return tables
 
 
 # ============================================================================
@@ -1605,7 +2399,7 @@ def _should_request_human_review(
     
     # === 2단계: LLM 기반 판단 (더 유연) ===
     # Rule에서 이미 "확실히 필요"하다고 판단한 경우 LLM 호출 생략 (비용 절감)
-    if rule_based_confidence < 0.5:
+    if rule_based_confidence < HumanReviewConfig.LLM_SKIP_CONFIDENCE_THRESHOLD:
         print(f"   [Rule] Low confidence ({rule_based_confidence:.1%}), skipping LLM check")
         return rule_decision
     
@@ -1646,9 +2440,9 @@ def _get_threshold_for_issue(issue_type: str) -> float:
         "metadata_classification": HumanReviewConfig.METADATA_CONFIDENCE_THRESHOLD,
         "anchor_detection": HumanReviewConfig.ANCHOR_CONFIDENCE_THRESHOLD,
         "anchor_conflict": HumanReviewConfig.ANCHOR_CONFIDENCE_THRESHOLD,
-        "general": 0.7
+        "general": HumanReviewConfig.FILENAME_ANALYSIS_CONFIDENCE_THRESHOLD
     }
-    return thresholds.get(issue_type, 0.75)
+    return thresholds.get(issue_type, HumanReviewConfig.DEFAULT_CONFIDENCE_THRESHOLD)
 
 
 def _ask_llm_for_review_decision(
@@ -1718,10 +2512,12 @@ def _parse_human_feedback_to_column(
     1. 실제 컬럼명 (예: "caseid", "subjectid") → 그대로 반환
     2. "skip" → 스킵 액션 반환
     3. 설명 (예: "subjectID는 환자ID이고 caseID는 수술 ID야") → LLM으로 해석
+    4. [NEW] 파일 타입 설명 (예: "it's actual file", "vitaldb 패키지로 열어야 함") → 특수 처리
     
     Returns:
         {"action": "use_column", "column_name": "caseid", "reasoning": "..."}
         {"action": "skip", "reasoning": "사용자가 스킵 요청"}
+        {"action": "use_filename_as_id", ...}  [NEW]
     """
     feedback_lower = feedback.strip().lower()
     
@@ -1729,7 +2525,66 @@ def _parse_human_feedback_to_column(
     if feedback_lower in ["skip", "스킵", "건너뛰기", "pass"]:
         return {"action": "skip", "reasoning": "사용자가 스킵 요청"}
     
-    # Case 2: 실제 컬럼명과 정확히 일치
+    # [NEW] Case 1.5: .vital 파일 관련 피드백 감지
+    vital_keywords = ["vital", "vitaldb", "file name is the caseid", "filename is caseid", 
+                      "actual file", "actual data", "binary", "signal file"]
+    if any(kw in feedback_lower for kw in vital_keywords):
+        # 파일명에서 caseid 추출 시도
+        basename = os.path.basename(file_path)
+        name_without_ext = os.path.splitext(basename)[0]
+        
+        import re
+        numbers = re.findall(r'\d+', name_without_ext)
+        if numbers:
+            caseid = int(numbers[-1])
+            return {
+                "action": "use_filename_as_id",
+                "column_name": "caseid",
+                "caseid_value": caseid,
+                "reasoning": f"User indicated this is a vital file. Caseid={caseid} extracted from filename '{basename}'.",
+                "user_intent": "Use filename as caseid for vital file"
+            }
+        else:
+            return {
+                "action": "use_filename_as_id",
+                "column_name": "caseid",
+                "caseid_value": name_without_ext,
+                "reasoning": f"User indicated this is a vital file. Using filename '{name_without_ext}' as identifier.",
+                "user_intent": "Use filename as identifier for vital file"
+            }
+    
+    # [NEW] Case 2: 컬럼이 없는 경우 (signal 파일 등)
+    if not available_columns:
+        print(f"   → No columns available. Processing as special file type...")
+        
+        # 파일명에서 ID 추출 시도
+        basename = os.path.basename(file_path)
+        name_without_ext = os.path.splitext(basename)[0]
+        
+        import re
+        numbers = re.findall(r'\d+', name_without_ext)
+        
+        if numbers:
+            # 숫자가 있으면 caseid로 사용
+            caseid = int(numbers[-1])
+            return {
+                "action": "use_filename_as_id",
+                "column_name": "caseid",
+                "caseid_value": caseid,
+                "reasoning": f"No columns detected. Caseid={caseid} extracted from filename '{basename}'.",
+                "user_intent": feedback
+            }
+        else:
+            # 숫자가 없으면 파일명 자체를 ID로 사용
+            return {
+                "action": "use_filename_as_id",
+                "column_name": "file_id",
+                "caseid_value": name_without_ext,
+                "reasoning": f"No columns detected. Using filename '{name_without_ext}' as identifier.",
+                "user_intent": feedback
+            }
+    
+    # Case 3: 실제 컬럼명과 정확히 일치
     columns_lower = [c.lower() for c in available_columns]
     if feedback_lower in columns_lower:
         # 원래 대소문자 유지
@@ -1740,7 +2595,7 @@ def _parse_human_feedback_to_column(
             "reasoning": "User specified column name directly"
         }
     
-    # Case 3: Description or complex input → Interpret with LLM
+    # Case 4: Description or complex input → Interpret with LLM
     print(f"   → User input is not a column name. Interpreting with LLM...")
     
     from src.utils.llm_client import get_llm_client
@@ -1787,31 +2642,65 @@ Interpret this feedback and determine which column should be used.
                     "user_intent": result.get("user_intent", feedback)
                 }
         
-        # LLM failed to return valid column → Use first column
-        print(f"   ⚠️ LLM failed to return valid column. Using first column: {available_columns[0]}")
-        return {
-            "action": "use_column",
-            "column_name": available_columns[0] if available_columns else "unknown",
-            "reasoning": f"LLM interpretation failed. Using default. User input: {feedback}"
-        }
+        # LLM failed to return valid column → Use first column (safely)
+        if available_columns:
+            print(f"   ⚠️ LLM failed to return valid column. Using first column: {available_columns[0]}")
+            return {
+                "action": "use_column",
+                "column_name": available_columns[0],
+                "reasoning": f"LLM interpretation failed. Using default. User input: {feedback}"
+            }
+        else:
+            # [NEW] 컬럼이 없을 때 안전 처리
+            print(f"   ⚠️ No columns available. Using user feedback as-is.")
+            return {
+                "action": "use_filename_as_id",
+                "column_name": "unknown",
+                "reasoning": f"No columns available. User feedback: {feedback}"
+            }
         
     except Exception as e:
         print(f"   ⚠️ LLM call failed: {e}")
-        # On LLM failure, use first column
-        return {
-            "action": "use_column",
-            "column_name": available_columns[0] if available_columns else feedback.strip(),
-            "reasoning": f"LLM failed. Using default. Error: {str(e)}"
-        }
+        # [NEW] 안전한 에러 처리
+        if available_columns:
+            return {
+                "action": "use_column",
+                "column_name": available_columns[0],
+                "reasoning": f"LLM failed. Using default. Error: {str(e)}"
+            }
+        else:
+            # 컬럼이 없으면 파일명에서 ID 추출
+            basename = os.path.basename(file_path)
+            name_without_ext = os.path.splitext(basename)[0]
+            
+            import re
+            numbers = re.findall(r'\d+', name_without_ext)
+            caseid = int(numbers[-1]) if numbers else name_without_ext
+            
+            return {
+                "action": "use_filename_as_id",
+                "column_name": "caseid" if numbers else "file_id",
+                "caseid_value": caseid,
+                "reasoning": f"LLM failed, no columns. Using filename. Error: {str(e)}"
+            }
 
 
 def _generate_natural_human_question(
     file_path: str,
     context: Dict[str, Any],
-    issue_type: str = "general_uncertainty"
+    issue_type: str = "general_uncertainty",
+    conversation_history: Optional[ConversationHistory] = None
 ) -> str:
     """
     [Helper] Generate natural questions for users using LLM (Human-in-the-Loop)
+    
+    [NEW] 대화 히스토리를 참조하여 더 맥락에 맞는 질문 생성
+    
+    Args:
+        file_path: 현재 파일 경로
+        context: 컨텍스트 정보 (columns, candidates, reasoning 등)
+        issue_type: 이슈 유형
+        conversation_history: 이전 대화 히스토리 (옵션)
     
     Returns:
         Question string to show to the user (English)
@@ -1819,6 +2708,11 @@ def _generate_natural_human_question(
     from src.utils.llm_client import get_llm_client
     
     filename = os.path.basename(file_path)
+    
+    # [NEW] 대화 히스토리 컨텍스트
+    history_context = ""
+    if conversation_history and conversation_history.get("turns"):
+        history_context = format_history_for_prompt(conversation_history, max_turns=3)
     
     # Extract context
     columns = context.get("columns", [])
@@ -1938,6 +2832,18 @@ Ask the user to confirm the type of file.
     
     task_desc = task_descriptions.get(issue_type, task_descriptions["general_uncertainty"])
     
+    # [NEW] 대화 히스토리 섹션 추가
+    history_section = ""
+    if history_context:
+        history_section = f"""
+{history_context}
+
+[IMPORTANT - Use Previous Interactions]
+- Reference previous user decisions when formulating your question
+- If user has shown a pattern (e.g., always approving AI decisions), adjust your question accordingly
+- Avoid asking the same question if already answered for similar files
+"""
+    
     prompt = f"""You are an AI assistant helping a medical data engineer.
 An uncertainty occurred during data processing, and you need to ask the user a question.
 
@@ -1946,7 +2852,7 @@ An uncertainty occurred during data processing, and you need to ask the user a q
 - Columns in file: {columns_str}
 - AI Analysis: {reasoning}
 - Additional info: {ai_msg}
-
+{history_section}
 [Issue to Resolve]
 {task_desc}
 
@@ -1958,6 +2864,7 @@ An uncertainty occurred during data processing, and you need to ask the user a q
 5. Reference specific column names from the column list.
 6. Keep it within 3-5 sentences.
 7. Do not use code or JSON format.
+8. If there's conversation history, reference previous user decisions to provide better context.
 
 Question:"""
     
@@ -1993,6 +2900,7 @@ def ontology_builder_node(state: AgentState) -> Dict[str, Any]:
     [Node] 온톨로지 구축 - Rule Prepares, LLM Decides
     
     파일이 메타데이터인지 판단하고, 메타데이터면 파싱하여 온톨로지에 추가
+    [NEW] 대화 히스토리를 컨텍스트로 활용
     """
     print("\n" + "="*80)
     print("📚 [ONTOLOGY BUILDER NODE] 시작")
@@ -2000,6 +2908,12 @@ def ontology_builder_node(state: AgentState) -> Dict[str, Any]:
     
     file_path = state["file_path"]
     metadata = state["raw_metadata"]
+    
+    # [NEW] 대화 히스토리 가져오기
+    dataset_id = state.get("current_dataset_id", "unknown")
+    conversation_history = state.get("conversation_history")
+    if not conversation_history:
+        conversation_history = create_empty_conversation_history(dataset_id)
     
     # 기존 온톨로지 가져오기 (State에서 또는 디스크에서)
     ontology = state.get("ontology_context")
@@ -2056,7 +2970,7 @@ def ontology_builder_node(state: AgentState) -> Dict[str, Any]:
         print(f"\n⚠️  [Low Confidence] Human Review 요청")
         print(f"   Reason: {review_decision['reason']}")
         
-        # 구체적 질문 생성 (LLM)
+        # 구체적 질문 생성 (LLM) - [NEW] 대화 히스토리 포함
         specific_question = _generate_natural_human_question(
             file_path=file_path,
             context={
@@ -2064,15 +2978,18 @@ def ontology_builder_node(state: AgentState) -> Dict[str, Any]:
                 "message": f"Confidence {confidence:.1%}",
                 "columns": context.get("columns", [])
             },
-            issue_type="metadata_uncertain"
+            issue_type="metadata_uncertain",
+            conversation_history=conversation_history  # [NEW] 대화 히스토리 전달
         )
         
         print("="*80)
         
         return {
             "needs_human_review": True,
+            "review_type": "classification",  # [NEW] 리뷰 타입 명시
             "human_question": specific_question,
             "ontology_context": ontology,  # 현재 상태 유지
+            "conversation_history": conversation_history,  # [NEW] 히스토리 전달
             "logs": [f"⚠️ [Ontology] 메타데이터 판단 불확실 ({confidence:.2%}). {review_decision['reason']}"]
         }
     
@@ -2220,3 +3137,586 @@ def ontology_builder_node(state: AgentState) -> Dict[str, Any]:
             "skip_indexing": False,  # 일반 데이터는 인덱싱 계속
             "logs": ["🔍 [Ontology] 일반 데이터 확인. 관계 추론 완료."]
         }
+
+
+# =============================================================================
+# 2-Phase Workflow Nodes (NEW)
+# =============================================================================
+
+def batch_classifier_node(state: AgentState) -> Dict[str, Any]:
+    """
+    [Phase 1] 전체 파일 분류 노드
+    
+    모든 입력 파일을 한 번에 분류하여 메타데이터/데이터로 구분합니다.
+    불확실한 파일은 classification_review_node로 보냅니다.
+    """
+    print("\n" + "="*80)
+    print("📋 [BATCH CLASSIFIER] Phase 1 시작 - 전체 파일 분류")
+    print("="*80)
+    
+    input_files = state.get("input_files", [])
+    
+    if not input_files:
+        return {
+            "logs": ["❌ Error: 입력 파일이 없습니다."],
+            "error_message": "No input files provided"
+        }
+    
+    print(f"   📂 처리할 파일: {len(input_files)}개")
+    
+    classifications: Dict[str, FileClassification] = {}
+    metadata_files: List[str] = []
+    data_files: List[str] = []
+    uncertain_files: List[str] = []
+    
+    # 각 파일에 대해 분류 수행
+    for idx, file_path in enumerate(input_files):
+        filename = os.path.basename(file_path)
+        print(f"\n   [{idx+1}/{len(input_files)}] {filename}")
+        
+        try:
+            # 1. Processor로 기본 메타데이터 추출
+            selected_processor = next((p for p in processors if p.can_handle(file_path)), None)
+            
+            if not selected_processor:
+                print(f"      ⚠️ 지원되지 않는 파일 형식")
+                classifications[file_path] = {
+                    "file_path": file_path,
+                    "filename": filename,
+                    "classification": "unknown",
+                    "confidence": 0.0,
+                    "reasoning": "Unsupported file format",
+                    "indicators": {},
+                    "needs_review": True,
+                    "human_confirmed": False
+                }
+                uncertain_files.append(file_path)
+                continue
+            
+            raw_metadata = selected_processor.extract_metadata(file_path)
+            
+            # 2. 분류 컨텍스트 구축 (Rule)
+            context = _build_metadata_detection_context(file_path, raw_metadata)
+            
+            # 3. LLM으로 분류 판단
+            meta_result = _ask_llm_is_metadata(context)
+            
+            confidence = meta_result.get("confidence", 0.0)
+            is_metadata = meta_result.get("is_metadata", False)
+            reasoning = meta_result.get("reasoning", "")
+            indicators = meta_result.get("indicators", {})
+            
+            # 4. 분류 결과 저장
+            classification_type = "metadata" if is_metadata else "data"
+            needs_review = confidence < HumanReviewConfig.CLASSIFICATION_CONFIDENCE_THRESHOLD
+            
+            classifications[file_path] = {
+                "file_path": file_path,
+                "filename": filename,
+                "classification": classification_type,
+                "confidence": confidence,
+                "reasoning": reasoning,
+                "indicators": indicators,
+                "needs_review": needs_review,
+                "human_confirmed": False
+            }
+            
+            # 5. 분류별 리스트에 추가
+            if needs_review:
+                uncertain_files.append(file_path)
+                print(f"      ⚠️ 불확실: {classification_type} ({confidence:.1%})")
+            elif is_metadata:
+                metadata_files.append(file_path)
+                print(f"      📖 메타데이터 ({confidence:.1%})")
+            else:
+                data_files.append(file_path)
+                print(f"      📊 데이터 ({confidence:.1%})")
+                
+        except Exception as e:
+            print(f"      ❌ 분류 실패: {e}")
+            classifications[file_path] = {
+                "file_path": file_path,
+                "filename": filename,
+                "classification": "unknown",
+                "confidence": 0.0,
+                "reasoning": f"Error: {str(e)}",
+                "indicators": {},
+                "needs_review": True,
+                "human_confirmed": False
+            }
+            uncertain_files.append(file_path)
+    
+    # 분류 결과 요약
+    classification_result: ClassificationResult = {
+        "total_files": len(input_files),
+        "metadata_files": metadata_files,
+        "data_files": data_files,
+        "uncertain_files": uncertain_files,
+        "classifications": classifications
+    }
+    
+    # 처리 진행 상황 초기화
+    processing_progress: ProcessingProgress = {
+        "phase": "classification",
+        "metadata_processed": [],
+        "data_processed": [],
+        "current_file": None,
+        "current_file_index": 0,
+        "total_files": len(input_files)
+    }
+    
+    print(f"\n" + "-"*40)
+    print(f"📊 분류 완료:")
+    print(f"   - 메타데이터: {len(metadata_files)}개 (확정)")
+    print(f"   - 데이터: {len(data_files)}개 (확정)")
+    print(f"   - 불확실: {len(uncertain_files)}개 (리뷰 필요)")
+    print("="*80)
+    
+    return {
+        "classification_result": classification_result,
+        "processing_progress": processing_progress,
+        "logs": [
+            f"📋 [Phase1] 분류 완료: 메타데이터 {len(metadata_files)}개, "
+            f"데이터 {len(data_files)}개, 불확실 {len(uncertain_files)}개"
+        ]
+    }
+
+
+def classification_review_node(state: AgentState) -> Dict[str, Any]:
+    """
+    [Phase 1-2] 분류 확인 노드 (Human-in-the-Loop)
+    
+    불확실한 파일들에 대해 사용자에게 확인을 요청합니다.
+    """
+    print("\n" + "="*80)
+    print("🧑 [CLASSIFICATION REVIEW] Human-in-the-Loop")
+    print("="*80)
+    
+    classification_result = state.get("classification_result", {})
+    uncertain_files = classification_result.get("uncertain_files", [])
+    classifications = classification_result.get("classifications", {})
+    human_feedback = state.get("human_feedback")
+    
+    # 피드백 처리 (재진입)
+    if human_feedback:
+        print(f"   💬 사용자 피드백 수신: '{human_feedback}'")
+        
+        # 피드백 파싱
+        updated_classifications = _parse_classification_feedback(
+            feedback=human_feedback,
+            classifications=classifications,
+            uncertain_files=uncertain_files
+        )
+        
+        # 분류 결과 업데이트
+        new_metadata_files = []
+        new_data_files = []
+        remaining_uncertain = []
+        
+        for file_path, clf in updated_classifications.items():
+            if clf.get("human_confirmed"):
+                if clf["classification"] == "metadata":
+                    new_metadata_files.append(file_path)
+                elif clf["classification"] == "data":
+                    new_data_files.append(file_path)
+                else:
+                    remaining_uncertain.append(file_path)
+            elif clf["needs_review"]:
+                remaining_uncertain.append(file_path)
+            elif clf["classification"] == "metadata":
+                new_metadata_files.append(file_path)
+            else:
+                new_data_files.append(file_path)
+        
+        # 기존 확정 파일 + 새로 확정된 파일
+        all_metadata = classification_result.get("metadata_files", []) + [
+            f for f in new_metadata_files if f not in classification_result.get("metadata_files", [])
+        ]
+        all_data = classification_result.get("data_files", []) + [
+            f for f in new_data_files if f not in classification_result.get("data_files", [])
+        ]
+        
+        updated_result: ClassificationResult = {
+            "total_files": classification_result["total_files"],
+            "metadata_files": all_metadata,
+            "data_files": all_data,
+            "uncertain_files": remaining_uncertain,
+            "classifications": updated_classifications
+        }
+        
+        print(f"   ✅ 분류 업데이트 완료")
+        print(f"      - 메타데이터: {len(all_metadata)}개")
+        print(f"      - 데이터: {len(all_data)}개")
+        print(f"      - 남은 불확실: {len(remaining_uncertain)}개")
+        
+        # 아직 불확실한 파일이 있으면 계속 질문
+        if remaining_uncertain:
+            question = _generate_classification_question(remaining_uncertain, updated_classifications)
+            return {
+                "classification_result": updated_result,
+                "needs_human_review": True,
+                "review_type": "classification",
+                "human_question": question,
+                "human_feedback": None,  # 리셋
+                "logs": [f"🔄 [Review] 추가 확인 필요: {len(remaining_uncertain)}개 파일"]
+            }
+        
+        # 모두 확정됨
+        progress = state.get("processing_progress", {})
+        progress["phase"] = "classification_review"
+        
+        print("="*80)
+        
+        return {
+            "classification_result": updated_result,
+            "processing_progress": progress,
+            "needs_human_review": False,
+            "human_feedback": None,
+            "logs": [f"✅ [Review] 분류 확정 완료"]
+        }
+    
+    # 첫 진입: 질문 생성
+    if not uncertain_files:
+        print("   ✅ 불확실한 파일 없음 - 리뷰 스킵")
+        return {
+            "needs_human_review": False,
+            "logs": ["✅ [Review] 모든 파일 분류 확정"]
+        }
+    
+    # 사용자에게 질문 생성
+    question = _generate_classification_question(uncertain_files, classifications)
+    
+    print(f"   ❓ {len(uncertain_files)}개 파일에 대해 사용자 확인 요청")
+    print("="*80)
+    
+    return {
+        "needs_human_review": True,
+        "review_type": "classification",
+        "human_question": question,
+        "logs": [f"❓ [Review] {len(uncertain_files)}개 파일 분류 확인 요청"]
+    }
+
+
+def _generate_classification_question(uncertain_files: List[str], classifications: Dict[str, FileClassification]) -> str:
+    """불확실한 파일들에 대한 질문 생성"""
+    
+    question_parts = [
+        "📋 **파일 분류 확인이 필요합니다**\n",
+        "아래 파일들의 분류를 확인해주세요:\n"
+    ]
+    
+    for idx, file_path in enumerate(uncertain_files[:5], 1):  # 최대 5개씩
+        clf = classifications.get(file_path, {})
+        filename = clf.get("filename", os.path.basename(file_path))
+        predicted = clf.get("classification", "unknown")
+        confidence = clf.get("confidence", 0.0)
+        reasoning = clf.get("reasoning", "")[:100]
+        
+        pred_emoji = "📖" if predicted == "metadata" else "📊" if predicted == "data" else "❓"
+        pred_text = "메타데이터" if predicted == "metadata" else "데이터" if predicted == "data" else "알 수 없음"
+        
+        question_parts.append(
+            f"\n**{idx}. {filename}**\n"
+            f"   - AI 예측: {pred_emoji} {pred_text} (확신도: {confidence:.0%})\n"
+            f"   - 판단 근거: {reasoning}...\n"
+        )
+    
+    if len(uncertain_files) > 5:
+        question_parts.append(f"\n... 외 {len(uncertain_files) - 5}개 파일\n")
+    
+    question_parts.append(
+        "\n**응답 방법:**\n"
+        "- 모두 맞으면: `확인` 또는 `ok`\n"
+        "- 수정이 필요하면: `1:데이터, 2:메타데이터` 형식으로 번호와 분류를 입력\n"
+        "- 파일 제외: `1:제외` 또는 `1:skip`\n"
+    )
+    
+    return "".join(question_parts)
+
+
+def _parse_classification_feedback(
+    feedback: str, 
+    classifications: Dict[str, FileClassification],
+    uncertain_files: List[str]
+) -> Dict[str, FileClassification]:
+    """사용자 피드백을 파싱하여 분류 결과 업데이트"""
+    
+    updated = classifications.copy()
+    feedback_lower = feedback.lower().strip()
+    
+    # "확인" 또는 "ok" - 모든 예측 승인
+    if feedback_lower in ["확인", "ok", "yes", "y", "approve", "승인"]:
+        for file_path in uncertain_files:
+            if file_path in updated:
+                updated[file_path]["human_confirmed"] = True
+                updated[file_path]["needs_review"] = False
+        return updated
+    
+    # 개별 수정: "1:데이터, 2:메타데이터" 형식
+    import re
+    corrections = re.findall(r'(\d+)\s*[:：]\s*(메타데이터|데이터|metadata|data|제외|skip)', feedback_lower)
+    
+    for idx_str, new_type in corrections:
+        idx = int(idx_str) - 1  # 1-based to 0-based
+        
+        if 0 <= idx < len(uncertain_files):
+            file_path = uncertain_files[idx]
+            
+            if new_type in ["제외", "skip"]:
+                # 파일 제외 (unknown으로 변경, 처리 대상에서 제외됨)
+                updated[file_path]["classification"] = "unknown"
+                updated[file_path]["human_confirmed"] = True
+                updated[file_path]["needs_review"] = False
+            elif new_type in ["메타데이터", "metadata"]:
+                updated[file_path]["classification"] = "metadata"
+                updated[file_path]["human_confirmed"] = True
+                updated[file_path]["needs_review"] = False
+            elif new_type in ["데이터", "data"]:
+                updated[file_path]["classification"] = "data"
+                updated[file_path]["human_confirmed"] = True
+                updated[file_path]["needs_review"] = False
+    
+    return updated
+
+
+def process_metadata_batch_node(state: AgentState) -> Dict[str, Any]:
+    """
+    [Phase 2-1] 메타데이터 일괄 처리 노드
+    
+    분류된 메타데이터 파일들을 먼저 처리하여 온톨로지를 구축합니다.
+    """
+    print("\n" + "="*80)
+    print("📖 [METADATA PROCESSOR] Phase 2-1 - 메타데이터 일괄 처리")
+    print("="*80)
+    
+    classification_result = state.get("classification_result", {})
+    metadata_files = classification_result.get("metadata_files", [])
+    progress = state.get("processing_progress", {})
+    
+    # 온톨로지 로드
+    ontology = state.get("ontology_context")
+    if not ontology or not ontology.get("definitions"):
+        ontology = ontology_manager.load() or {
+            "definitions": {},
+            "relationships": [],
+            "hierarchy": [],
+            "file_tags": {}
+        }
+    
+    if not metadata_files:
+        print("   ℹ️ 처리할 메타데이터 파일 없음")
+        progress["phase"] = "metadata_processing"
+        progress["metadata_processed"] = []
+        
+        return {
+            "ontology_context": ontology,
+            "processing_progress": progress,
+            "logs": ["ℹ️ [Metadata] 메타데이터 파일 없음 - 스킵"]
+        }
+    
+    print(f"   📂 메타데이터 파일: {len(metadata_files)}개")
+    
+    processed_metadata = []
+    total_definitions = 0
+    
+    for idx, file_path in enumerate(metadata_files):
+        filename = os.path.basename(file_path)
+        print(f"\n   [{idx+1}/{len(metadata_files)}] {filename}")
+        
+        try:
+            # 파일 태그 저장
+            ontology["file_tags"][file_path] = {
+                "type": "metadata",
+                "role": "dictionary",
+                "confidence": classification_result["classifications"].get(file_path, {}).get("confidence", 0.8),
+                "detected_at": datetime.now().isoformat()
+            }
+            
+            # 메타데이터 파싱
+            new_definitions = _parse_metadata_content(file_path)
+            ontology["definitions"].update(new_definitions)
+            
+            total_definitions += len(new_definitions)
+            processed_metadata.append(file_path)
+            
+            print(f"      ✅ 용어 {len(new_definitions)}개 추가")
+            
+        except Exception as e:
+            print(f"      ❌ 처리 실패: {e}")
+    
+    # 온톨로지 저장
+    ontology_manager.save(ontology)
+    
+    # 진행 상황 업데이트
+    progress["phase"] = "metadata_processing"
+    progress["metadata_processed"] = processed_metadata
+    
+    print(f"\n" + "-"*40)
+    print(f"📊 메타데이터 처리 완료:")
+    print(f"   - 처리된 파일: {len(processed_metadata)}개")
+    print(f"   - 추가된 용어: {total_definitions}개")
+    print(f"   - 총 용어 수: {len(ontology.get('definitions', {}))}개")
+    print("="*80)
+    
+    return {
+        "ontology_context": ontology,
+        "processing_progress": progress,
+        "logs": [f"📖 [Metadata] {len(processed_metadata)}개 파일 처리, {total_definitions}개 용어 추가"]
+    }
+
+
+def process_data_batch_node(state: AgentState) -> Dict[str, Any]:
+    """
+    [Phase 2-2] 데이터 일괄 처리 준비 노드
+    
+    데이터 파일 처리를 시작하고, 첫 번째 파일로 전환합니다.
+    (각 데이터 파일은 기존 워크플로우(analyzer → human_review → indexer)를 따름)
+    """
+    print("\n" + "="*80)
+    print("📊 [DATA PROCESSOR] Phase 2-2 - 데이터 처리 시작")
+    print("="*80)
+    
+    classification_result = state.get("classification_result", {})
+    data_files = classification_result.get("data_files", [])
+    progress = state.get("processing_progress", {})
+    
+    if not data_files:
+        print("   ℹ️ 처리할 데이터 파일 없음")
+        progress["phase"] = "complete"
+        
+        return {
+            "processing_progress": progress,
+            "logs": ["ℹ️ [Data] 데이터 파일 없음 - 완료"]
+        }
+    
+    print(f"   📂 데이터 파일: {len(data_files)}개")
+    print(f"   🚀 첫 번째 파일부터 처리 시작")
+    
+    # 첫 번째 파일 설정
+    first_file = data_files[0]
+    
+    progress["phase"] = "data_processing"
+    progress["current_file"] = first_file
+    progress["current_file_index"] = 0
+    progress["total_files"] = len(data_files)
+    
+    print(f"\n   → 처리 파일: {os.path.basename(first_file)}")
+    print("="*80)
+    
+    # 첫 파일 경로 설정 (다음 노드에서 사용)
+    return {
+        "file_path": first_file,
+        "processing_progress": progress,
+        "skip_indexing": False,
+        "logs": [f"📊 [Data] {len(data_files)}개 파일 처리 시작"]
+    }
+
+
+def advance_to_next_file_node(state: AgentState) -> Dict[str, Any]:
+    """
+    [Helper] 다음 데이터 파일로 진행
+    
+    현재 파일 인덱싱 완료 후 다음 파일로 이동합니다.
+    """
+    print("\n" + "-"*40)
+    print("➡️ [ADVANCE] 다음 파일로 이동")
+    print("-"*40)
+    
+    classification_result = state.get("classification_result", {})
+    data_files = classification_result.get("data_files", [])
+    progress = state.get("processing_progress", {})
+    
+    current_idx = progress.get("current_file_index", 0)
+    current_file = progress.get("current_file", "")
+    
+    # 현재 파일을 처리 완료 목록에 추가
+    if current_file and current_file not in progress.get("data_processed", []):
+        if "data_processed" not in progress:
+            progress["data_processed"] = []
+        progress["data_processed"].append(current_file)
+    
+    # 다음 인덱스
+    next_idx = current_idx + 1
+    
+    if next_idx >= len(data_files):
+        # 모든 파일 처리 완료
+        print(f"   ✅ 모든 데이터 파일 처리 완료 ({len(data_files)}개)")
+        progress["phase"] = "complete"
+        progress["current_file"] = None
+        
+        return {
+            "processing_progress": progress,
+            "logs": [f"✅ [Complete] 모든 데이터 파일 처리 완료 ({len(data_files)}개)"]
+        }
+    
+    # 다음 파일로 이동
+    next_file = data_files[next_idx]
+    progress["current_file"] = next_file
+    progress["current_file_index"] = next_idx
+    
+    print(f"   📂 다음 파일: [{next_idx + 1}/{len(data_files)}] {os.path.basename(next_file)}")
+    
+    # 상태 리셋 (새 파일 처리를 위해)
+    return {
+        "file_path": next_file,
+        "processing_progress": progress,
+        "raw_metadata": {},  # 리셋
+        "finalized_anchor": None,  # 리셋
+        "finalized_schema": [],  # 리셋
+        "needs_human_review": False,  # 리셋
+        "human_feedback": None,  # 리셋
+        "skip_indexing": False,  # 리셋
+        "retry_count": 0,  # 리셋
+        "logs": [f"➡️ [Advance] 다음 파일: {os.path.basename(next_file)}"]
+    }
+
+
+# =============================================================================
+# Routing Functions for 2-Phase Workflow
+# =============================================================================
+
+def check_classification_needs_review(state: AgentState) -> str:
+    """분류 결과 중 불확실한 것이 있는지 확인"""
+    classification_result = state.get("classification_result", {})
+    uncertain_files = classification_result.get("uncertain_files", [])
+    
+    if uncertain_files:
+        return "needs_review"
+    return "all_confident"
+
+
+def check_has_more_files(state: AgentState) -> str:
+    """더 처리할 데이터 파일이 있는지 확인"""
+    classification_result = state.get("classification_result", {})
+    data_files = classification_result.get("data_files", [])
+    progress = state.get("processing_progress", {})
+    
+    current_idx = progress.get("current_file_index", 0)
+    
+    # 아직 처리할 파일이 남아있으면
+    if current_idx + 1 < len(data_files):
+        return "has_more"
+    return "all_done"
+
+
+def check_data_needs_review(state: AgentState) -> str:
+    """데이터 분석 후 Human Review 필요 여부 확인"""
+    
+    # 기존 check_confidence 로직 활용
+    needs_human = state.get("needs_human_review", False)
+    finalized_anchor = state.get("finalized_anchor", {})
+    anchor_status = finalized_anchor.get("status") if finalized_anchor else None
+    
+    # Anchor가 확정된 경우
+    if anchor_status in ["CONFIRMED", "INDIRECT_LINK"]:
+        return "approved"
+    
+    # Processor가 확인 요청
+    if state.get("raw_metadata", {}).get("anchor_info", {}).get("needs_human_confirmation"):
+        return "review_required"
+    
+    # needs_human_review 플래그
+    if needs_human:
+        return "review_required"
+    
+    return "approved"

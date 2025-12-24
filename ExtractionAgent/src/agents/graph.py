@@ -13,8 +13,8 @@ def should_retry(state: ExtractionState) -> str:
     SQL 실행 결과에 따라 다음 단계 결정 (Self-Correction Loop)
     
     Returns:
-        "success": 성공 → packager로 이동
-        "retry": 실패 + 재시도 가능 → planner로 돌아가기 (Self-Loop)
+        "success": 성공 (rows > 0) → packager로 이동
+        "retry": 실패 또는 0건 + 재시도 가능 → planner로 돌아가기 (Self-Loop)
         "fail": 최대 재시도 초과 → 종료
     """
     retry_count = state.get("retry_count", 0)
@@ -22,25 +22,36 @@ def should_retry(state: ExtractionState) -> str:
     error = state.get("error")
     result = state.get("execution_result")
     
-    # 성공: 결과가 있고 에러가 없음
-    if result is not None and not error:
+    # 성공: 결과가 있고, 1건 이상이고, 에러가 없음
+    if result is not None and len(result) > 0 and not error:
         print(f"\n{'='*60}")
-        print(f"✅ [Router] SUCCESS - SQL executed successfully")
+        print(f"✅ [Router] SUCCESS - SQL executed successfully ({len(result)} rows)")
         print(f"{'='*60}")
         return "success"
     
-    # 실패 + 재시도 가능
-    if retry_count < max_retries:
+    # 결과가 0건인 경우 - retry 가능하면 retry
+    if result is not None and len(result) == 0 and retry_count < max_retries:
         print(f"\n{'='*60}")
-        print(f"🔄 [Router] RETRY - Attempt {retry_count}/{max_retries}")
+        print(f"🔄 [Router] RETRY (ZERO ROWS) - Attempt {retry_count + 1}/{max_retries}")
+        print(f"   SQL executed but returned 0 rows - possible column/value mismatch")
+        print(f"{'='*60}")
+        return "retry"
+    
+    # 에러 발생 + 재시도 가능
+    if error and retry_count < max_retries:
+        print(f"\n{'='*60}")
+        print(f"🔄 [Router] RETRY (ERROR) - Attempt {retry_count + 1}/{max_retries}")
         print(f"   Error: {str(error)[:80]}...")
         print(f"{'='*60}")
         return "retry"
     
-    # 최대 재시도 초과
+    # 최대 재시도 초과 또는 복구 불가
     print(f"\n{'='*60}")
     print(f"❌ [Router] FAIL - Max retries ({max_retries}) exceeded")
-    print(f"   Last error: {str(error)[:80]}...")
+    if error:
+        print(f"   Last error: {str(error)[:80]}...")
+    elif result is not None and len(result) == 0:
+        print(f"   Query still returns 0 rows after all retries")
     print(f"{'='*60}")
     return "fail"
 

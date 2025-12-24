@@ -29,14 +29,38 @@ pandas>=2.0.0
 numpy>=1.24.0
 
 # ============================================
+# Data Validation & Type Safety
+# ============================================
+# Pydantic for data validation (state models)
+pydantic>=2.0.0
+
+# ============================================
+# Resilience & Caching
+# ============================================
+# Tenacity for retry logic
+tenacity>=8.2.0
+
+# Diskcache for LLM response caching
+diskcache>=5.6.0
+
+# ============================================
+# Logging
+# ============================================
+# Loguru for structured logging
+loguru>=0.7.0
+
+# ============================================
 # Environment & Configuration
 # ============================================
 # Environment variables management (.env file support)
 python-dotenv>=1.0.0
 
 # ============================================
-# Optional: Bio-Signal Processing
+# Bio-Signal Processing
 # ============================================
+# VitalDB for .vital files (VitalDB dataset format)
+vitaldb>=1.0.0
+
 # MNE for EDF/BDF signal files (optional, comment out if not needed)
 # mne>=1.5.0
 
@@ -64,4 +88,3 @@ chromadb>=0.4.0
 # pytest>=7.4.0
 # black>=23.0.0
 # flake8>=6.0.0
-

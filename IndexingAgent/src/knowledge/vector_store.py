@@ -2,6 +2,10 @@
 """
 VectorDB 관리 (PostgreSQL pgvector 기반)
 
+Dataset-First Architecture:
+- 모든 임베딩에 dataset_id 추가
+- 데이터셋별로 임베딩 분리 및 필터링 가능
+
 Dynamic Schema: 임베딩 모델에 따라 테이블을 동적으로 생성
 - 모델별로 다른 테이블 사용 (예: column_embeddings_openai_3072)
 - 모델 변경 시 해당 모델의 테이블 참조
@@ -17,6 +21,10 @@ class VectorStore:
     """
     PostgreSQL pgvector 기반 VectorDB 관리 (Dynamic Schema)
     
+    Dataset-First Architecture:
+    - 모든 임베딩에 dataset_id 컬럼 추가
+    - 검색 시 특정 데이터셋으로 필터링 가능
+    
     - 임베딩 모델에 따라 동적으로 테이블 생성
     - 모델별 테이블명: {base_name}_{provider}_{dimensions}
     - 모델 변경 시 해당 테이블 자동 참조
@@ -29,6 +37,7 @@ class VectorStore:
         self.embedding_model = None
         self.dimensions = None
         self.provider = None
+        self.current_dataset_id = None  # Dataset-First: 현재 데이터셋
         
         # 동적 테이블명 (초기화 시 설정)
         self.column_table = None
@@ -162,14 +171,21 @@ class VectorStore:
         self.conn.commit()
     
     def _create_tables_if_not_exist(self):
-        """현재 모델에 맞는 테이블 동적 생성"""
+        """
+        현재 모델에 맞는 테이블 동적 생성
+        
+        Dataset-First Architecture:
+        - 모든 테이블에 dataset_id 컬럼 추가
+        - UNIQUE 제약조건에 dataset_id 포함
+        """
         cursor = self.conn.cursor()
         dims = self.dimensions
         
-        # 1. Column Embeddings 테이블
+        # 1. Column Embeddings 테이블 (dataset_id 추가)
         cursor.execute(f"""
             CREATE TABLE IF NOT EXISTS {self.column_table} (
                 id SERIAL PRIMARY KEY,
+                dataset_id VARCHAR(255) NOT NULL DEFAULT 'default',
                 table_name VARCHAR(255) NOT NULL,
                 column_name VARCHAR(255) NOT NULL,
                 full_name VARCHAR(500),
@@ -180,28 +196,31 @@ class VectorStore:
                 embedding vector({dims}),
                 created_at TIMESTAMP DEFAULT NOW(),
                 updated_at TIMESTAMP DEFAULT NOW(),
-                UNIQUE(table_name, column_name)
+                UNIQUE(dataset_id, table_name, column_name)
             )
         """)
         
-        # 2. Table Embeddings 테이블
+        # 2. Table Embeddings 테이블 (dataset_id 추가)
         cursor.execute(f"""
             CREATE TABLE IF NOT EXISTS {self.table_table} (
                 id SERIAL PRIMARY KEY,
-                table_name VARCHAR(255) NOT NULL UNIQUE,
+                dataset_id VARCHAR(255) NOT NULL DEFAULT 'default',
+                table_name VARCHAR(255) NOT NULL,
                 description TEXT,
                 columns_summary TEXT,
                 row_count INTEGER,
                 embedding vector({dims}),
                 created_at TIMESTAMP DEFAULT NOW(),
-                updated_at TIMESTAMP DEFAULT NOW()
+                updated_at TIMESTAMP DEFAULT NOW(),
+                UNIQUE(dataset_id, table_name)
             )
         """)
         
-        # 3. Relationship Embeddings 테이블
+        # 3. Relationship Embeddings 테이블 (dataset_id 추가)
         cursor.execute(f"""
             CREATE TABLE IF NOT EXISTS {self.relationship_table} (
                 id SERIAL PRIMARY KEY,
+                dataset_id VARCHAR(255) NOT NULL DEFAULT 'default',
                 source_table VARCHAR(255) NOT NULL,
                 target_table VARCHAR(255) NOT NULL,
                 source_column VARCHAR(255),
@@ -210,12 +229,30 @@ class VectorStore:
                 description TEXT,
                 embedding vector({dims}),
                 created_at TIMESTAMP DEFAULT NOW(),
-                UNIQUE(source_table, target_table, source_column, target_column)
+                UNIQUE(dataset_id, source_table, target_table, source_column, target_column)
             )
         """)
         
         # Commit table creation before index attempt
         self.conn.commit()
+        
+        # dataset_id 인덱스 추가 (없으면)
+        try:
+            cursor.execute(f"""
+                CREATE INDEX IF NOT EXISTS idx_{self.column_table}_dataset 
+                ON {self.column_table}(dataset_id)
+            """)
+            cursor.execute(f"""
+                CREATE INDEX IF NOT EXISTS idx_{self.table_table}_dataset 
+                ON {self.table_table}(dataset_id)
+            """)
+            cursor.execute(f"""
+                CREATE INDEX IF NOT EXISTS idx_{self.relationship_table}_dataset 
+                ON {self.relationship_table}(dataset_id)
+            """)
+            self.conn.commit()
+        except Exception as e:
+            print(f"   ⚠️ Dataset index creation warning: {e}")
         
         # 4. Vector index creation (HNSW for dims <= 2000, skip for higher dims)
         # HNSW has 2000 dimension limit
@@ -294,27 +331,42 @@ class VectorStore:
         else:  # local
             return self.embedding_client.encode(text).tolist()
     
-    def build_index(self, ontology_context: Dict[str, Any]):
+    def build_index(self, ontology_context: Dict[str, Any], dataset_id: Optional[str] = None):
         """
         온톨로지 기반 계층적 임베딩 생성 및 PostgreSQL 저장
         
+        Dataset-First Architecture:
+        - 모든 임베딩에 dataset_id 포함
+        - dataset_id가 None이면 ontology_context에서 추출
+        
         Args:
             ontology_context: 온톨로지 컨텍스트
+            dataset_id: 데이터셋 ID (선택)
         """
         if not self.conn or not self.embedding_client:
             raise ValueError("VectorStore not initialized. Call initialize() first.")
         
+        # Dataset-First: dataset_id 결정
+        if dataset_id is None:
+            dataset_id = ontology_context.get("dataset_id", "default")
+        self.current_dataset_id = dataset_id
+        
         cursor = self.conn.cursor()
         
-        print(f"\n📚 [VectorDB] 임베딩 생성 중... (테이블: {self._get_table_suffix()})")
+        print(f"\n📚 [VectorDB] 임베딩 생성 중... (dataset: {dataset_id}, 테이블: {self._get_table_suffix()})")
         
         # === 1. Table Summary Embedding ===
         print("   - Table Summary 임베딩...")
         table_count = 0
         
+        # Dataset-First: naming 유틸리티 import
+        from src.utils.naming import generate_table_name
+        from src.utils.dataset_detector import detect_dataset_from_path
+        
         for file_path, tag_info in ontology_context.get("file_tags", {}).items():
             if tag_info.get("type") == "transactional_data":
-                table_name = os.path.basename(file_path).replace(".csv", "_table").replace(".", "_").replace("-", "_")
+                # Dataset-First: 테이블명에 prefix 추가
+                table_name = generate_table_name(file_path, dataset_id)
                 columns = tag_info.get("columns", [])
                 
                 # 계층 정보 찾기
@@ -345,16 +397,17 @@ Description: Contains {entity_name if entity_name else 'data'} information."""
                 # 임베딩 생성
                 embedding = self._get_embedding(table_text)
                 
-                # PostgreSQL 저장 (UPSERT)
+                # PostgreSQL 저장 (UPSERT) - Dataset-First: dataset_id 포함
                 cursor.execute(f"""
-                    INSERT INTO {self.table_table} (table_name, description, columns_summary, row_count, embedding)
-                    VALUES (%s, %s, %s, %s, %s)
-                    ON CONFLICT (table_name) DO UPDATE SET
+                    INSERT INTO {self.table_table} (dataset_id, table_name, description, columns_summary, row_count, embedding)
+                    VALUES (%s, %s, %s, %s, %s, %s)
+                    ON CONFLICT (dataset_id, table_name) DO UPDATE SET
                         description = EXCLUDED.description,
                         columns_summary = EXCLUDED.columns_summary,
                         embedding = EXCLUDED.embedding,
                         updated_at = NOW()
                 """, (
+                    dataset_id,
                     table_name,
                     f"Contains {entity_name if entity_name else 'data'} information",
                     ', '.join(columns[:30]),
@@ -379,26 +432,27 @@ Description: Contains {entity_name if entity_name else 'data'} information."""
                 if h.get("anchor_column") == col_name:
                     context_text += f"\nEntity Level: {h['level']} ({h['entity_name']})"
             
-            # 어느 테이블에 속하는지
+            # 어느 테이블에 속하는지 - Dataset-First
             table_name = None
             for file_path, tag_info in ontology_context.get("file_tags", {}).items():
                 if col_name in tag_info.get("columns", []):
-                    table_name = os.path.basename(file_path).replace(".csv", "_table").replace(".", "_").replace("-", "_")
+                    table_name = generate_table_name(file_path, dataset_id)
                     context_text += f"\nTable: {table_name}"
                     break
             
             # 임베딩 생성
             embedding = self._get_embedding(context_text)
             
-            # PostgreSQL 저장 (UPSERT)
+            # PostgreSQL 저장 (UPSERT) - Dataset-First: dataset_id 포함
             cursor.execute(f"""
-                INSERT INTO {self.column_table} (table_name, column_name, description, embedding)
-                VALUES (%s, %s, %s, %s)
-                ON CONFLICT (table_name, column_name) DO UPDATE SET
+                INSERT INTO {self.column_table} (dataset_id, table_name, column_name, description, embedding)
+                VALUES (%s, %s, %s, %s, %s)
+                ON CONFLICT (dataset_id, table_name, column_name) DO UPDATE SET
                     description = EXCLUDED.description,
                     embedding = EXCLUDED.embedding,
                     updated_at = NOW()
             """, (
+                dataset_id,
                 table_name or 'unknown',
                 col_name,
                 definition,
@@ -429,12 +483,12 @@ Keywords: {col_name}, {col_info.get('full_name', '')}, {col_info.get('descriptio
                 # 임베딩 생성
                 embedding = self._get_embedding(meta_text)
                 
-                # PostgreSQL 저장 (UPSERT)
+                # PostgreSQL 저장 (UPSERT) - Dataset-First: dataset_id 포함
                 cursor.execute(f"""
                     INSERT INTO {self.column_table} 
-                    (table_name, column_name, full_name, description, description_kr, unit, typical_range, embedding)
-                    VALUES (%s, %s, %s, %s, %s, %s, %s, %s)
-                    ON CONFLICT (table_name, column_name) DO UPDATE SET
+                    (dataset_id, table_name, column_name, full_name, description, description_kr, unit, typical_range, embedding)
+                    VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s)
+                    ON CONFLICT (dataset_id, table_name, column_name) DO UPDATE SET
                         full_name = EXCLUDED.full_name,
                         description = EXCLUDED.description,
                         description_kr = EXCLUDED.description_kr,
@@ -443,6 +497,7 @@ Keywords: {col_name}, {col_info.get('full_name', '')}, {col_info.get('descriptio
                         embedding = EXCLUDED.embedding,
                         updated_at = NOW()
                 """, (
+                    dataset_id,
                     table_name,
                     col_name,
                     col_info.get('full_name'),
@@ -470,16 +525,17 @@ Description: {rel.get('description', 'FK relationship')}"""
             # 임베딩 생성
             embedding = self._get_embedding(rel_text)
             
-            # PostgreSQL 저장 (UPSERT)
+            # PostgreSQL 저장 (UPSERT) - Dataset-First: dataset_id 포함
             cursor.execute(f"""
                 INSERT INTO {self.relationship_table} 
-                (source_table, target_table, source_column, target_column, relation_type, description, embedding)
-                VALUES (%s, %s, %s, %s, %s, %s, %s)
-                ON CONFLICT (source_table, target_table, source_column, target_column) DO UPDATE SET
+                (dataset_id, source_table, target_table, source_column, target_column, relation_type, description, embedding)
+                VALUES (%s, %s, %s, %s, %s, %s, %s, %s)
+                ON CONFLICT (dataset_id, source_table, target_table, source_column, target_column) DO UPDATE SET
                     relation_type = EXCLUDED.relation_type,
                     description = EXCLUDED.description,
                     embedding = EXCLUDED.embedding
             """, (
+                dataset_id,
                 rel["source_table"],
                 rel["target_table"],
                 rel.get("source_column"),
@@ -508,15 +564,21 @@ Description: {rel.get('description', 'FK relationship')}"""
         self, 
         query: str, 
         n_results: int = 10,
-        filter_type: Optional[str] = None
+        filter_type: Optional[str] = None,
+        dataset_id: Optional[str] = None
     ) -> List[Dict]:
         """
         시맨틱 검색
+        
+        Dataset-First Architecture:
+        - dataset_id로 특정 데이터셋만 검색 가능
+        - None이면 전체 검색
         
         Args:
             query: 검색 쿼리
             n_results: 결과 개수
             filter_type: 필터 타입 ("table", "column", "relationship" 또는 None)
+            dataset_id: 데이터셋 ID (None이면 전체 검색)
         
         Returns:
             검색 결과 리스트
@@ -530,68 +592,81 @@ Description: {rel.get('description', 'FK relationship')}"""
         cursor = self.conn.cursor()
         results = []
         
+        # Dataset-First: dataset_id 필터 조건
+        dataset_filter = ""
+        dataset_params = []
+        if dataset_id:
+            dataset_filter = "WHERE dataset_id = %s"
+            dataset_params = [dataset_id]
+        
         # 테이블별로 검색 (동적 테이블명 사용)
         if filter_type is None or filter_type == "column":
             cursor.execute(f"""
-                SELECT table_name, column_name, full_name, description, description_kr, 
+                SELECT dataset_id, table_name, column_name, full_name, description, description_kr, 
                        unit, typical_range,
                        1 - (embedding <=> %s::vector) as similarity
                 FROM {self.column_table}
+                {dataset_filter}
                 ORDER BY embedding <=> %s::vector
                 LIMIT %s
-            """, (query_embedding, query_embedding, n_results))
+            """, [query_embedding] + dataset_params + [query_embedding, n_results])
             
             for row in cursor.fetchall():
                 results.append({
                     "type": "column",
-                    "table_name": row[0],
-                    "column_name": row[1],
-                    "full_name": row[2],
-                    "description": row[3],
-                    "description_kr": row[4],
-                    "unit": row[5],
-                    "typical_range": row[6],
-                    "similarity": float(row[7]) if row[7] else 0
+                    "dataset_id": row[0],
+                    "table_name": row[1],
+                    "column_name": row[2],
+                    "full_name": row[3],
+                    "description": row[4],
+                    "description_kr": row[5],
+                    "unit": row[6],
+                    "typical_range": row[7],
+                    "similarity": float(row[8]) if row[8] else 0
                 })
         
         if filter_type is None or filter_type == "table":
             cursor.execute(f"""
-                SELECT table_name, description, columns_summary,
+                SELECT dataset_id, table_name, description, columns_summary,
                        1 - (embedding <=> %s::vector) as similarity
                 FROM {self.table_table}
+                {dataset_filter}
                 ORDER BY embedding <=> %s::vector
                 LIMIT %s
-            """, (query_embedding, query_embedding, n_results))
+            """, [query_embedding] + dataset_params + [query_embedding, n_results])
             
             for row in cursor.fetchall():
                 results.append({
                     "type": "table",
-                    "table_name": row[0],
-                    "description": row[1],
-                    "columns_summary": row[2],
-                    "similarity": float(row[3]) if row[3] else 0
+                    "dataset_id": row[0],
+                    "table_name": row[1],
+                    "description": row[2],
+                    "columns_summary": row[3],
+                    "similarity": float(row[4]) if row[4] else 0
                 })
         
         if filter_type is None or filter_type == "relationship":
             cursor.execute(f"""
-                SELECT source_table, target_table, source_column, target_column, 
+                SELECT dataset_id, source_table, target_table, source_column, target_column, 
                        relation_type, description,
                        1 - (embedding <=> %s::vector) as similarity
                 FROM {self.relationship_table}
+                {dataset_filter}
                 ORDER BY embedding <=> %s::vector
                 LIMIT %s
-            """, (query_embedding, query_embedding, n_results))
+            """, [query_embedding] + dataset_params + [query_embedding, n_results])
             
             for row in cursor.fetchall():
                 results.append({
                     "type": "relationship",
-                    "source_table": row[0],
-                    "target_table": row[1],
-                    "source_column": row[2],
-                    "target_column": row[3],
-                    "relation_type": row[4],
-                    "description": row[5],
-                    "similarity": float(row[6]) if row[6] else 0
+                    "dataset_id": row[0],
+                    "source_table": row[1],
+                    "target_table": row[2],
+                    "source_column": row[3],
+                    "target_column": row[4],
+                    "relation_type": row[5],
+                    "description": row[6],
+                    "similarity": float(row[7]) if row[7] else 0
                 })
         
         # similarity 기준 정렬

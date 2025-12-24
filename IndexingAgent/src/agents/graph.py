@@ -1,111 +1,320 @@
+"""
+2-Phase Workflow Architecture
+=============================
+
+Phase 1: Classification (전체 파일 분류)
+  ┌─────────────┐
+  │   START     │
+  └──────┬──────┘
+         │
+         ▼
+┌────────────────────┐
+│  batch_classifier  │  ← 모든 파일 분류
+└────────┬───────────┘
+         │
+    ┌────┴────┐
+    │         │
+uncertain?   all ok?
+    │         │
+    ▼         │
+┌─────────────────────┐
+│classification_review│ ← Human-in-Loop
+└────────┬────────────┘
+         │
+         └────┬────────┘
+              ▼
+
+Phase 2: Processing (메타데이터 → 데이터 순서)
+              │
+              ▼
+┌──────────────────────┐
+│ process_metadata     │ ← 메타데이터 먼저!
+└──────────┬───────────┘
+           │
+           ▼
+┌──────────────────────┐
+│ process_data_batch   │ ← 데이터 파일 처리 시작
+└──────────┬───────────┘
+           │
+           ▼
+    ┌─────────────┐
+    │   loader    │  ← 현재 파일 로드
+    └──────┬──────┘
+           │
+           ▼
+    ┌─────────────┐
+    │  analyzer   │  ← 의미 분석
+    └──────┬──────┘
+           │
+      ┌────┴────┐
+      │         │
+low conf?    high conf?
+      │         │
+      ▼         │
+┌────────────┐  │
+│human_review│  │
+└─────┬──────┘  │
+      │         │
+      └────┬────┘
+           ▼
+    ┌─────────────┐
+    │   indexer   │  ← DB 저장
+    └──────┬──────┘
+           │
+           ▼
+    ┌─────────────┐
+    │   advance   │  ← 다음 파일?
+    └──────┬──────┘
+           │
+      ┌────┴────┐
+      │         │
+ has more?   all done?
+      │         │
+      ↺ loop    ▼
+              ┌─────┐
+              │ END │
+              └─────┘
+"""
+
 from langgraph.graph import StateGraph, END
 from src.agents.state import AgentState
+
+# 새로운 nodes 패키지에서 import
 from src.agents.nodes import (
+    # 기존 노드
     load_data_node,
-    ontology_builder_node,  # [NEW] 온톨로지 구축 노드
+    ontology_builder_node,
     analyze_semantics_node,
     human_review_node,
-    index_data_node
+    index_data_node,
+    # 2-Phase 새 노드
+    batch_classifier_node,
+    classification_review_node,
+    process_metadata_batch_node,
+    process_data_batch_node,
+    advance_to_next_file_node,
+    # Routing functions
+    check_classification_needs_review,
+    check_has_more_files,
+    check_data_needs_review,
 )
 
-def build_agent(checkpointer=None):
+
+def build_agent(checkpointer=None, mode="batch"):
     """
     LangGraph 워크플로우 빌드
     
     Args:
         checkpointer: (선택) 상태 저장용 checkpointer (예: MemorySaver())
                      Human-in-the-Loop에서 interrupt/resume을 위해 필요
+        mode: 워크플로우 모드
+            - "batch": 2-Phase Workflow (권장, 여러 파일 일괄 처리)
+            - "single": 기존 단일 파일 처리 워크플로우
+    """
+    if mode == "batch":
+        return _build_batch_workflow(checkpointer)
+    else:
+        return _build_single_file_workflow(checkpointer)
+
+
+def _build_batch_workflow(checkpointer=None):
+    """
+    [NEW] 2-Phase Batch Workflow
+    
+    메타데이터를 먼저 처리하여 온톨로지를 구축한 후,
+    데이터 파일들을 처리합니다.
+    """
+    workflow = StateGraph(AgentState)
+    
+    # ==========================================================================
+    # Phase 1: Classification (파일 분류)
+    # ==========================================================================
+    workflow.add_node("batch_classifier", batch_classifier_node)
+    workflow.add_node("classification_review", classification_review_node)
+    
+    # ==========================================================================
+    # Phase 2: Processing (메타데이터 → 데이터)
+    # ==========================================================================
+    workflow.add_node("process_metadata", process_metadata_batch_node)
+    workflow.add_node("process_data_batch", process_data_batch_node)
+    
+    # 개별 데이터 파일 처리 노드 (기존 로직 재사용)
+    workflow.add_node("loader", load_data_node)
+    workflow.add_node("analyzer", analyze_semantics_node)
+    workflow.add_node("human_review", human_review_node)
+    workflow.add_node("indexer", index_data_node)
+    workflow.add_node("advance", advance_to_next_file_node)
+    
+    # ==========================================================================
+    # Edges: Phase 1
+    # ==========================================================================
+    
+    # Entry Point
+    workflow.set_entry_point("batch_classifier")
+    
+    # batch_classifier → classification_review (불확실한 파일 있으면)
+    # batch_classifier → process_metadata (모두 확실하면)
+    workflow.add_conditional_edges(
+        "batch_classifier",
+        check_classification_needs_review,
+        {
+            "needs_review": "classification_review",
+            "all_confident": "process_metadata"
+        }
+    )
+    
+    # classification_review → process_metadata (확정 후)
+    # classification_review → classification_review (계속 질문 - 자체 루프는 state로 처리)
+    workflow.add_conditional_edges(
+        "classification_review",
+        lambda state: "continue" if not state.get("needs_human_review") else "wait",
+        {
+            "continue": "process_metadata",
+            "wait": "classification_review"  # Human Review 대기 (interrupt로 처리)
+        }
+    )
+    
+    # ==========================================================================
+    # Edges: Phase 2
+    # ==========================================================================
+    
+    # process_metadata → process_data_batch
+    workflow.add_edge("process_metadata", "process_data_batch")
+    
+    # process_data_batch → loader (첫 데이터 파일 로드)
+    # process_data_batch → END (데이터 파일 없으면)
+    workflow.add_conditional_edges(
+        "process_data_batch",
+        lambda state: "has_data" if state.get("classification_result", {}).get("data_files") else "no_data",
+        {
+            "has_data": "loader",
+            "no_data": END
+        }
+    )
+    
+    # loader → analyzer
+    workflow.add_edge("loader", "analyzer")
+    
+    # analyzer → human_review / indexer (confidence 체크)
+    workflow.add_conditional_edges(
+        "analyzer",
+        check_data_needs_review,
+        {
+            "review_required": "human_review",
+            "approved": "indexer"
+        }
+    )
+    
+    # human_review → analyzer (피드백 반영)
+    workflow.add_edge("human_review", "analyzer")
+    
+    # indexer → advance (다음 파일로)
+    workflow.add_edge("indexer", "advance")
+    
+    # advance → loader (더 있으면) / END (완료)
+    workflow.add_conditional_edges(
+        "advance",
+        check_has_more_files,
+        {
+            "has_more": "loader",
+            "all_done": END
+        }
+    )
+    
+    # ==========================================================================
+    # Compile with Interrupt Points
+    # ==========================================================================
+    compile_config = {}
+    if checkpointer:
+        compile_config["checkpointer"] = checkpointer
+        # Human-in-Loop 지점들
+        compile_config["interrupt_before"] = [
+            "classification_review",  # 분류 확인
+            "human_review"           # 데이터 분석 확인
+        ]
+    
+    return workflow.compile(**compile_config)
+
+
+def _build_single_file_workflow(checkpointer=None):
+    """
+    [LEGACY] 기존 단일 파일 처리 워크플로우
+    
+    호환성을 위해 유지합니다.
     """
     workflow = StateGraph(AgentState)
 
-    # --- 1. 노드(Node) 등록: 에이전트가 할 일들 ---
-    workflow.add_node("loader", load_data_node)                # 파일 읽기 & 기초 분석
-    workflow.add_node("ontology_builder", ontology_builder_node) # [NEW] 온톨로지 구축
-    workflow.add_node("analyzer", analyze_semantics_node)      # 의미 추론 (LLM)
-    workflow.add_node("human_review", human_review_node)        # 사람에게 물어보기
-    workflow.add_node("indexer", index_data_node)               # DB 저장
+    # 노드 등록
+    workflow.add_node("loader", load_data_node)
+    workflow.add_node("ontology_builder", ontology_builder_node)
+    workflow.add_node("analyzer", analyze_semantics_node)
+    workflow.add_node("human_review", human_review_node)
+    workflow.add_node("indexer", index_data_node)
 
-    # --- 2. 엣지(Edge) 연결: 순서 정의 ---
-    
-    # 시작 -> 로더
+    # 엣지 연결
     workflow.set_entry_point("loader")
-    
-    # 로더 -> 온톨로지 빌더 (새 단계!)
     workflow.add_edge("loader", "ontology_builder")
     
-    # 온톨로지 빌더 -> 분석기 (메타데이터 아닌 경우만)
     workflow.add_conditional_edges(
         "ontology_builder",
         lambda state: "skip" if state.get("skip_indexing") else "continue",
         {
-            "skip": END,        # 메타데이터면 여기서 종료
-            "continue": "analyzer"  # 일반 데이터면 분석 계속
+            "skip": END,
+            "continue": "analyzer"
         }
     )
 
-    # 분석기 -> [분기점] -> 사람 or 저장
-    # 여기서 '조건부 엣지(Conditional Edge)'가 사용됩니다.
     workflow.add_conditional_edges(
         "analyzer",
-        check_confidence,  # 판단 함수
+        check_confidence,
         {
-            "review_required": "human_review", # 확신 없으면 사람에게
-            "approved": "indexer"              # 확신하면 바로 저장
+            "review_required": "human_review",
+            "approved": "indexer"
         }
     )
 
-    # 사람 피드백 -> 다시 분석 (피드백 반영하여 재추론)
     workflow.add_edge("human_review", "analyzer")
-
-    # 저장 -> 끝
     workflow.add_edge("indexer", END)
 
-    # --- 3. 컴파일 (Interrupt 설정) ---
-    # checkpointer가 있으면 state 저장/복원 가능
-    # interrupt_before: 해당 노드 실행 전에 멈춤
+    # 컴파일
     compile_config = {}
     if checkpointer:
         compile_config["checkpointer"] = checkpointer
-        compile_config["interrupt_before"] = ["human_review"]  # human_review 전에 멈춤
+        compile_config["interrupt_before"] = ["human_review"]
     
     return workflow.compile(**compile_config)
 
-# --- 판단 함수 (Routing Logic) ---
+
+# =============================================================================
+# Routing Functions (Legacy - for single file mode)
+# =============================================================================
+
 def check_confidence(state: AgentState):
-    """상태를 보고 다음 단계 결정"""
+    """상태를 보고 다음 단계 결정 (단일 파일 모드용)"""
     
     print("\n" + "🔍"*40)
     print("[DEBUG] check_confidence 호출")
     print("🔍"*40)
     
-    # 상태 확인
     needs_human = state.get("needs_human_review", False)
-    has_schema = len(state.get("finalized_schema", [])) > 0
-    retry_count = state.get("retry_count", 0)
     finalized_anchor = state.get("finalized_anchor", {})
     anchor_status = finalized_anchor.get("status") if finalized_anchor else None
     
     print(f"[DEBUG] needs_human_review: {needs_human}")
-    print(f"[DEBUG] finalized_schema 개수: {len(state.get('finalized_schema', []))}")
     print(f"[DEBUG] finalized_anchor status: {anchor_status}")
-    print(f"[DEBUG] retry_count: {retry_count}")
     
-    # ⭐ [FIX] 0. Anchor가 이미 확정된 경우 (CONFIRMED, INDIRECT_LINK) → 승인
-    # ANALYZER에서 확정했으면 Processor의 needs_human_confirmation은 무시
-    if anchor_status in ["CONFIRMED", "INDIRECT_LINK"]:
+    # Anchor가 확정된 경우 (FK_LINK 포함!)
+    if anchor_status in ["CONFIRMED", "INDIRECT_LINK", "FK_LINK"]:
         print(f"[DEBUG] → approved (Anchor 확정됨: {anchor_status})")
         print("🔍"*40)
         return "approved"
     
-    # 1. Processor가 이미 사람 확인이 필요하다고 했거나
+    # Processor가 확인 요청
     if state.get("raw_metadata", {}).get("anchor_info", {}).get("needs_human_confirmation"):
         print(f"[DEBUG] → review_required (Processor 요청)")
         return "review_required"
     
-    # 2. LLM 분석 결과 확신도가 낮거나
-    # (로직 추가 예정)
-    
-    # 3. 상태에 'needs_human_review' 플래그가 켜져 있으면
+    # needs_human_review 플래그
     if state.get("needs_human_review"):
         print(f"[DEBUG] → review_required (needs_human_review=True)")
         return "review_required"
@@ -114,3 +323,17 @@ def check_confidence(state: AgentState):
     print("🔍"*40)
     
     return "approved"
+
+
+# =============================================================================
+# Convenience Functions
+# =============================================================================
+
+def build_batch_agent(checkpointer=None):
+    """2-Phase Batch Workflow 빌드 (편의 함수)"""
+    return build_agent(checkpointer=checkpointer, mode="batch")
+
+
+def build_single_agent(checkpointer=None):
+    """단일 파일 워크플로우 빌드 (편의 함수)"""
+    return build_agent(checkpointer=checkpointer, mode="single")

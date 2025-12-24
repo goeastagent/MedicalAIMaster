@@ -56,6 +56,7 @@ class TabularProcessor(BaseDataProcessor):
                 'column_name': col_name,
                 'dtype': dtype,
                 'column_type': 'continuous',
+                'n_unique': n_unique,  # ID 컬럼 계층 분석을 위해 추가
                 'min': min_val,
                 'max': max_val,
                 'samples': non_null_series.head(5).tolist()

@@ -8,7 +8,44 @@ Dynamic Schema: 현재 설정된 임베딩 모델에 맞는 테이블 참조
 """
 
 from typing import List, Dict, Any, Optional
+import re
 from ExtractionAgent.src.config import Config, EmbeddingConfig
+
+
+def _contains_korean(text: str) -> bool:
+    """Check if text contains Korean characters"""
+    korean_pattern = re.compile('[\uac00-\ud7af\u1100-\u11ff\u3130-\u318f\ua960-\ua97f\ud7b0-\ud7ff]')
+    return bool(korean_pattern.search(text))
+
+
+def _translate_to_english(text: str) -> str:
+    """
+    Translate Korean text to English using LLM.
+    For VectorDB semantic search optimization.
+    Uses the same LLM model configured in Config.OPENAI_MODEL.
+    """
+    try:
+        from openai import OpenAI
+        client = OpenAI(api_key=Config.OPENAI_API_KEY)
+        
+        response = client.chat.completions.create(
+            model=Config.OPENAI_MODEL,  # Use configured model
+            messages=[
+                {
+                    "role": "system", 
+                    "content": "Translate the following Korean medical query to English. "
+                               "Keep medical terms accurate. Only output the translation, nothing else."
+                },
+                {"role": "user", "content": text}
+            ],
+            temperature=0,
+            max_tokens=200
+        )
+        
+        return response.choices[0].message.content.strip()
+    except Exception as e:
+        print(f"   ⚠️ Translation failed: {e}")
+        return text  # Fallback to original
 
 
 class VectorStoreReader:
@@ -169,21 +206,24 @@ class VectorStoreReader:
         min_similarity: float = 0.3
     ) -> List[Dict]:
         """
-        시맨틱 검색
+        Semantic search for columns, tables, and relationships.
+        
+        Note: Korean-to-English translation should be done BEFORE calling this function
+              (e.g., in _perform_semantic_search) for consistency.
         
         Args:
-            query: 검색 쿼리
-            n_results: 결과 개수
-            filter_type: 필터 타입 ("table", "column", "relationship" 또는 None)
-            min_similarity: 최소 유사도 (이 값 미만은 제외)
+            query: Search query (should be in English for best results)
+            n_results: Number of results
+            filter_type: Filter type ("table", "column", "relationship" or None)
+            min_similarity: Minimum similarity threshold
         
         Returns:
-            검색 결과 리스트
+            List of search results
         """
         if not self._initialized:
             return []
         
-        # 쿼리 임베딩 생성
+        # Generate query embedding
         query_embedding = self._get_embedding(query)
         
         cursor = self.conn.cursor()

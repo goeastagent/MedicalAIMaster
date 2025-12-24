@@ -1,27 +1,88 @@
 # src/utils/llm_client.py
+"""
+LLM Client with tenacity retry logic
+
+Supports OpenAI, Anthropic, and Google Generative AI.
+"""
+
 import json
 import re
 from abc import ABC, abstractmethod
-from typing import Dict, Any, Optional
+from typing import Dict, Any
 
-# 각 SDK 라이브러리 임포트 (설치 필요: openai, anthropic, google-generativeai)
+from tenacity import (
+    retry,
+    stop_after_attempt,
+    wait_exponential,
+    retry_if_exception_type,
+    before_sleep_log
+)
+import logging
+
+# 각 SDK 라이브러리 임포트
 try:
-    from openai import OpenAI
+    from openai import OpenAI, RateLimitError as OpenAIRateLimitError, APIError as OpenAIAPIError
 except ImportError:
     OpenAI = None
+    OpenAIRateLimitError = Exception
+    OpenAIAPIError = Exception
 
 try:
-    from anthropic import Anthropic
+    from anthropic import Anthropic, RateLimitError as AnthropicRateLimitError, APIError as AnthropicAPIError
 except ImportError:
     Anthropic = None
+    AnthropicRateLimitError = Exception
+    AnthropicAPIError = Exception
 
 try:
     import google.generativeai as genai
+    from google.api_core.exceptions import ResourceExhausted as GoogleRateLimitError
 except ImportError:
     genai = None
+    GoogleRateLimitError = Exception
 
 # config 파일 임포트
-import config
+from src import config
+
+# Logger for retry logging
+logger = logging.getLogger(__name__)
+
+
+class LLMRetryConfig:
+    """LLM 재시도 설정"""
+    MAX_ATTEMPTS = 3
+    MIN_WAIT_SECONDS = 1
+    MAX_WAIT_SECONDS = 10
+    EXPONENTIAL_BASE = 2
+
+
+# Common retryable exceptions
+RETRYABLE_EXCEPTIONS = (
+    OpenAIRateLimitError,
+    OpenAIAPIError,
+    AnthropicRateLimitError,
+    AnthropicAPIError,
+    GoogleRateLimitError,
+    ConnectionError,
+    TimeoutError,
+)
+
+
+def create_retry_decorator():
+    """Create a retry decorator with configured settings"""
+    return retry(
+        stop=stop_after_attempt(LLMRetryConfig.MAX_ATTEMPTS),
+        wait=wait_exponential(
+            multiplier=LLMRetryConfig.MIN_WAIT_SECONDS,
+            min=LLMRetryConfig.MIN_WAIT_SECONDS,
+            max=LLMRetryConfig.MAX_WAIT_SECONDS,
+            exp_base=LLMRetryConfig.EXPONENTIAL_BASE
+        ),
+        retry=retry_if_exception_type(RETRYABLE_EXCEPTIONS),
+        before_sleep=before_sleep_log(logger, logging.WARNING),
+        reraise=True
+    )
+
 
 class AbstractLLMClient(ABC):
     """
@@ -38,7 +99,6 @@ class AbstractLLMClient(ABC):
         프롬프트를 보내고 결과를 JSON 객체(Dict)로 반환.
         JSON 파싱 실패 시 재시도하거나 에러를 반환하는 로직 포함.
         """
-        # 시스템 프롬프트에 JSON 강제 명령 추가
         system_instruction = (
             "\n\n[SYSTEM IMPORTANT]: You MUST respond with valid JSON only. "
             "Do not add markdown code blocks (```json). Do not add explanations."
@@ -62,14 +122,14 @@ class AbstractLLMClient(ABC):
             text = text.strip()
             
             return json.loads(text)
-        except json.JSONDecodeError as e:
-            print(f"[LLM Error] JSON Parsing Failed. Raw text:\n{raw_text}")
-            # 실패 시 빈 딕셔너리 혹은 에러 정보를 담아 반환
+        except json.JSONDecodeError:
+            print(f"[LLM Error] JSON Parsing Failed. Raw text:\n{raw_text[:500]}...")
             return {"error": "JSON_DECODE_ERROR", "raw_text": raw_text}
 
 
-# --- 구현체 1: OpenAI (ChatGPT) ---
 class OpenAIClient(AbstractLLMClient):
+    """OpenAI (ChatGPT) client with retry"""
+    
     def __init__(self):
         if not OpenAI:
             raise ImportError("OpenAI library not installed. pip install openai")
@@ -79,6 +139,7 @@ class OpenAIClient(AbstractLLMClient):
         self.client = OpenAI(api_key=config.LLMConfig.OPENAI_API_KEY)
         self.model = config.LLMConfig.OPENAI_MODEL
 
+    @create_retry_decorator()
     def ask_text(self, prompt: str) -> str:
         response = self.client.chat.completions.create(
             model=self.model,
@@ -87,6 +148,7 @@ class OpenAIClient(AbstractLLMClient):
         )
         return response.choices[0].message.content
 
+    @create_retry_decorator()
     def ask_json(self, prompt: str) -> Dict[str, Any]:
         """OpenAI는 JSON Mode를 지원하므로 오버라이딩해서 최적화"""
         try:
@@ -96,16 +158,19 @@ class OpenAIClient(AbstractLLMClient):
                     {"role": "system", "content": "You are a helpful assistant that outputs JSON."},
                     {"role": "user", "content": prompt}
                 ],
-                response_format={"type": "json_object"}, # GPT-4/3.5-turbo 최신 기능
+                response_format={"type": "json_object"},
                 temperature=config.LLMConfig.TEMPERATURE
             )
             return json.loads(response.choices[0].message.content)
+        except json.JSONDecodeError:
+            return {"error": "JSON_DECODE_ERROR"}
         except Exception as e:
             return {"error": str(e)}
 
 
-# --- 구현체 2: Anthropic (Claude) ---
 class ClaudeClient(AbstractLLMClient):
+    """Anthropic (Claude) client with retry"""
+    
     def __init__(self):
         if not Anthropic:
             raise ImportError("Anthropic library not installed. pip install anthropic")
@@ -115,6 +180,7 @@ class ClaudeClient(AbstractLLMClient):
         self.client = Anthropic(api_key=config.LLMConfig.ANTHROPIC_API_KEY)
         self.model = config.LLMConfig.ANTHROPIC_MODEL
 
+    @create_retry_decorator()
     def ask_text(self, prompt: str) -> str:
         message = self.client.messages.create(
             model=self.model,
@@ -125,8 +191,9 @@ class ClaudeClient(AbstractLLMClient):
         return message.content[0].text
 
 
-# --- 구현체 3: Google (Gemini) ---
 class GeminiClient(AbstractLLMClient):
+    """Google (Gemini) client with retry"""
+    
     def __init__(self):
         if not genai:
             raise ImportError("Google GenAI library not installed. pip install google-generativeai")
@@ -136,6 +203,7 @@ class GeminiClient(AbstractLLMClient):
         genai.configure(api_key=config.LLMConfig.GOOGLE_API_KEY)
         self.model = genai.GenerativeModel(config.LLMConfig.GEMINI_MODEL)
 
+    @create_retry_decorator()
     def ask_text(self, prompt: str) -> str:
         response = self.model.generate_content(
             prompt,
@@ -145,6 +213,7 @@ class GeminiClient(AbstractLLMClient):
         )
         return response.text
     
+    @create_retry_decorator()
     def ask_json(self, prompt: str) -> Dict[str, Any]:
         """Gemini Pro 1.5는 response_mime_type을 지원함"""
         try:
@@ -156,23 +225,39 @@ class GeminiClient(AbstractLLMClient):
                 )
             )
             return json.loads(response.text)
-        except Exception as e:
+        except Exception:
             # 구버전 모델 등을 위한 fallback
             return super().ask_json(prompt)
 
 
-# --- Factory Function (핵심) ---
+# Singleton instance cache
+_llm_client_instance = None
+
+
 def get_llm_client() -> AbstractLLMClient:
     """
-    config.py의 설정에 따라 적절한 클라이언트 인스턴스를 반환
+    config.py의 설정에 따라 적절한 클라이언트 인스턴스를 반환 (Singleton)
     """
+    global _llm_client_instance
+    
+    if _llm_client_instance is not None:
+        return _llm_client_instance
+    
     provider = config.LLMConfig.ACTIVE_PROVIDER
 
     if provider == "openai":
-        return OpenAIClient()
-    elif provider == "anthropic" or provider == "claude":
-        return ClaudeClient()
-    elif provider == "google" or provider == "gemini":
-        return GeminiClient()
+        _llm_client_instance = OpenAIClient()
+    elif provider in ("anthropic", "claude"):
+        _llm_client_instance = ClaudeClient()
+    elif provider in ("google", "gemini"):
+        _llm_client_instance = GeminiClient()
     else:
         raise ValueError(f"Unsupported LLM Provider: {provider}")
+    
+    return _llm_client_instance
+
+
+def reset_llm_client():
+    """Reset the singleton instance (useful for testing)"""
+    global _llm_client_instance
+    _llm_client_instance = None

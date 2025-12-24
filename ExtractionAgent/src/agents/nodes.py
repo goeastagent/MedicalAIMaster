@@ -282,15 +282,45 @@ def execute_sql_node(state: ExtractionState) -> Dict[str, Any]:
     try:
         results = pg_connector.execute_query(sql)
         
-        # 성공!
+        # 결과가 0건인 경우 - Self-Correction을 위해 히스토리에 기록
+        if len(results) == 0:
+            _log_subheader("Result")
+            _log_item("Status", "⚠️ ZERO ROWS")
+            _log_item("Rows returned", "0")
+            
+            # 에러 히스토리에 추가 (0건 케이스)
+            sql_history.append({
+                "attempt": retry_count + 1,
+                "sql": sql,
+                "error": "ZERO_ROWS: Query executed successfully but returned 0 rows. "
+                         "This likely means column names or WHERE condition values are incorrect."
+            })
+            
+            _log_subheader("Self-Correction Status (Zero Rows)")
+            _log_item("Attempts so far", str(retry_count + 1))
+            _log_item("Max retries", str(max_retries))
+            _log_item("Will retry", "Yes" if retry_count + 1 < max_retries else "No (max reached)")
+            
+            print(f"\n{'=' * 70}")
+            print(f"  ⚠️ SQL executed but returned 0 rows - triggering self-correction")
+            print(f"{'=' * 70}")
+            
+            return {
+                "execution_result": results,  # 빈 리스트 반환
+                "error": None,  # SQL 자체는 에러 아님
+                "retry_count": retry_count + 1,
+                "sql_history": sql_history,
+                "logs": [f"⚠️ SQL returned 0 rows (attempt {retry_count + 1}) - will retry"]
+            }
+        
+        # 성공! (rows > 0)
         _log_subheader("Result")
         _log_item("Status", "✅ SUCCESS")
         _log_item("Rows returned", str(len(results)))
         
-        if results:
-            # 첫 번째 행의 컬럼들 표시
-            columns = list(results[0].keys()) if results else []
-            _log_item("Columns", ", ".join(columns[:5]) + ("..." if len(columns) > 5 else ""))
+        # 첫 번째 행의 컬럼들 표시
+        columns = list(results[0].keys()) if results else []
+        _log_item("Columns", ", ".join(columns[:5]) + ("..." if len(columns) > 5 else ""))
         
         print(f"\n{'=' * 70}")
         print(f"  ✅ SQL executed successfully - {len(results)} rows extracted")
@@ -416,14 +446,27 @@ def _perform_semantic_search(query: str, n_results: int = 10) -> Optional[Dict[s
         return None
     
     try:
+        # ===============================================================
+        # 맨 처음에 한국어 → 영어 번역 (1회만 수행)
+        # 일관성을 위해 여기서 번역 후 모든 검색에서 동일한 쿼리 사용
+        # ===============================================================
+        from ExtractionAgent.src.knowledge.vector_store import _contains_korean, _translate_to_english
+        
+        search_query = query
+        if _contains_korean(query):
+            print(f"  🌐 Translating Korean query to English...")
+            search_query = _translate_to_english(query)
+            print(f"     Original: {query}")
+            print(f"     Translated: {search_query}")
+        
         # 컬럼 검색
-        columns = vector_store.semantic_search(query, n_results=n_results, filter_type="column")
+        columns = vector_store.semantic_search(search_query, n_results=n_results, filter_type="column")
         
         # 테이블 검색
-        tables = vector_store.semantic_search(query, n_results=5, filter_type="table")
+        tables = vector_store.semantic_search(search_query, n_results=5, filter_type="table")
         
         # 관계 검색
-        relationships = vector_store.semantic_search(query, n_results=5, filter_type="relationship")
+        relationships = vector_store.semantic_search(search_query, n_results=5, filter_type="relationship")
         
         return {
             "columns": columns,
@@ -557,6 +600,39 @@ def _build_retry_prompt(context: Dict[str, Any], query: str, sql_history: List[D
         for h in sql_history
     ])
     
+    # 0건 케이스 여부 확인
+    has_zero_rows = any("ZERO_ROWS" in str(h.get("error", "")) for h in sql_history)
+    
+    # 0건 케이스에 대한 특별 분석 힌트
+    zero_rows_hint = ""
+    if has_zero_rows:
+        zero_rows_hint = """
+[⚠️ ZERO ROWS ANALYSIS - CRITICAL]
+Your SQL executed successfully but returned 0 rows. This is NOT a syntax error.
+You need to analyze WHY no data matched your query conditions.
+
+COMMON CAUSES & FIXES:
+1. COLUMN NAME MISMATCH:
+   - You might have used a column name that doesn't exist
+   - Example: 'gender' vs 'sex', 'patient_id' vs 'subjectid'
+   - FIX: Check the schema below and use the EXACT column names
+
+2. VALUE MISMATCH:
+   - WHERE condition values might not match actual data
+   - Example: WHERE sex = 'male' but actual values are 'M'/'F'
+   - FIX: Remove or adjust the WHERE conditions
+
+3. TOO RESTRICTIVE CONDITIONS:
+   - Multiple WHERE conditions might have no intersection
+   - FIX: Try with fewer conditions first
+
+[ACTION REQUIRED]
+- FIRST: Identify which column/value caused the 0 rows
+- SECOND: Check the schema for correct column names
+- THIRD: Generate a corrected SQL with proper column names and realistic conditions
+
+"""
+    
     # 시맨틱 검색 결과가 있으면 포함
     semantic_section = ""
     if semantic_results:
@@ -574,7 +650,7 @@ Carefully analyze the errors and generate a CORRECTED SQL query.
 
 [PREVIOUS FAILED ATTEMPTS - LEARN FROM THESE ERRORS]
 {history_text}
-
+{zero_rows_hint}
 {semantic_section}[DB Schema - VERIFY TABLE/COLUMN NAMES HERE]
 {_format_schema(context['db_schema'])}
 
@@ -588,10 +664,11 @@ Carefully analyze the errors and generate a CORRECTED SQL query.
 1. CAREFULLY analyze why the previous SQL(s) failed.
 2. Common issues to check:
    - Table name typos or non-existent tables
-   - Column name typos or non-existent columns
+   - Column name typos or non-existent columns  
    - Incorrect JOIN conditions
    - Missing table aliases
    - Incorrect data types in comparisons
+   - WHERE condition values that don't match actual data
 3. VERIFY all table and column names exist in the schema above.
 4. If semantic search results are provided, USE those verified column names.
 5. Generate a corrected SQL that fixes the specific errors.

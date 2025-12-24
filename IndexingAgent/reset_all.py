@@ -121,27 +121,40 @@ def reset_ontology_json():
 
 
 def reset_llm_cache(confirm=False):
-    """LLM 캐시 삭제"""
+    """LLM 캐시 삭제 (JSON 캐시 + diskcache 모두 삭제)"""
     print("\n" + "=" * 60)
     print("🧠 [LLM 캐시] 초기화 중...")
     print("=" * 60)
     
-    cache_dir = os.path.join(os.path.dirname(__file__), "data", "cache", "llm")
+    import shutil
     
-    if os.path.exists(cache_dir):
-        import shutil
+    # 캐시 디렉토리 목록 (JSON 캐시 + diskcache)
+    cache_dirs = [
+        os.path.join(os.path.dirname(__file__), "data", "cache", "llm"),       # 옛 JSON 캐시
+        os.path.join(os.path.dirname(__file__), "data", "cache", "llm_disk"),  # diskcache
+    ]
+    
+    total_deleted = 0
+    
+    for cache_dir in cache_dirs:
+        dir_name = os.path.basename(cache_dir)
         
-        cache_files = os.listdir(cache_dir)
-        print(f"   - 캐시 파일: {len(cache_files)}개")
-        
-        if confirm:
-            shutil.rmtree(cache_dir)
-            os.makedirs(cache_dir)
-            print("   ✅ 캐시 폴더 삭제됨")
+        if os.path.exists(cache_dir):
+            cache_files = os.listdir(cache_dir)
+            print(f"   - [{dir_name}] 캐시 파일: {len(cache_files)}개")
+            
+            if confirm:
+                shutil.rmtree(cache_dir)
+                os.makedirs(cache_dir)
+                print(f"   ✅ [{dir_name}] 삭제됨")
+                total_deleted += len(cache_files)
+            else:
+                print(f"   ⚠️  [{dir_name}] 삭제 스킵 (--clear-cache 옵션으로 삭제)")
         else:
-            print("   ⚠️  캐시 삭제 스킵 (--clear-cache 옵션으로 삭제)")
-    else:
-        print(f"   - 캐시 폴더 없음: {cache_dir}")
+            print(f"   - [{dir_name}] 폴더 없음")
+    
+    if confirm and total_deleted > 0:
+        print(f"   📊 총 {total_deleted}개 캐시 항목 삭제됨")
     
     print("✅ [LLM 캐시] 처리 완료")
 
