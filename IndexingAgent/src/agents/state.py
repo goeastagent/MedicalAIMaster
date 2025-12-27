@@ -71,7 +71,7 @@ class ConversationHistory(BaseModel):
     started_at: str = Field(default_factory=lambda: datetime.now().isoformat())
     turns: List[Dict[str, Any]] = Field(default_factory=list, description="대화 턴 목록")
     classification_decisions: List[Dict[str, Any]] = Field(default_factory=list, description="분류 결정 기록")
-    anchor_decisions: List[Dict[str, Any]] = Field(default_factory=list, description="앵커 결정 기록")
+    entity_decisions: List[Dict[str, Any]] = Field(default_factory=list, description="Entity 식별 결정 기록")
     user_preferences: Dict[str, Any] = Field(default_factory=dict, description="사용자 선호도")
 
 
@@ -85,7 +85,7 @@ class DatasetInfo(BaseModel):
     dataset_name: str = Field("", description="표시명")
     source_path: str = Field("", description="원본 경로")
     version: str = Field("1.0", description="버전")
-    master_anchor: Optional[str] = Field(None, description="Master Anchor")
+    master_entity_identifier: Optional[str] = Field(None, description="Master Entity Identifier")
     created_at: str = Field(default_factory=lambda: datetime.now().isoformat())
     indexed_at: Optional[str] = Field(None)
 
@@ -143,20 +143,19 @@ class ColumnSchema(BaseModel):
     confidence: float = Field(0.5, ge=0.0, le=1.0, description="추론 확신도")
 
 
-class AnchorInfo(BaseModel):
-    """환자 식별자(Anchor) 및 시계열 정보"""
+class EntityIdentification(BaseModel):
+    """Entity 식별 정보"""
     status: Literal["FOUND", "MISSING", "CONFIRMED", "INDIRECT_LINK", "FK_LINK", "AMBIGUOUS", "ERROR"] = Field("MISSING")
     column_name: Optional[str] = Field(None, description="식별된 컬럼명")
     is_time_series: bool = Field(False, description="시계열 데이터 여부")
     reasoning: str = Field("", description="판단 근거")
-    mapped_to_master: Optional[str] = Field(None, description="Master Anchor 이름")
+    mapped_to_master: Optional[str] = Field(None, description="Master Entity Identifier")
     via_table: Optional[str] = Field(None, description="간접 연결 테이블 (FK 관계)")
     via_column: Optional[str] = Field(None, description="간접 연결 컬럼")
     link_type: Optional[str] = Field(None, description="연결 유형 (direct/indirect/fk)")
-    fk_path: Optional[List[str]] = Field(None, description="FK 연결 경로 (예: ['lab_data.caseid', 'clinical_data.caseid', 'clinical_data.subjectid'])")
+    fk_path: Optional[List[str]] = Field(None, description="FK 연결 경로")
     confidence: float = Field(0.5, ge=0.0, le=1.0)
-    id_value: Optional[Any] = Field(None, description="ID 값 (Signal 파일용)")
-    caseid_value: Optional[Any] = Field(None, description="Case ID 값")
+    row_represents: Optional[str] = Field(None, description="행이 나타내는 entity")
 
     @field_validator('status')
     @classmethod
@@ -169,7 +168,7 @@ class AnchorInfo(BaseModel):
 
 class ProjectContext(BaseModel):
     """여러 파일 간 공유되는 프로젝트 레벨 지식"""
-    master_anchor_name: Optional[str] = Field(None, description="프로젝트 표준 ID 컬럼명")
+    master_entity_identifier: Optional[str] = Field(None, description="프로젝트 표준 Entity 식별자 컬럼명")
     known_aliases: List[str] = Field(default_factory=list, description="ID로 식별된 컬럼명들")
     example_id_values: List[str] = Field(default_factory=list, description="실제 ID 값 샘플")
 
@@ -188,13 +187,47 @@ class Relationship(BaseModel):
     verified_at: Optional[str] = Field(None)
 
 
-class EntityHierarchy(BaseModel):
-    """Entity 계층 구조 (Patient > Case > Measurement)"""
-    level: int = Field(..., ge=1, le=10, description="계층 레벨")
-    entity_name: str = Field(..., description="Entity 이름")
-    anchor_column: str = Field(..., description="식별자 컬럼명")
-    mapping_table: Optional[str] = Field(None)
-    confidence: float = Field(0.5, ge=0.0, le=1.0)
+# =============================================================================
+# Entity Understanding (NEW - Primary Key를 대체하는 개념)
+# =============================================================================
+
+class EntityUnderstanding(BaseModel):
+    """
+    테이블의 Entity 이해 결과
+    
+    "이 테이블의 Primary Key는 무엇인가?" 대신
+    "이 테이블의 각 행은 무엇을 나타내고, 어떻게 다른 테이블과 연결되는가?"에 답함
+    
+    Example:
+        clinical_data.csv:
+        - row_represents: "surgery"
+        - row_represents_kr: "수술 기록"
+        - entity_identifier: "caseid"
+        - linkable_columns: [
+            {column: "caseid", entity: "surgery", relation: "self"},
+            {column: "subjectid", entity: "patient", relation: "parent"}
+          ]
+        - hierarchy_explanation: "한 환자(subjectid)가 여러 수술(caseid)을 받을 수 있음"
+    """
+    # 행이 나타내는 것
+    row_represents: str = Field("unknown", description="각 행이 나타내는 entity")
+    row_represents_kr: str = Field("", description="한글 설명")
+    
+    # Entity 식별자
+    entity_identifier: str = Field("id", description="행을 식별하는 컬럼")
+    
+    # 연결 가능한 컬럼들
+    linkable_columns: List[Dict[str, Any]] = Field(default_factory=list, description="다른 테이블과 연결 가능한 컬럼들")
+    
+    # 계층 설명
+    hierarchy_explanation: str = Field("", description="계층 관계 설명")
+    
+    # 메타데이터
+    confidence: float = Field(0.0, ge=0.0, le=1.0)
+    reasoning: str = Field("")
+    status: Literal["CONFIRMED", "NEEDS_REVIEW", "ERROR"] = Field("NEEDS_REVIEW")
+    needs_human_confirmation: bool = Field(False)
+    user_feedback_applied: Optional[str] = Field(None)
 
 
 class OntologyContext(BaseModel):
@@ -222,6 +255,11 @@ class AgentState(TypedDict):
     
     Note: LangGraph 호환성을 위해 TypedDict를 사용합니다.
     개별 필드의 타입 검증은 Pydantic 모델로 수행합니다.
+    
+    3-Phase Workflow:
+    - Phase 0: 규칙 기반 메타데이터 추출 (DB 카탈로그)
+    - Phase 1: LLM 기반 파일 분류
+    - Phase 2: 개별 파일 semantic 분석 및 인덱싱
     """
     
     # --- 0. Dataset Context ---
@@ -229,7 +267,29 @@ class AgentState(TypedDict):
     current_table_name: Optional[str]
     data_catalog: Dict[str, Any]  # DataCatalog 형태
     
-    # --- 1. 2-Phase Workflow Context ---
+    # --- 0.5 Phase 0 Result ---
+    phase0_result: Optional[Dict[str, Any]]  # Phase0Result 형태 (catalog.py)
+    phase0_file_ids: List[str]  # Phase 0에서 처리된 모든 파일의 file_id (UUID 문자열)
+    
+    # --- 0.7 Phase 0.5 Result (Schema Aggregation) ---
+    phase05_result: Optional[Dict[str, Any]]  # AggregationResult 형태 (aggregator.py)
+    unique_columns: List[Dict[str, Any]]  # 유니크 컬럼 리스트
+    unique_files: List[Dict[str, Any]]  # 유니크 파일 리스트
+    column_batches: List[List[Dict[str, Any]]]  # 컬럼 LLM 배치
+    file_batches: List[List[Dict[str, Any]]]  # 파일 LLM 배치
+    
+    # --- 0.9 Phase 1 Result (Semantic Analysis) ---
+    phase1_result: Optional[Dict[str, Any]]  # Phase1Result 형태 (semantic.py)
+    column_semantic_mappings: List[Dict[str, Any]]  # LLM이 분석한 컬럼 의미 매핑
+    file_semantic_mappings: List[Dict[str, Any]]  # LLM이 분석한 파일 의미 매핑
+    
+    # --- 0.95 Phase 1 Human Review ---
+    phase1_review_queue: Optional[Dict[str, Any]]  # Phase1ReviewQueue 형태
+    phase1_current_batch: Optional[Dict[str, Any]]  # 현재 리뷰 중인 BatchReviewState
+    phase1_human_feedback: Optional[Dict[str, Any]]  # Human이 제공한 Phase1HumanFeedback
+    phase1_all_batch_states: List[Dict[str, Any]]  # 모든 배치의 리뷰 상태
+    
+    # --- 1. Multi-Phase Workflow Context ---
     input_files: List[str]
     classification_result: Optional[Dict[str, Any]]  # ClassificationResult 형태
     processing_progress: Dict[str, Any]  # ProcessingProgress 형태
@@ -239,17 +299,18 @@ class AgentState(TypedDict):
     file_type: Optional[str]
     
     # --- 3. 기술적 메타데이터 ---
-    raw_metadata: Dict[str, Any]
+    raw_metadata: Dict[str, Any] 
     
     # --- 4. 의미론적 분석 결과 ---
-    finalized_anchor: Optional[Dict[str, Any]]  # AnchorInfo 형태
+    entity_identification: Optional[Dict[str, Any]]  # EntityIdentification 형태
     finalized_schema: List[Dict[str, Any]]  # List[ColumnSchema] 형태
+    entity_understanding: Optional[Dict[str, Any]]  # EntityUnderstanding 형태
     
     # --- 5. Human-in-the-Loop ---
     needs_human_review: bool
     human_question: str
     human_feedback: Optional[str]
-    review_type: Optional[Literal["classification", "anchor", "schema"]]
+    review_type: Optional[Literal["classification", "entity", "schema"]]
     conversation_history: Dict[str, Any]  # ConversationHistory 형태
     
     # --- 6. 시스템 로그 ---
@@ -265,25 +326,3 @@ class AgentState(TypedDict):
     project_context: Dict[str, Any]  # ProjectContext 형태
 
 
-# =============================================================================
-# Helper Functions for Pydantic Conversion
-# =============================================================================
-
-def validate_anchor_info(data: Dict[str, Any]) -> AnchorInfo:
-    """Dict를 AnchorInfo로 변환 및 검증"""
-    return AnchorInfo(**data)
-
-
-def validate_column_schema(data: Dict[str, Any]) -> ColumnSchema:
-    """Dict를 ColumnSchema로 변환 및 검증"""
-    return ColumnSchema(**data)
-
-
-def validate_classification_result(data: Dict[str, Any]) -> ClassificationResult:
-    """Dict를 ClassificationResult로 변환 및 검증"""
-    return ClassificationResult(**data)
-
-
-def validate_ontology_context(data: Dict[str, Any]) -> OntologyContext:
-    """Dict를 OntologyContext로 변환 및 검증"""
-    return OntologyContext(**data)

@@ -32,15 +32,16 @@ def check_data_needs_review(state: AgentState) -> str:
     """데이터 분석 후 Human Review 필요 여부 확인"""
     
     needs_human = state.get("needs_human_review", False)
-    finalized_anchor = state.get("finalized_anchor", {})
-    anchor_status = finalized_anchor.get("status") if finalized_anchor else None
-    
-    # Anchor가 확정된 경우 (FK_LINK 포함!)
-    if anchor_status in ["CONFIRMED", "INDIRECT_LINK", "FK_LINK"]:
+    entity_identification = state.get("entity_identification", {})
+    identification_status = entity_identification.get("status") if entity_identification else None
+
+    # Entity가 확정된 경우 (FK_LINK 포함!)
+    if identification_status in ["CONFIRMED", "INDIRECT_LINK", "FK_LINK"]:
         return "approved"
     
     # Processor가 확인 요청
-    if state.get("raw_metadata", {}).get("anchor_info", {}).get("needs_human_confirmation"):
+    entity_info = state.get("raw_metadata", {}).get("entity_info", state.get("raw_metadata", {}).get("anchor_info", {}))
+    if entity_info.get("needs_human_confirmation"):
         return "review_required"
     
     # needs_human_review 플래그

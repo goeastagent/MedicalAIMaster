@@ -90,14 +90,23 @@ class AbstractLLMClient(ABC):
     """
     
     @abstractmethod
-    def ask_text(self, prompt: str) -> str:
-        """일반 텍스트 응답을 요청"""
+    def ask_text(self, prompt: str, max_tokens: int = None) -> str:
+        """일반 텍스트 응답을 요청
+        
+        Args:
+            prompt: 프롬프트 텍스트
+            max_tokens: 최대 응답 토큰 수 (None이면 config 기본값 사용)
+        """
         pass
 
-    def ask_json(self, prompt: str) -> Dict[str, Any]:
+    def ask_json(self, prompt: str, max_tokens: int = None) -> Dict[str, Any]:
         """
         프롬프트를 보내고 결과를 JSON 객체(Dict)로 반환.
         JSON 파싱 실패 시 재시도하거나 에러를 반환하는 로직 포함.
+        
+        Args:
+            prompt: 프롬프트 텍스트
+            max_tokens: 최대 응답 토큰 수 (None이면 config 기본값 사용)
         """
         system_instruction = (
             "\n\n[SYSTEM IMPORTANT]: You MUST respond with valid JSON only. "
@@ -105,7 +114,7 @@ class AbstractLLMClient(ABC):
         )
         full_prompt = prompt + system_instruction
         
-        raw_response = self.ask_text(full_prompt)
+        raw_response = self.ask_text(full_prompt, max_tokens=max_tokens)
         
         return self._clean_and_parse_json(raw_response)
 
@@ -130,6 +139,9 @@ class AbstractLLMClient(ABC):
 class OpenAIClient(AbstractLLMClient):
     """OpenAI (ChatGPT) client with retry"""
     
+    # Models that require max_completion_tokens instead of max_tokens
+    NEW_API_MODELS = {'o1', 'o3', 'gpt-5', 'gpt-4o'}
+    
     def __init__(self):
         if not OpenAI:
             raise ImportError("OpenAI library not installed. pip install openai")
@@ -138,18 +150,33 @@ class OpenAIClient(AbstractLLMClient):
             
         self.client = OpenAI(api_key=config.LLMConfig.OPENAI_API_KEY)
         self.model = config.LLMConfig.OPENAI_MODEL
+        
+        # Check if model uses new API (max_completion_tokens)
+        self._use_new_api = any(
+            self.model.lower().startswith(prefix) 
+            for prefix in self.NEW_API_MODELS
+        )
+    
+    def _get_token_param(self, max_tokens: int = None) -> Dict[str, int]:
+        """Get the correct token parameter based on model type"""
+        token_value = max_tokens or config.LLMConfig.MAX_TOKENS
+        if self._use_new_api:
+            return {"max_completion_tokens": token_value}
+        else:
+            return {"max_tokens": token_value}
 
     @create_retry_decorator()
-    def ask_text(self, prompt: str) -> str:
+    def ask_text(self, prompt: str, max_tokens: int = None) -> str:
         response = self.client.chat.completions.create(
             model=self.model,
             messages=[{"role": "user", "content": prompt}],
-            temperature=config.LLMConfig.TEMPERATURE
+            temperature=config.LLMConfig.TEMPERATURE,
+            **self._get_token_param(max_tokens)
         )
         return response.choices[0].message.content
 
     @create_retry_decorator()
-    def ask_json(self, prompt: str) -> Dict[str, Any]:
+    def ask_json(self, prompt: str, max_tokens: int = None) -> Dict[str, Any]:
         """OpenAI는 JSON Mode를 지원하므로 오버라이딩해서 최적화"""
         try:
             response = self.client.chat.completions.create(
@@ -159,7 +186,8 @@ class OpenAIClient(AbstractLLMClient):
                     {"role": "user", "content": prompt}
                 ],
                 response_format={"type": "json_object"},
-                temperature=config.LLMConfig.TEMPERATURE
+                temperature=config.LLMConfig.TEMPERATURE,
+                **self._get_token_param(max_tokens)
             )
             return json.loads(response.choices[0].message.content)
         except json.JSONDecodeError:
@@ -181,10 +209,10 @@ class ClaudeClient(AbstractLLMClient):
         self.model = config.LLMConfig.ANTHROPIC_MODEL
 
     @create_retry_decorator()
-    def ask_text(self, prompt: str) -> str:
+    def ask_text(self, prompt: str, max_tokens: int = None) -> str:
         message = self.client.messages.create(
             model=self.model,
-            max_tokens=2000,
+            max_tokens=max_tokens or config.LLMConfig.MAX_TOKENS,
             temperature=config.LLMConfig.TEMPERATURE,
             messages=[{"role": "user", "content": prompt}]
         )
@@ -204,24 +232,26 @@ class GeminiClient(AbstractLLMClient):
         self.model = genai.GenerativeModel(config.LLMConfig.GEMINI_MODEL)
 
     @create_retry_decorator()
-    def ask_text(self, prompt: str) -> str:
+    def ask_text(self, prompt: str, max_tokens: int = None) -> str:
         response = self.model.generate_content(
             prompt,
             generation_config=genai.types.GenerationConfig(
-                temperature=config.LLMConfig.TEMPERATURE
+                temperature=config.LLMConfig.TEMPERATURE,
+                max_output_tokens=max_tokens or config.LLMConfig.MAX_TOKENS
             )
         )
         return response.text
     
     @create_retry_decorator()
-    def ask_json(self, prompt: str) -> Dict[str, Any]:
+    def ask_json(self, prompt: str, max_tokens: int = None) -> Dict[str, Any]:
         """Gemini Pro 1.5는 response_mime_type을 지원함"""
         try:
             response = self.model.generate_content(
                 prompt,
                 generation_config=genai.types.GenerationConfig(
                     response_mime_type="application/json",
-                    temperature=config.LLMConfig.TEMPERATURE
+                    temperature=config.LLMConfig.TEMPERATURE,
+                    max_output_tokens=max_tokens or config.LLMConfig.MAX_TOKENS
                 )
             )
             return json.loads(response.text)

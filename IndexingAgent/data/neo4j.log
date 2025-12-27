@@ -9,15 +9,15 @@ certificates: /opt/homebrew/Cellar/neo4j/2025.08.0/libexec/certificates
 licenses:     /opt/homebrew/Cellar/neo4j/2025.08.0/libexec/licenses
 run:          /opt/homebrew/Cellar/neo4j/2025.08.0/libexec/run
 Starting Neo4j.
-2025-12-24 15:20:50.780+0000 INFO  Logging config in use: File '/opt/homebrew/Cellar/neo4j/2025.08.0/libexec/conf/user-logs.xml'
-2025-12-24 15:20:50.785+0000 INFO  Starting...
-2025-12-24 15:20:51.307+0000 INFO  This instance is ServerId{418b37fe} (418b37fe-902a-45ef-85db-b6e68fdebabd)
-2025-12-24 15:20:51.697+0000 INFO  ======== Neo4j 2025.08.0 ========
-2025-12-24 15:20:52.761+0000 INFO  Anonymous Usage Data is being sent to Neo4j, see https://neo4j.com/docs/usage-data/
-2025-12-24 15:20:52.994+0000 INFO  Bolt enabled on localhost:7687.
-2025-12-24 15:20:53.253+0000 INFO  HTTP enabled on localhost:7474.
-2025-12-24 15:20:53.253+0000 INFO  Remote interface available at http://localhost:7474/
-2025-12-24 15:20:53.254+0000 INFO  id: 08CFE354BD4A2FE296C18AB1822E37FB85960962921387BC1922B0053081DB45
-2025-12-24 15:20:53.254+0000 INFO  name: system
-2025-12-24 15:20:53.254+0000 INFO  creationDate: 2025-12-24T14:36:43.181Z
-2025-12-24 15:20:53.255+0000 INFO  Started.
+2025-12-27 07:35:08.881+0000 INFO  Logging config in use: File '/opt/homebrew/Cellar/neo4j/2025.08.0/libexec/conf/user-logs.xml'
+2025-12-27 07:35:08.886+0000 INFO  Starting...
+2025-12-27 07:35:09.389+0000 INFO  This instance is ServerId{418b37fe} (418b37fe-902a-45ef-85db-b6e68fdebabd)
+2025-12-27 07:35:09.969+0000 INFO  ======== Neo4j 2025.08.0 ========
+2025-12-27 07:35:11.055+0000 INFO  Anonymous Usage Data is being sent to Neo4j, see https://neo4j.com/docs/usage-data/
+2025-12-27 07:35:11.326+0000 INFO  Bolt enabled on localhost:7687.
+2025-12-27 07:35:11.613+0000 INFO  HTTP enabled on localhost:7474.
+2025-12-27 07:35:11.613+0000 INFO  Remote interface available at http://localhost:7474/
+2025-12-27 07:35:11.614+0000 INFO  id: 08CFE354BD4A2FE296C18AB1822E37FB85960962921387BC1922B0053081DB45
+2025-12-27 07:35:11.614+0000 INFO  name: system
+2025-12-27 07:35:11.614+0000 INFO  creationDate: 2025-12-24T14:36:43.181Z
+2025-12-27 07:35:11.614+0000 INFO  Started.

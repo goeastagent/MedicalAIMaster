@@ -18,6 +18,9 @@ from src.config import ProcessingConfig
 def index_data_node(state: AgentState) -> Dict[str, Any]:
     """
     [Node 4 - Phase 3] Build PostgreSQL DB (ontology-based)
+    
+    NOTE: skip_indexing 체크는 analyzer에서 이미 수행됨.
+          analyzer에서 스킵된 파일은 여기까지 오지 않음 (approved 상태로 통과).
     """
     from src.database.connection import get_db_manager
     from src.database.schema_generator import SchemaGenerator
@@ -234,11 +237,11 @@ def _handle_vital_file_indexing(
     """
     from src.database.connection import get_db_manager
     
-    anchor_info = metadata.get("anchor_info", {})
-    id_column = anchor_info.get("target_column", "file_id")
-    id_value = anchor_info.get("id_value") or anchor_info.get("caseid_value")
-    confidence = anchor_info.get("confidence", 0.5)
-    needs_confirmation = anchor_info.get("needs_human_confirmation", False)
+    entity_info = metadata.get("entity_info", metadata.get("anchor_info", {}))  # Legacy fallback
+    id_column = entity_info.get("target_column", "file_id")
+    id_value = entity_info.get("id_value") or entity_info.get("caseid_value")
+    confidence = entity_info.get("confidence", 0.5)
+    needs_confirmation = entity_info.get("needs_human_confirmation", False)
     
     tracks = metadata.get("columns", [])
     column_details = metadata.get("column_details", {})

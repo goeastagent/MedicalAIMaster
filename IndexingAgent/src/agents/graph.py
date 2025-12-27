@@ -1,11 +1,20 @@
 """
-2-Phase Workflow Architecture
-=============================
+3-Phase Batch Workflow Architecture
+====================================
 
-Phase 1: Classification (전체 파일 분류)
+Phase 0: Data Catalog (규칙 기반 메타데이터 추출)
   ┌─────────────┐
   │   START     │
   └──────┬──────┘
+         │
+         ▼
+┌────────────────────┐
+│  phase0_catalog    │  ← 모든 파일 메타데이터 추출 (DB 저장)
+└────────┬───────────┘
+         │
+         ▼
+
+Phase 1: Classification (전체 파일 분류)
          │
          ▼
 ┌────────────────────┐
@@ -78,16 +87,19 @@ low conf?    high conf?
 
 from langgraph.graph import StateGraph, END
 from src.agents.state import AgentState
-
-# 새로운 nodes 패키지에서 import
 from src.agents.nodes import (
-    # 기존 노드
+    # Phase 0: Data Catalog
+    phase0_catalog_node,
+    # Phase 0.5: Schema Aggregation
+    phase05_aggregation_node,
+    # Phase 1: Semantic Analysis
+    phase1_semantic_node,
+    # Core nodes
     load_data_node,
-    ontology_builder_node,
     analyze_semantics_node,
     human_review_node,
     index_data_node,
-    # 2-Phase 새 노드
+    # Batch workflow nodes (legacy)
     batch_classifier_node,
     classification_review_node,
     process_metadata_batch_node,
@@ -100,31 +112,32 @@ from src.agents.nodes import (
 )
 
 
-def build_agent(checkpointer=None, mode="batch"):
+def build_agent(checkpointer=None):
     """
-    LangGraph 워크플로우 빌드
+    3-Phase Batch Workflow 빌드
+    
+    Phase 0: 규칙 기반 메타데이터 추출 및 DB 카탈로그 저장
+    Phase 1: LLM 기반 파일 분류 (메타데이터/데이터)
+    Phase 2: 개별 파일 semantic 분석 및 인덱싱
     
     Args:
         checkpointer: (선택) 상태 저장용 checkpointer (예: MemorySaver())
                      Human-in-the-Loop에서 interrupt/resume을 위해 필요
-        mode: 워크플로우 모드
-            - "batch": 2-Phase Workflow (권장, 여러 파일 일괄 처리)
-            - "single": 기존 단일 파일 처리 워크플로우
-    """
-    if mode == "batch":
-        return _build_batch_workflow(checkpointer)
-    else:
-        return _build_single_file_workflow(checkpointer)
-
-
-def _build_batch_workflow(checkpointer=None):
-    """
-    [NEW] 2-Phase Batch Workflow
     
-    메타데이터를 먼저 처리하여 온톨로지를 구축한 후,
-    데이터 파일들을 처리합니다.
+    Returns:
+        컴파일된 LangGraph 워크플로우
     """
     workflow = StateGraph(AgentState)
+    
+    # ==========================================================================
+    # Phase 0: Data Catalog (규칙 기반 메타데이터 추출)
+    # ==========================================================================
+    workflow.add_node("phase0_catalog", phase0_catalog_node)
+    
+    # ==========================================================================
+    # Phase 0.5: Schema Aggregation (유니크 컬럼 집계)
+    # ==========================================================================
+    workflow.add_node("phase05_aggregation", phase05_aggregation_node)
     
     # ==========================================================================
     # Phase 1: Classification (파일 분류)
@@ -138,7 +151,7 @@ def _build_batch_workflow(checkpointer=None):
     workflow.add_node("process_metadata", process_metadata_batch_node)
     workflow.add_node("process_data_batch", process_data_batch_node)
     
-    # 개별 데이터 파일 처리 노드 (기존 로직 재사용)
+    # 개별 데이터 파일 처리 노드
     workflow.add_node("loader", load_data_node)
     workflow.add_node("analyzer", analyze_semantics_node)
     workflow.add_node("human_review", human_review_node)
@@ -146,11 +159,17 @@ def _build_batch_workflow(checkpointer=None):
     workflow.add_node("advance", advance_to_next_file_node)
     
     # ==========================================================================
-    # Edges: Phase 1
+    # Edges: Phase 0 → Phase 0.5 → Phase 1
     # ==========================================================================
     
-    # Entry Point
-    workflow.set_entry_point("batch_classifier")
+    # Entry Point: Phase 0
+    workflow.set_entry_point("phase0_catalog")
+    
+    # phase0_catalog → phase05_aggregation
+    workflow.add_edge("phase0_catalog", "phase05_aggregation")
+    
+    # phase05_aggregation → batch_classifier
+    workflow.add_edge("phase05_aggregation", "batch_classifier")
     
     # batch_classifier → classification_review (불확실한 파일 있으면)
     # batch_classifier → process_metadata (모두 확실하면)
@@ -163,16 +182,10 @@ def _build_batch_workflow(checkpointer=None):
         }
     )
     
-    # classification_review → process_metadata (확정 후)
-    # classification_review → classification_review (계속 질문 - 자체 루프는 state로 처리)
-    workflow.add_conditional_edges(
-        "classification_review",
-        lambda state: "continue" if not state.get("needs_human_review") else "wait",
-        {
-            "continue": "process_metadata",
-            "wait": "classification_review"  # Human Review 대기 (interrupt로 처리)
-        }
-    )
+    # classification_review → process_metadata
+    # NOTE: classification_review_node가 내부에서 interrupt()를 사용하므로
+    #       노드 완료 후에는 항상 process_metadata로 진행
+    workflow.add_edge("classification_review", "process_metadata")
     
     # ==========================================================================
     # Edges: Phase 2
@@ -222,118 +235,87 @@ def _build_batch_workflow(checkpointer=None):
     )
     
     # ==========================================================================
-    # Compile with Interrupt Points
+    # Compile with Checkpointer
     # ==========================================================================
+    # NOTE: interrupt_before는 더 이상 사용하지 않음
+    # 각 노드가 내부에서 interrupt()를 직접 호출하여 human input을 처리함
+    # - classification_review_node: 내부 interrupt()
+    # - human_review_node: 내부 interrupt() (TODO: 추후 구현)
+    
     compile_config = {}
     if checkpointer:
         compile_config["checkpointer"] = checkpointer
-        # Human-in-Loop 지점들
-        compile_config["interrupt_before"] = [
-            "classification_review",  # 분류 확인
-            "human_review"           # 데이터 분석 확인
-        ]
     
     return workflow.compile(**compile_config)
 
 
-def _build_single_file_workflow(checkpointer=None):
+# Alias for backward compatibility
+build_batch_agent = build_agent
+
+
+def build_phase0_only_agent(checkpointer=None):
     """
-    [LEGACY] 기존 단일 파일 처리 워크플로우
+    Phase 0만 실행하는 워크플로우 빌드 (테스트용)
     
-    호환성을 위해 유지합니다.
+    START → phase0_catalog → END
     """
     workflow = StateGraph(AgentState)
-
-    # 노드 등록
-    workflow.add_node("loader", load_data_node)
-    workflow.add_node("ontology_builder", ontology_builder_node)
-    workflow.add_node("analyzer", analyze_semantics_node)
-    workflow.add_node("human_review", human_review_node)
-    workflow.add_node("indexer", index_data_node)
-
-    # 엣지 연결
-    workflow.set_entry_point("loader")
-    workflow.add_edge("loader", "ontology_builder")
     
-    workflow.add_conditional_edges(
-        "ontology_builder",
-        lambda state: "skip" if state.get("skip_indexing") else "continue",
-        {
-            "skip": END,
-            "continue": "analyzer"
-        }
-    )
-
-    workflow.add_conditional_edges(
-        "analyzer",
-        check_confidence,
-        {
-            "review_required": "human_review",
-            "approved": "indexer"
-        }
-    )
-
-    workflow.add_edge("human_review", "analyzer")
-    workflow.add_edge("indexer", END)
-
-    # 컴파일
+    workflow.add_node("phase0_catalog", phase0_catalog_node)
+    
+    workflow.set_entry_point("phase0_catalog")
+    workflow.add_edge("phase0_catalog", END)
+    
     compile_config = {}
     if checkpointer:
         compile_config["checkpointer"] = checkpointer
-        compile_config["interrupt_before"] = ["human_review"]
     
     return workflow.compile(**compile_config)
 
 
-# =============================================================================
-# Routing Functions (Legacy - for single file mode)
-# =============================================================================
-
-def check_confidence(state: AgentState):
-    """상태를 보고 다음 단계 결정 (단일 파일 모드용)"""
+def build_phase05_only_agent(checkpointer=None):
+    """
+    Phase 0 + 0.5만 실행하는 워크플로우 빌드 (테스트용)
     
-    print("\n" + "🔍"*40)
-    print("[DEBUG] check_confidence 호출")
-    print("🔍"*40)
+    START → phase0_catalog → phase05_aggregation → END
+    """
+    workflow = StateGraph(AgentState)
     
-    needs_human = state.get("needs_human_review", False)
-    finalized_anchor = state.get("finalized_anchor", {})
-    anchor_status = finalized_anchor.get("status") if finalized_anchor else None
+    workflow.add_node("phase0_catalog", phase0_catalog_node)
+    workflow.add_node("phase05_aggregation", phase05_aggregation_node)
     
-    print(f"[DEBUG] needs_human_review: {needs_human}")
-    print(f"[DEBUG] finalized_anchor status: {anchor_status}")
+    workflow.set_entry_point("phase0_catalog")
+    workflow.add_edge("phase0_catalog", "phase05_aggregation")
+    workflow.add_edge("phase05_aggregation", END)
     
-    # Anchor가 확정된 경우 (FK_LINK 포함!)
-    if anchor_status in ["CONFIRMED", "INDIRECT_LINK", "FK_LINK"]:
-        print(f"[DEBUG] → approved (Anchor 확정됨: {anchor_status})")
-        print("🔍"*40)
-        return "approved"
+    compile_config = {}
+    if checkpointer:
+        compile_config["checkpointer"] = checkpointer
     
-    # Processor가 확인 요청
-    if state.get("raw_metadata", {}).get("anchor_info", {}).get("needs_human_confirmation"):
-        print(f"[DEBUG] → review_required (Processor 요청)")
-        return "review_required"
-    
-    # needs_human_review 플래그
-    if state.get("needs_human_review"):
-        print(f"[DEBUG] → review_required (needs_human_review=True)")
-        return "review_required"
-
-    print(f"[DEBUG] → approved (정상 진행)")
-    print("🔍"*40)
-    
-    return "approved"
+    return workflow.compile(**compile_config)
 
 
-# =============================================================================
-# Convenience Functions
-# =============================================================================
-
-def build_batch_agent(checkpointer=None):
-    """2-Phase Batch Workflow 빌드 (편의 함수)"""
-    return build_agent(checkpointer=checkpointer, mode="batch")
-
-
-def build_single_agent(checkpointer=None):
-    """단일 파일 워크플로우 빌드 (편의 함수)"""
-    return build_agent(checkpointer=checkpointer, mode="single")
+def build_phase1_only_agent(checkpointer=None):
+    """
+    Phase 0 + 0.5 + 1 실행하는 워크플로우 빌드 (테스트용)
+    
+    START → phase0_catalog → phase05_aggregation → phase1_semantic → END
+    
+    Phase 1에서 LLM을 사용하여 컬럼과 파일의 의미를 분석합니다.
+    """
+    workflow = StateGraph(AgentState)
+    
+    workflow.add_node("phase0_catalog", phase0_catalog_node)
+    workflow.add_node("phase05_aggregation", phase05_aggregation_node)
+    workflow.add_node("phase1_semantic", phase1_semantic_node)
+    
+    workflow.set_entry_point("phase0_catalog")
+    workflow.add_edge("phase0_catalog", "phase05_aggregation")
+    workflow.add_edge("phase05_aggregation", "phase1_semantic")
+    workflow.add_edge("phase1_semantic", END)
+    
+    compile_config = {}
+    if checkpointer:
+        compile_config["checkpointer"] = checkpointer
+    
+    return workflow.compile(**compile_config)

@@ -2,8 +2,9 @@
 """
 IndexingAgent 전체 초기화 스크립트
 
-- PostgreSQL: 모든 테이블 삭제
+- PostgreSQL: 모든 테이블 삭제 (file_catalog, column_metadata 포함)
 - Neo4j: 모든 노드/관계 삭제
+- VectorDB: ChromaDB 컬렉션 삭제
 - 온톨로지 JSON: 초기화
 - LLM 캐시: 삭제
 
@@ -120,6 +121,30 @@ def reset_ontology_json():
     print("✅ [온톨로지 JSON] 초기화 완료")
 
 
+def reset_vector_db():
+    """VectorDB (ChromaDB) 초기화"""
+    print("\n" + "=" * 60)
+    print("🔢 [VectorDB] 초기화 중...")
+    print("=" * 60)
+    
+    import shutil
+    
+    vector_db_path = os.path.join(
+        os.path.dirname(__file__), 
+        "data", "processed", "vector_db"
+    )
+    
+    if os.path.exists(vector_db_path):
+        file_count = sum(1 for _ in os.scandir(vector_db_path) if _.is_file())
+        shutil.rmtree(vector_db_path)
+        os.makedirs(vector_db_path, exist_ok=True)
+        print(f"   ✅ 삭제됨: {vector_db_path} ({file_count}개 파일)")
+    else:
+        print(f"   - 폴더 없음: {vector_db_path}")
+    
+    print("✅ [VectorDB] 초기화 완료")
+
+
 def reset_llm_cache(confirm=False):
     """LLM 캐시 삭제 (JSON 캐시 + diskcache 모두 삭제)"""
     print("\n" + "=" * 60)
@@ -194,8 +219,9 @@ def main():
     
     if not skip_confirm:
         print("\n⚠️  경고: 모든 데이터가 삭제됩니다!")
-        print("   - PostgreSQL 테이블")
+        print("   - PostgreSQL 테이블 (file_catalog, column_metadata 포함)")
         print("   - Neo4j 노드/관계")
+        print("   - VectorDB (ChromaDB)")
         print("   - 온톨로지 JSON")
         if clear_cache:
             print("   - LLM 캐시 ✓")
@@ -210,6 +236,7 @@ def main():
     # 초기화 실행
     reset_postgres()
     reset_neo4j()
+    reset_vector_db()
     reset_ontology_json()
     reset_llm_cache(confirm=clear_cache)
     

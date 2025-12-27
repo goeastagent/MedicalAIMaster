@@ -27,6 +27,16 @@ class LLMConfig:
 
     # --- 4. 공통 설정 ---
     TEMPERATURE = 0.0  # 분석 작업이므로 창의성보다는 정확성을 위해 0에 가깝게 설정
+    
+    # --- 5. Token 제한 설정 ---
+    # 응답 최대 토큰 수 (value_mappings 등 긴 응답 처리용)
+    MAX_TOKENS = int(os.getenv("LLM_MAX_TOKENS", "4096"))
+    
+    # 컬럼 분석 시 최대 토큰 (많은 컬럼 처리 시 사용)
+    MAX_TOKENS_COLUMN_ANALYSIS = int(os.getenv("LLM_MAX_TOKENS_COLUMN_ANALYSIS", "8192"))
+    
+    # Enrichment 시 최대 토큰 (definitions enrichment 시 사용)
+    MAX_TOKENS_ENRICHMENT = int(os.getenv("LLM_MAX_TOKENS_ENRICHMENT", "4096"))
 
 
 class EmbeddingConfig:
@@ -61,8 +71,8 @@ class HumanReviewConfig:
     # 메타데이터 판단 시 Human Review 요청 기준 (이 값 미만이면 사람에게 물어봄)
     METADATA_CONFIDENCE_THRESHOLD = 0.90
     
-    # Anchor 매칭 시 Human Review 요청 기준
-    ANCHOR_CONFIDENCE_THRESHOLD = 0.90
+    # Entity Identifier 매칭 시 Human Review 요청 기준
+    ANCHOR_CONFIDENCE_THRESHOLD = 0.90  # Legacy name kept for backward compatibility
     
     # 분류 확신도 임계값 (이 값 미만이면 리뷰 필요)
     CLASSIFICATION_CONFIDENCE_THRESHOLD = 0.75
@@ -95,8 +105,123 @@ class HumanReviewConfig:
     LLM_SKIP_CONFIDENCE_THRESHOLD = 0.50
 
 
+class MetadataEnrichmentConfig:
+    """메타데이터 Enrichment 설정 (Hybrid Approach)"""
+    
+    # --- 1. 빠른 테스트 모드 ---
+    # True: 첫 번째 청크만 LLM 처리 (빠른 테스트용)
+    # False: 전체 청크 처리 (프로덕션용)
+    FAST_TEST_MODE = True
+    
+    # 빠른 테스트 모드에서 처리할 최대 청크 수
+    FAST_TEST_MAX_CHUNKS = 1
+    
+    # --- 2. 청킹 설정 ---
+    # LLM에 한 번에 보낼 definition 수
+    ENRICHMENT_CHUNK_SIZE = 100
+    
+    # --- 3. 컨텍스트 설정 ---
+    # 대화 히스토리에서 포함할 최대 턴 수
+    MAX_CONVERSATION_TURNS = 5
+
+
+class Phase05Config:
+    """Phase 0.5: Schema Aggregation 설정"""
+    
+    # --- 1. 배치 크기 ---
+    # LLM에 한 번에 보낼 유니크 컬럼 수
+    BATCH_SIZE = int(os.getenv("PHASE05_BATCH_SIZE", "100"))
+    
+    # --- 2. 집계 설정 ---
+    # 샘플 파일 ID 최대 개수 (참고용)
+    MAX_SAMPLE_FILE_IDS = 3
+    
+    # 범주형 컬럼의 샘플 값 최대 개수
+    MAX_SAMPLE_VALUES = 5
+
+
+class Phase1Config:
+    """Phase 1: Semantic Analysis (LLM 배치 처리) 설정"""
+    
+    # --- 1. 컬럼 분석 배치 크기 ---
+    # 한 번의 LLM 호출에 포함할 컬럼 수
+    COLUMN_BATCH_SIZE = int(os.getenv("PHASE1_COLUMN_BATCH_SIZE", "50"))
+    
+    # --- 2. 파일 분석 배치 크기 ---
+    # 한 번의 LLM 호출에 포함할 파일 수
+    FILE_BATCH_SIZE = int(os.getenv("PHASE1_FILE_BATCH_SIZE", "20"))
+    
+    # --- 3. LLM 재시도 설정 (API 오류) ---
+    MAX_RETRIES = 3
+    RETRY_DELAY_SECONDS = 2
+    
+    # --- 4. Human Review 설정 ---
+    # Confidence 임계값 (이 값 미만이면 Human Review 필요)
+    CONFIDENCE_THRESHOLD = float(os.getenv("PHASE1_CONFIDENCE_THRESHOLD", "0.8"))
+    
+    # Human Review 최대 재시도 횟수 (피드백 반영 후 재분석)
+    MAX_REVIEW_RETRIES = int(os.getenv("PHASE1_MAX_REVIEW_RETRIES", "3"))
+    
+    # 리뷰 트리거 조건: 배치의 N% 이상이 low confidence면 리뷰
+    MIN_LOW_CONF_RATIO = float(os.getenv("PHASE1_MIN_LOW_CONF_RATIO", "0.55"))
+    
+    # --- 5. 컨셉 카테고리 (LLM에게 안내용) ---
+    CONCEPT_CATEGORIES = [
+        "Vital Signs",
+        "Hemodynamics", 
+        "Respiratory",
+        "Neurological",
+        "Demographics",
+        "Identifiers",
+        "Timestamps",
+        "Laboratory:Chemistry",
+        "Laboratory:Hematology",
+        "Laboratory:Coagulation",
+        "Medication",
+        "Anesthesia",
+        "Surgical",
+        "Device/Equipment",
+        "Waveform/Signal",
+        "Other"
+    ]
+    
+    # --- 5. 도메인 카테고리 ---
+    DOMAIN_CATEGORIES = [
+        "Anesthesia",
+        "Surgery",
+        "ICU/Critical Care",
+        "Laboratory",
+        "Cardiology",
+        "Neurology",
+        "Respiratory",
+        "General Clinical",
+        "Administrative",
+        "Reference/Lookup",
+        "Other"
+    ]
+    
+    # --- 6. Semantic Type 형식 ---
+    # Format: "{Domain}:{SubType}"
+    SEMANTIC_TYPE_DOMAINS = [
+        "Signal",      # Signal:Physiological, Signal:Neurological
+        "Clinical",    # Clinical:Demographics, Clinical:Encounters
+        "Lab",         # Lab:Chemistry, Lab:Hematology
+        "Medication",  # Medication:Administration
+        "Reference",   # Reference:Parameters, Reference:Codes
+        "Surgical",    # Surgical:Procedures
+        "Other"
+    ]
+
+
 class ProcessingConfig:
     """파일 처리 관련 설정"""
+    
+    # --- 0. 파일 확장자 ---
+    # Signal 파일 확장자 (항상 데이터로 분류)
+    SIGNAL_EXTENSIONS = {'vital', 'edf', 'bdf', 'wfdb'}
+    
+        # Tabular 파일 확장자
+    TABULAR_EXTENSIONS = {'csv', 'xlsx', 'xls', 'parquet'}
     
     # --- 1. 파일 크기 임계값 ---
     # 이 크기(MB) 이상이면 청크 처리

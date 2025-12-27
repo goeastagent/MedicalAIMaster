@@ -7,17 +7,19 @@ from src.agents.helpers.llm_helpers import (
     analyze_columns_with_llm,
     analyze_tracks_with_llm,
     compare_with_global_context,
-    check_indirect_link_via_ontology,
     should_request_human_review,
-    ask_llm_for_review_decision,
     ask_llm_is_metadata,
+    # Entity Understanding (NEW)
+    analyze_entity_with_llm,
 )
 from src.agents.helpers.feedback_parser import (
     parse_human_feedback_to_column,
     generate_natural_human_question,
+    # Entity Feedback (NEW)
+    parse_entity_feedback,
 )
 from src.agents.helpers.metadata_helpers import (
-    build_metadata_detection_context,
+    build_lightweight_classification_context,  # NEW: 경량 분류용
     parse_metadata_content,
     extract_filename_hints,
     summarize_existing_tables,
@@ -30,15 +32,15 @@ __all__ = [
     "analyze_columns_with_llm",
     "analyze_tracks_with_llm",
     "compare_with_global_context",
-    "check_indirect_link_via_ontology",
     "should_request_human_review",
-    "ask_llm_for_review_decision",
     "ask_llm_is_metadata",
+    "analyze_entity_with_llm",  # NEW
     # Feedback parser
     "parse_human_feedback_to_column",
     "generate_natural_human_question",
+    "parse_entity_feedback",  # NEW
     # Metadata helpers
-    "build_metadata_detection_context",
+    "build_lightweight_classification_context",
     "parse_metadata_content",
     "extract_filename_hints",
     "summarize_existing_tables",
