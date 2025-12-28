@@ -24,42 +24,80 @@ from dotenv import load_dotenv
 load_dotenv()
 
 
-def reset_postgres():
-    """PostgreSQL 모든 테이블 삭제"""
+def reset_postgres(recreate_tables=True):
+    """PostgreSQL 모든 테이블 삭제 및 재생성
+    
+    FK 참조 관계로 인해 삭제/생성 순서가 중요:
+    - 삭제: Ontology → Dictionary → Catalog (참조하는 것 먼저)
+    - 생성: Catalog → Dictionary → Ontology (참조되는 것 먼저)
+    
+    Args:
+        recreate_tables: True면 삭제 후 빈 테이블 재생성
+    """
     print("\n" + "=" * 60)
     print("🗄️  [PostgreSQL] 초기화 중...")
     print("=" * 60)
     
     try:
-        from database.connection import get_db_manager
+        from database.schema_catalog import CatalogSchemaManager
+        from database.schema_dictionary import DictionarySchemaManager
+        from database.schema_ontology import OntologySchemaManager
         
+        # 현재 테이블 목록 조회
+        from database.connection import get_db_manager
         db = get_db_manager()
         conn = db.get_connection()
         cursor = conn.cursor()
         
-        # 모든 테이블 조회
         cursor.execute("""
             SELECT table_name 
             FROM information_schema.tables 
             WHERE table_schema = 'public' 
             AND table_type = 'BASE TABLE'
         """)
-        
         tables = [row[0] for row in cursor.fetchall()]
         
-        if not tables:
-            print("   - 삭제할 테이블 없음")
-        else:
+        if tables:
             print(f"   - 삭제 대상 테이블: {len(tables)}개")
             for table in tables:
                 print(f"     • {table}")
+        else:
+            print("   - 삭제할 테이블 없음")
+        
+        # 1. 삭제: FK 참조하는 테이블 먼저 (역순)
+        print("\n   📤 테이블 삭제 (FK 참조 순서)...")
+        try:
+            OntologySchemaManager().drop_tables(confirm=True)
+        except Exception as e:
+            print(f"      ⚠️ Ontology: {e}")
+        
+        try:
+            DictionarySchemaManager().drop_tables(confirm=True)
+        except Exception as e:
+            print(f"      ⚠️ Dictionary: {e}")
+        
+        try:
+            CatalogSchemaManager().drop_tables(confirm=True)
+        except Exception as e:
+            print(f"      ⚠️ Catalog: {e}")
+        
+        # 2. 생성: FK 참조되는 테이블 먼저 (정순)
+        if recreate_tables:
+            print("\n   📥 테이블 생성 (FK 참조 순서)...")
+            try:
+                CatalogSchemaManager().create_tables()
+            except Exception as e:
+                print(f"      ⚠️ Catalog: {e}")
             
-            # 테이블 삭제
-            for table in tables:
-                cursor.execute(f'DROP TABLE IF EXISTS "{table}" CASCADE')
-                print(f"   ✅ 삭제됨: {table}")
+            try:
+                DictionarySchemaManager().create_tables()
+            except Exception as e:
+                print(f"      ⚠️ Dictionary: {e}")
             
-            conn.commit()
+            try:
+                OntologySchemaManager().create_tables()
+            except Exception as e:
+                print(f"      ⚠️ Ontology: {e}")
         
         print("✅ [PostgreSQL] 초기화 완료")
         
@@ -193,12 +231,14 @@ def print_help():
     -y, --yes          확인 없이 실행
     --clear-cache      LLM 캐시도 삭제
     --all              전체 삭제 (캐시 포함)
+    --no-recreate      테이블 삭제만 (재생성 안 함)
     -h, --help         도움말 출력
 
 예시:
-    python reset_all.py              # 확인 후 삭제 (캐시 제외)
-    python reset_all.py -y           # 확인 없이 삭제 (캐시 제외)
-    python reset_all.py --all -y     # 전체 삭제 (캐시 포함, 확인 없이)
+    python reset_all.py              # 확인 후 삭제/재생성 (캐시 제외)
+    python reset_all.py -y           # 확인 없이 삭제/재생성 (캐시 제외)
+    python reset_all.py --all -y     # 전체 삭제/재생성 (캐시 포함, 확인 없이)
+    python reset_all.py --no-recreate -y  # 테이블 삭제만 (재생성 안 함)
 """)
 
 
@@ -216,10 +256,15 @@ def main():
     clear_all = "--all" in sys.argv
     clear_cache = "--clear-cache" in sys.argv or clear_all
     skip_confirm = "-y" in sys.argv or "--yes" in sys.argv
+    no_recreate = "--no-recreate" in sys.argv
     
     if not skip_confirm:
         print("\n⚠️  경고: 모든 데이터가 삭제됩니다!")
-        print("   - PostgreSQL 테이블 (file_catalog, column_metadata 포함)")
+        print("   - PostgreSQL 테이블 (file_catalog, column_metadata 등)")
+        if no_recreate:
+            print("     → 테이블 삭제만 (재생성 안 함)")
+        else:
+            print("     → 삭제 후 빈 테이블 재생성")
         print("   - Neo4j 노드/관계")
         print("   - VectorDB (ChromaDB)")
         print("   - 온톨로지 JSON")
@@ -234,7 +279,7 @@ def main():
             return
     
     # 초기화 실행
-    reset_postgres()
+    reset_postgres(recreate_tables=not no_recreate)
     reset_neo4j()
     reset_vector_db()
     reset_ontology_json()
@@ -244,7 +289,7 @@ def main():
     print("✅ 전체 초기화 완료!")
     print("=" * 60)
     print("\n이제 IndexingAgent를 다시 실행할 수 있습니다:")
-    print("  python test_agent_with_interrupt.py")
+    print("  python test_full_pipeline_results.py")
     print()
 
 

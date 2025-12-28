@@ -415,7 +415,7 @@ def _get_neo4j_driver():
 
 
 def _create_row_entity_nodes(driver, tables: List[Dict]) -> int:
-    """Level 1: RowEntity 노드 생성"""
+    """Level 1: RowEntity 노드 생성 (file_name 기준 MERGE - idempotent)"""
     if not driver:
         return 0
     
@@ -423,9 +423,10 @@ def _create_row_entity_nodes(driver, tables: List[Dict]) -> int:
     with driver.session(database=Neo4jConfig.DATABASE) as session:
         for table in tables:
             try:
+                # file_name을 MERGE 키로 사용하여 재실행 시 중복 방지
                 session.run("""
-                    MERGE (e:RowEntity {file_id: $file_id})
-                    SET e.file_name = $file_name,
+                    MERGE (e:RowEntity {file_name: $file_name})
+                    SET e.file_id = $file_id,
                         e.name = $row_represents,
                         e.identifier_column = $entity_identifier,
                         e.row_count = $row_count
@@ -512,30 +513,29 @@ def _create_links_to_edges(driver, relationships: List[TableRelationship], table
     if not driver or not relationships:
         return 0
     
-    # file_name → file_id 매핑
-    name_to_id = {t['file_name']: t['file_id'] for t in tables}
+    # file_name 목록 확인
+    valid_names = {t['file_name'] for t in tables}
     
     count = 0
     with driver.session(database=Neo4jConfig.DATABASE) as session:
         for rel in relationships:
-            source_id = name_to_id.get(rel.source_table)
-            target_id = name_to_id.get(rel.target_table)
-            
-            if not source_id or not target_id:
+            # source_table, target_table이 유효한지 확인
+            if rel.source_table not in valid_names or rel.target_table not in valid_names:
                 continue
             
             try:
+                # file_name 기준으로 MATCH
                 session.run("""
-                    MATCH (s:RowEntity {file_id: $source_id})
-                    MATCH (t:RowEntity {file_id: $target_id})
+                    MATCH (s:RowEntity {file_name: $source_name})
+                    MATCH (t:RowEntity {file_name: $target_name})
                     MERGE (s)-[r:LINKS_TO]->(t)
                     SET r.source_column = $source_column,
                         r.target_column = $target_column,
                         r.cardinality = $cardinality,
                         r.confidence = $confidence
                 """, {
-                    "source_id": source_id,
-                    "target_id": target_id,
+                    "source_name": rel.source_table,
+                    "target_name": rel.target_table,
                     "source_column": rel.source_column,
                     "target_column": rel.target_column,
                     "cardinality": rel.cardinality,
@@ -561,12 +561,13 @@ def _create_has_concept_edges(driver, tables: List[Dict]) -> int:
             
             for concept in concepts:
                 try:
+                    # file_name 기준으로 MATCH
                     session.run("""
-                        MATCH (e:RowEntity {file_id: $file_id})
+                        MATCH (e:RowEntity {file_name: $file_name})
                         MATCH (c:ConceptCategory {name: $concept})
                         MERGE (e)-[:HAS_CONCEPT]->(c)
                     """, {
-                        "file_id": table['file_id'],
+                        "file_name": table['file_name'],
                         "concept": concept
                     })
                     count += 1
@@ -620,12 +621,13 @@ def _create_has_column_edges(driver, tables: List[Dict]) -> int:
         for table in tables:
             for col in table['columns']:
                 try:
+                    # file_name 기준으로 MATCH
                     session.run("""
-                        MATCH (e:RowEntity {file_id: $file_id})
+                        MATCH (e:RowEntity {file_name: $file_name})
                         MATCH (p:Parameter {key: $key})
                         MERGE (e)-[:HAS_COLUMN]->(p)
                     """, {
-                        "file_id": table['file_id'],
+                        "file_name": table['file_name'],
                         "key": col['original_name']
                     })
                     count += 1

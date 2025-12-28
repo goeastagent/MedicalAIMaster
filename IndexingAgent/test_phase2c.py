@@ -27,7 +27,12 @@ DATA_DIR = Path(__file__).parent / "data" / "raw" / "Open_VitalDB_1.0.0"
 
 
 def reset_database():
-    """테스트 전 DB 초기화"""
+    """테스트 전 DB 초기화
+    
+    FK 참조 관계로 인해 삭제/생성 순서가 중요:
+    - 삭제: Ontology → Dictionary → Catalog (참조하는 것 먼저)
+    - 생성: Catalog → Dictionary → Ontology (참조되는 것 먼저)
+    """
     print("\n" + "="*60)
     print("🗑️  Resetting Database...")
     print("="*60)
@@ -36,30 +41,43 @@ def reset_database():
     from src.database.schema_dictionary import DictionarySchemaManager
     from src.database.schema_ontology import OntologySchemaManager
     
-    # 기존 테이블 삭제 및 재생성
+    # 1. 삭제: FK 참조하는 테이블 먼저 (역순)
     try:
-        catalog_manager = CatalogSchemaManager()
-        catalog_manager.drop_tables(confirm=True)
-        catalog_manager.create_tables()
-        print("✅ Schema catalog tables reset")
+        OntologySchemaManager().drop_tables(confirm=True)
+        print("✅ Ontology tables dropped")
     except Exception as e:
-        print(f"⚠️  Error resetting schema catalog tables: {e}")
+        print(f"⚠️  Error: {e}")
     
     try:
-        dict_manager = DictionarySchemaManager()
-        dict_manager.drop_tables(confirm=True)
-        dict_manager.create_tables()
-        print("✅ Schema dictionary tables reset")
+        DictionarySchemaManager().drop_tables(confirm=True)
+        print("✅ Dictionary tables dropped")
     except Exception as e:
-        print(f"⚠️  Error resetting schema dictionary tables: {e}")
+        print(f"⚠️  Error: {e}")
     
     try:
-        ontology_manager = OntologySchemaManager()
-        ontology_manager.drop_tables(confirm=True)
-        ontology_manager.create_tables()
-        print("✅ Ontology tables reset")
+        CatalogSchemaManager().drop_tables(confirm=True)
+        print("✅ Catalog tables dropped")
     except Exception as e:
-        print(f"⚠️  Error resetting ontology tables: {e}")
+        print(f"⚠️  Error: {e}")
+    
+    # 2. 생성: FK 참조되는 테이블 먼저 (정순)
+    try:
+        CatalogSchemaManager().create_tables()
+        print("✅ Catalog tables created")
+    except Exception as e:
+        print(f"⚠️  Error: {e}")
+    
+    try:
+        DictionarySchemaManager().create_tables()
+        print("✅ Dictionary tables created")
+    except Exception as e:
+        print(f"⚠️  Error: {e}")
+    
+    try:
+        OntologySchemaManager().create_tables()
+        print("✅ Ontology tables created")
+    except Exception as e:
+        print(f"⚠️  Error: {e}")
 
 
 def find_data_files() -> list:
