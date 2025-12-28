@@ -114,7 +114,7 @@ def reset_database():
 # =============================================================================
 
 def find_data_files() -> list:
-    """Open VitalDB 데이터 파일 찾기"""
+    """Open VitalDB 데이터 파일 찾기 (CSV + Vital 파일)"""
     print(f"\n📂 Scanning: {DATA_DIR}")
     
     files = []
@@ -123,9 +123,16 @@ def find_data_files() -> list:
         print(f"⚠️  Data directory not found: {DATA_DIR}")
         return files
     
+    # CSV 파일 스캔
     for f in DATA_DIR.rglob("*.csv"):
         files.append(str(f))
         print(f"   Found: {f.name}")
+    
+    # Vital 파일 스캔 (생체신호 데이터) - 테스트용으로 3개만
+    vital_files = list(DATA_DIR.rglob("*.vital"))[:3]
+    for f in vital_files:
+        files.append(str(f))
+        print(f"   Found: {f.name} (signal)")
     
     print(f"\n📁 Total files found: {len(files)}")
     return files

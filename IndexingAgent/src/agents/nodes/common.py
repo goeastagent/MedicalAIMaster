@@ -260,48 +260,6 @@ def save_conversation_to_file(history: ConversationHistory) -> Optional[str]:
         return None
 
 
-def load_conversation_from_file(dataset_id: str, session_id: str = None) -> Optional[ConversationHistory]:
-    """
-    저장된 대화 히스토리 로드
-    
-    Args:
-        dataset_id: 데이터셋 ID
-        session_id: 세션 ID (None이면 가장 최근 세션)
-    
-    Returns:
-        대화 히스토리 (없으면 None)
-    """
-    try:
-        if not CONVERSATIONS_DIR.exists():
-            return None
-        
-        safe_dataset_id = dataset_id.replace("/", "_").replace("\\", "_")
-        
-        if session_id:
-            # 특정 세션 로드
-            filepath = CONVERSATIONS_DIR / f"{safe_dataset_id}_{session_id}.json"
-            if filepath.exists():
-                with open(filepath, 'r', encoding='utf-8') as f:
-                    return json.load(f)
-        else:
-            # 가장 최근 세션 찾기
-            pattern = f"{safe_dataset_id}_*.json"
-            matching_files = sorted(
-                CONVERSATIONS_DIR.glob(pattern),
-                key=lambda x: x.stat().st_mtime,
-                reverse=True
-            )
-            if matching_files:
-                with open(matching_files[0], 'r', encoding='utf-8') as f:
-                    return json.load(f)
-        
-        return None
-        
-    except Exception as e:
-        print(f"⚠️ [ConversationLoad] 로드 실패: {e}")
-        return None
-
-
 def list_conversation_sessions(dataset_id: str = None) -> List[Dict[str, Any]]:
     """
     저장된 대화 세션 목록 조회
@@ -349,68 +307,4 @@ def list_conversation_sessions(dataset_id: str = None) -> List[Dict[str, Any]]:
     return sessions
 
 
-def export_conversations_for_knowledge_graph(dataset_id: str = None) -> Dict[str, Any]:
-    """
-    Knowledge Graph 구축을 위한 대화 데이터 추출
-    
-    모든 사용자 결정과 선호도를 구조화하여 반환
-    
-    Returns:
-        {
-            "classification_decisions": [...],  # 분류 결정들
-            "entity_decisions": [...],          # Entity 식별 결정들
-            "user_preferences": {...},          # 학습된 선호도
-            "all_turns": [...],                 # 전체 대화 턴
-            "context_snapshots": [...]          # 상태 스냅샷들
-        }
-    """
-    result = {
-        "classification_decisions": [],
-        "entity_decisions": [],
-        "user_preferences": {},
-        "all_turns": [],
-        "context_snapshots": []
-    }
-    
-    sessions = list_conversation_sessions(dataset_id)
-    
-    for session_info in sessions:
-        try:
-            with open(session_info["filepath"], 'r', encoding='utf-8') as f:
-                data = json.load(f)
-            
-            # 분류 결정 수집
-            for dec in data.get("classification_decisions", []):
-                dec["dataset_id"] = data.get("dataset_id")
-                dec["session_id"] = data.get("session_id")
-                result["classification_decisions"].append(dec)
-            
-            # 앵커 결정 수집
-            for dec in data.get("entity_decisions", []):
-                dec["dataset_id"] = data.get("dataset_id")
-                dec["session_id"] = data.get("session_id")
-                result["entity_decisions"].append(dec)
-            
-            # 사용자 선호도 병합
-            for key, value in data.get("user_preferences", {}).items():
-                result["user_preferences"][key] = value
-            
-            # 전체 턴 수집
-            for turn in data.get("turns", []):
-                turn["dataset_id"] = data.get("dataset_id")
-                turn["session_id"] = data.get("session_id")
-                result["all_turns"].append(turn)
-                
-                # 컨텍스트 스냅샷 수집
-                if turn.get("context_snapshot"):
-                    result["context_snapshots"].append({
-                        "turn_id": turn["turn_id"],
-                        "dataset_id": data.get("dataset_id"),
-                        "timestamp": turn["timestamp"],
-                        "snapshot": turn["context_snapshot"]
-                    })
-        except:
-            continue
-    
-    return result
 
