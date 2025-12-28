@@ -71,9 +71,9 @@ CREATE TABLE IF NOT EXISTS column_metadata (
     value_distribution JSONB DEFAULT '{}'::jsonb,
     
     -- Phase 1B: LLM 분석 결과 (의미론적 정보)
-    semantic_name VARCHAR(255),           -- 표준화된 이름 (예: "Heart Rate")
-    unit VARCHAR(50),                     -- 측정 단위 (예: "bpm", "mmHg")
-    concept_category VARCHAR(100),        -- 개념 카테고리 (예: "Vital Signs", "Demographics")
+    semantic_name TEXT,                   -- 표준화된 이름 (예: "Heart Rate") - LLM 결과 수용을 위해 TEXT
+    unit VARCHAR(100),                    -- 측정 단위 (예: "bpm", "mmHg")
+    concept_category VARCHAR(255),        -- 개념 카테고리 (예: "Vital Signs", "Demographics")
     description TEXT,                     -- 상세 설명
     standard_code VARCHAR(100),           -- LOINC, SNOMED 코드 (있으면)
     is_pii BOOLEAN DEFAULT FALSE,         -- 개인식별정보 여부

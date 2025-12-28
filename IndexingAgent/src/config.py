@@ -167,6 +167,78 @@ class Phase1BConfig:
     MATCH_CONFIDENCE_THRESHOLD = float(os.getenv("PHASE1B_MATCH_CONFIDENCE", "0.7"))
 
 
+class Phase2AConfig:
+    """Phase 2A: Entity Identification 설정"""
+    
+    # --- 1. LLM 설정 ---
+    MAX_RETRIES = 3
+    RETRY_DELAY_SECONDS = 2
+    
+    # --- 2. 배치 크기 ---
+    # 한 번의 LLM 호출에 포함할 최대 테이블 수
+    TABLE_BATCH_SIZE = int(os.getenv("PHASE2A_TABLE_BATCH_SIZE", "10"))
+    
+    # --- 3. Confidence 임계값 ---
+    # 이 값 미만이면 낮은 확신도로 분류
+    CONFIDENCE_THRESHOLD = float(os.getenv("PHASE2A_CONFIDENCE", "0.8"))
+    
+    # --- 4. 컬럼 정보 표시 설정 ---
+    # LLM context에 포함할 테이블당 최대 컬럼 수 (0 = 전체)
+    MAX_COLUMNS_PER_TABLE = int(os.getenv("PHASE2A_MAX_COLUMNS", "30"))
+    
+    # identifier 후보 컬럼 표시 시 unique count 포함 여부
+    SHOW_UNIQUE_COUNTS = True
+
+
+class Phase2BConfig:
+    """Phase 2B: Relationship Inference + Neo4j 설정"""
+    
+    # --- 1. LLM 설정 ---
+    MAX_RETRIES = 3
+    RETRY_DELAY_SECONDS = 2
+    
+    # --- 2. Confidence 임계값 ---
+    CONFIDENCE_THRESHOLD = float(os.getenv("PHASE2B_CONFIDENCE", "0.8"))
+    
+    # --- 3. Neo4j 연결 설정 ---
+    NEO4J_ENABLED = os.getenv("NEO4J_ENABLED", "true").lower() == "true"
+    
+    # --- 4. FK 후보 탐지 설정 ---
+    # FK 후보로 간주할 컬럼 concept_category 목록
+    FK_CANDIDATE_CONCEPTS = ["Identifiers", "Demographics"]
+    
+    # FK 후보로 간주할 컬럼 이름 패턴
+    FK_CANDIDATE_PATTERNS = ["id", "ID", "Id", "key", "Key", "code", "Code"]
+
+
+class Phase2CConfig:
+    """Phase 2C: Ontology Enhancement 설정"""
+    
+    # --- 1. LLM 설정 ---
+    MAX_RETRIES = 3
+    RETRY_DELAY_SECONDS = 2
+    
+    # --- 2. Confidence 임계값 ---
+    CONFIDENCE_THRESHOLD = float(os.getenv("PHASE2C_CONFIDENCE", "0.7"))
+    
+    # --- 3. Neo4j 연결 설정 ---
+    NEO4J_ENABLED = os.getenv("NEO4J_ENABLED", "true").lower() == "true"
+    
+    # --- 4. Task 활성화 설정 ---
+    # 각 Enhancement Task 활성화 여부
+    ENABLE_CONCEPT_HIERARCHY = os.getenv("PHASE2C_CONCEPT_HIERARCHY", "true").lower() == "true"
+    ENABLE_SEMANTIC_EDGES = os.getenv("PHASE2C_SEMANTIC_EDGES", "true").lower() == "true"
+    ENABLE_MEDICAL_TERMS = os.getenv("PHASE2C_MEDICAL_TERMS", "true").lower() == "true"
+    ENABLE_CROSS_TABLE = os.getenv("PHASE2C_CROSS_TABLE", "true").lower() == "true"
+    
+    # --- 5. 배치 설정 ---
+    # Semantic Edge 분석 시 한 번에 처리할 파라미터 수
+    PARAMETER_BATCH_SIZE = int(os.getenv("PHASE2C_PARAM_BATCH_SIZE", "30"))
+    
+    # Medical Term 매핑 시 한 번에 처리할 파라미터 수
+    MEDICAL_TERM_BATCH_SIZE = int(os.getenv("PHASE2C_MED_TERM_BATCH_SIZE", "20"))
+
+
 class Phase1Config:
     """Phase 1: Semantic Analysis (LLM 배치 처리) 설정"""
     

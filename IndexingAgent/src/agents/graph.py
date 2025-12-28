@@ -96,8 +96,14 @@ from src.agents.nodes import (
     file_classification_node,
     # Phase 1A: MetaData Semantic
     metadata_semantic_node,
-    # Phase 1B: Data Semantic Analysis (NEW)
+    # Phase 1B: Data Semantic Analysis
     data_semantic_node,
+    # Phase 2A: Entity Identification
+    entity_identification_node,
+    # Phase 2B: Relationship Inference + Neo4j
+    relationship_inference_node,
+    # Phase 2C: Ontology Enhancement
+    ontology_enhancement_node,
     # Phase 1 (Legacy): Semantic Analysis
     phase1_semantic_node,
     # Core nodes
@@ -420,8 +426,136 @@ def build_phase1b_agent(checkpointer=None):
     return workflow.compile(**compile_config)
 
 
+def build_phase2a_agent(checkpointer=None):
+    """
+    Phase 0 + 0.5 + 0.7 + 1A + 1B + 2A 실행하는 워크플로우 빌드 (테스트용)
+    
+    START → phase0_catalog → phase05_aggregation → file_classification 
+          → metadata_semantic → data_semantic → entity_identification → END
+    
+    새로운 파이프라인:
+    - Phase 0: 파일/컬럼 물리적 정보 수집 (rule-based)
+    - Phase 0.5: 스키마 집계 (rule-based)
+    - Phase 0.7: 파일을 metadata/data로 분류 (LLM)
+    - Phase 1A: metadata 파일에서 data_dictionary 추출 (LLM)
+    - Phase 1B: data 파일 컬럼 의미 분석 + dictionary 매칭 (LLM)
+    - Phase 2A: 테이블 Entity 식별 (row_represents, entity_identifier) (LLM)
+    """
+    workflow = StateGraph(AgentState)
+    
+    workflow.add_node("phase0_catalog", phase0_catalog_node)
+    workflow.add_node("phase05_aggregation", phase05_aggregation_node)
+    workflow.add_node("file_classification", file_classification_node)
+    workflow.add_node("metadata_semantic", metadata_semantic_node)
+    workflow.add_node("data_semantic", data_semantic_node)
+    workflow.add_node("entity_identification", entity_identification_node)
+    
+    workflow.set_entry_point("phase0_catalog")
+    workflow.add_edge("phase0_catalog", "phase05_aggregation")
+    workflow.add_edge("phase05_aggregation", "file_classification")
+    workflow.add_edge("file_classification", "metadata_semantic")
+    workflow.add_edge("metadata_semantic", "data_semantic")
+    workflow.add_edge("data_semantic", "entity_identification")
+    workflow.add_edge("entity_identification", END)
+    
+    compile_config = {}
+    if checkpointer:
+        compile_config["checkpointer"] = checkpointer
+    
+    return workflow.compile(**compile_config)
+
+
+def build_phase2b_agent(checkpointer=None):
+    """
+    Phase 0 + 0.5 + 0.7 + 1A + 1B + 2A + 2B 실행하는 워크플로우 빌드 (테스트용)
+    
+    START → phase0_catalog → phase05_aggregation → file_classification 
+          → metadata_semantic → data_semantic → entity_identification 
+          → relationship_inference → END
+    
+    전체 파이프라인:
+    - Phase 0: 파일/컬럼 물리적 정보 수집 (rule-based)
+    - Phase 0.5: 스키마 집계 (rule-based)
+    - Phase 0.7: 파일을 metadata/data로 분류 (LLM)
+    - Phase 1A: metadata 파일에서 data_dictionary 추출 (LLM)
+    - Phase 1B: data 파일 컬럼 의미 분석 + dictionary 매칭 (LLM)
+    - Phase 2A: 테이블 Entity 식별 (row_represents, entity_identifier) (LLM)
+    - Phase 2B: 테이블 간 FK 관계 추론 + Neo4j 3-Level Ontology (LLM + Rule)
+    """
+    workflow = StateGraph(AgentState)
+    
+    workflow.add_node("phase0_catalog", phase0_catalog_node)
+    workflow.add_node("phase05_aggregation", phase05_aggregation_node)
+    workflow.add_node("file_classification", file_classification_node)
+    workflow.add_node("metadata_semantic", metadata_semantic_node)
+    workflow.add_node("data_semantic", data_semantic_node)
+    workflow.add_node("entity_identification", entity_identification_node)
+    workflow.add_node("relationship_inference", relationship_inference_node)
+    
+    workflow.set_entry_point("phase0_catalog")
+    workflow.add_edge("phase0_catalog", "phase05_aggregation")
+    workflow.add_edge("phase05_aggregation", "file_classification")
+    workflow.add_edge("file_classification", "metadata_semantic")
+    workflow.add_edge("metadata_semantic", "data_semantic")
+    workflow.add_edge("data_semantic", "entity_identification")
+    workflow.add_edge("entity_identification", "relationship_inference")
+    workflow.add_edge("relationship_inference", END)
+    
+    compile_config = {}
+    if checkpointer:
+        compile_config["checkpointer"] = checkpointer
+    
+    return workflow.compile(**compile_config)
+
+
+def build_phase2c_agent(checkpointer=None):
+    """
+    Phase 0 + 0.5 + 0.7 + 1A + 1B + 2A + 2B + 2C 실행하는 워크플로우 빌드 (테스트용)
+    
+    START → phase0_catalog → phase05_aggregation → file_classification 
+          → metadata_semantic → data_semantic → entity_identification 
+          → relationship_inference → ontology_enhancement → END
+    
+    전체 파이프라인:
+    - Phase 0: 파일/컬럼 물리적 정보 수집 (rule-based)
+    - Phase 0.5: 스키마 집계 (rule-based)
+    - Phase 0.7: 파일을 metadata/data로 분류 (LLM)
+    - Phase 1A: metadata 파일에서 data_dictionary 추출 (LLM)
+    - Phase 1B: data 파일 컬럼 의미 분석 + dictionary 매칭 (LLM)
+    - Phase 2A: 테이블 Entity 식별 (row_represents, entity_identifier) (LLM)
+    - Phase 2B: 테이블 간 FK 관계 추론 + Neo4j 3-Level Ontology (LLM + Rule)
+    - Phase 2C: Ontology Enhancement (Concept Hierarchy, Semantic Edges, Medical Terms)
+    """
+    workflow = StateGraph(AgentState)
+    
+    workflow.add_node("phase0_catalog", phase0_catalog_node)
+    workflow.add_node("phase05_aggregation", phase05_aggregation_node)
+    workflow.add_node("file_classification", file_classification_node)
+    workflow.add_node("metadata_semantic", metadata_semantic_node)
+    workflow.add_node("data_semantic", data_semantic_node)
+    workflow.add_node("entity_identification", entity_identification_node)
+    workflow.add_node("relationship_inference", relationship_inference_node)
+    workflow.add_node("ontology_enhancement", ontology_enhancement_node)
+    
+    workflow.set_entry_point("phase0_catalog")
+    workflow.add_edge("phase0_catalog", "phase05_aggregation")
+    workflow.add_edge("phase05_aggregation", "file_classification")
+    workflow.add_edge("file_classification", "metadata_semantic")
+    workflow.add_edge("metadata_semantic", "data_semantic")
+    workflow.add_edge("data_semantic", "entity_identification")
+    workflow.add_edge("entity_identification", "relationship_inference")
+    workflow.add_edge("relationship_inference", "ontology_enhancement")
+    workflow.add_edge("ontology_enhancement", END)
+    
+    compile_config = {}
+    if checkpointer:
+        compile_config["checkpointer"] = checkpointer
+    
+    return workflow.compile(**compile_config)
+
+
 def build_full_new_pipeline_agent(checkpointer=None):
     """
-    Alias for build_phase1b_agent (backward compatibility)
+    Alias for build_phase2c_agent (가장 최신 파이프라인)
     """
-    return build_phase1b_agent(checkpointer)
+    return build_phase2c_agent(checkpointer)

@@ -1,0 +1,832 @@
+# src/agents/nodes/relationship_inference.py
+"""
+Phase 2B: Relationship Inference + Neo4j Node
+
+테이블 간 FK 관계를 추론하고 Neo4j에 3-Level Ontology를 구축합니다.
+
+주요 기능:
+1. FK 관계 추론 (LLM)
+2. PostgreSQL table_relationships 저장
+3. Neo4j 3-Level Ontology 구축:
+   - Level 1: RowEntity (테이블)
+   - Level 2: ConceptCategory (개념 그룹)
+   - Level 3: Parameter (컬럼)
+"""
+
+import json
+from datetime import datetime
+from typing import Dict, List, Any, Optional, Tuple, Set
+
+from ..state import AgentState
+from ..models.llm_responses import (
+    TableRelationship,
+    RelationshipInferenceResponse,
+    Phase2BResult,
+)
+from src.database.connection import get_db_manager
+from src.database.schema_ontology import OntologySchemaManager
+from src.utils.llm_client import get_llm_client
+from src.config import Phase2BConfig, LLMConfig, Neo4jConfig
+
+
+# =============================================================================
+# LLM Prompt
+# =============================================================================
+
+RELATIONSHIP_INFERENCE_PROMPT = """You are a Medical Data Expert analyzing table relationships.
+
+[Task]
+Identify foreign key relationships between tables based on shared columns and entity information.
+
+[Tables with Entity Information]
+{tables_context}
+
+[Shared Columns (potential FK candidates)]
+{shared_columns}
+
+[Rules]
+1. If column A is unique in Table1 but repeating in Table2 → Table1:Table2 = 1:N
+2. If column A is unique in both tables → might be 1:1
+3. Focus on identifier columns (caseid, subjectid, patient_id, etc.)
+4. Consider the row_represents: surgery→lab_result suggests 1:N (one surgery has many lab results)
+
+[Output Format]
+Return ONLY valid JSON (no markdown, no explanation):
+{{
+  "relationships": [
+    {{
+      "source_table": "clinical_data.csv",
+      "target_table": "lab_data.csv",
+      "source_column": "caseid",
+      "target_column": "caseid",
+      "relationship_type": "foreign_key",
+      "cardinality": "1:N",
+      "confidence": 0.95,
+      "reasoning": "caseid is unique in clinical_data (6388) but repeats in lab_data, surgery→lab_result is 1:N"
+    }}
+  ]
+}}
+
+If no relationships are found, return:
+{{"relationships": []}}
+"""
+
+
+# =============================================================================
+# Data Loading
+# =============================================================================
+
+def _load_tables_with_entity_and_columns() -> List[Dict[str, Any]]:
+    """
+    table_entities + column_metadata + file_catalog 조인 로드
+    
+    Returns:
+        [
+            {
+                "file_id": "uuid",
+                "file_name": "clinical_data.csv",
+                "row_represents": "surgery",
+                "entity_identifier": "caseid",
+                "row_count": 6388,
+                "columns": [
+                    {
+                        "original_name": "caseid",
+                        "semantic_name": "Case ID",
+                        "concept_category": "Identifiers",
+                        "unit": None,
+                        "unique_count": 6388
+                    },
+                    ...
+                ]
+            },
+            ...
+        ]
+    """
+    db = get_db_manager()
+    conn = db.get_connection()
+    cursor = conn.cursor()
+    
+    tables_info = []
+    
+    try:
+        # 1. table_entities와 file_catalog 조인
+        cursor.execute("""
+            SELECT 
+                te.file_id,
+                fc.file_name,
+                fc.file_metadata,
+                te.row_represents,
+                te.entity_identifier,
+                te.confidence
+            FROM table_entities te
+            JOIN file_catalog fc ON te.file_id = fc.file_id
+        """)
+        
+        table_rows = cursor.fetchall()
+        
+        for row in table_rows:
+            file_id, file_name, file_metadata, row_represents, entity_identifier, confidence = row
+            
+            # row_count 추출
+            row_count = 0
+            if file_metadata:
+                if isinstance(file_metadata, str):
+                    file_metadata = json.loads(file_metadata)
+                row_count = file_metadata.get('row_count', 0)
+            
+            # 2. 해당 테이블의 컬럼 정보 조회
+            cursor.execute("""
+                SELECT 
+                    original_name,
+                    semantic_name,
+                    concept_category,
+                    unit,
+                    value_distribution
+                FROM column_metadata
+                WHERE file_id = %s
+                ORDER BY col_id
+            """, (str(file_id),))
+            
+            columns = []
+            for col_row in cursor.fetchall():
+                orig_name, sem_name, concept, unit, value_dist = col_row
+                
+                # unique_count 추출
+                unique_count = None
+                if value_dist:
+                    if isinstance(value_dist, str):
+                        value_dist = json.loads(value_dist)
+                    unique_values = value_dist.get('unique_values', [])
+                    unique_count = len(unique_values) if unique_values else None
+                
+                columns.append({
+                    "original_name": orig_name,
+                    "semantic_name": sem_name,
+                    "concept_category": concept,
+                    "unit": unit,
+                    "unique_count": unique_count
+                })
+            
+            tables_info.append({
+                "file_id": str(file_id),
+                "file_name": file_name,
+                "row_represents": row_represents,
+                "entity_identifier": entity_identifier,
+                "row_count": row_count,
+                "confidence": confidence,
+                "columns": columns
+            })
+    
+    except Exception as e:
+        print(f"❌ [Phase2B] Error loading tables: {e}")
+        import traceback
+        traceback.print_exc()
+    
+    return tables_info
+
+
+def _find_shared_columns(tables: List[Dict]) -> List[Dict[str, Any]]:
+    """
+    테이블 간 공유 컬럼 찾기 (rule-based FK 후보)
+    
+    Returns:
+        [
+            {
+                "column_name": "caseid",
+                "tables": [
+                    {"file_name": "clinical_data.csv", "unique_count": 6388, "row_count": 6388},
+                    {"file_name": "lab_data.csv", "unique_count": 6388, "row_count": 928448}
+                ]
+            },
+            ...
+        ]
+    """
+    # 컬럼별로 어떤 테이블에 있는지 수집
+    column_to_tables = {}
+    
+    for table in tables:
+        file_name = table['file_name']
+        row_count = table['row_count']
+        
+        for col in table['columns']:
+            col_name = col['original_name']
+            unique_count = col['unique_count']
+            
+            if col_name not in column_to_tables:
+                column_to_tables[col_name] = []
+            
+            column_to_tables[col_name].append({
+                "file_name": file_name,
+                "unique_count": unique_count,
+                "row_count": row_count
+            })
+    
+    # 2개 이상 테이블에 존재하는 컬럼만 반환
+    shared = []
+    for col_name, table_list in column_to_tables.items():
+        if len(table_list) >= 2:
+            shared.append({
+                "column_name": col_name,
+                "tables": table_list
+            })
+    
+    return shared
+
+
+# =============================================================================
+# LLM Context Building
+# =============================================================================
+
+def _build_tables_context(tables: List[Dict]) -> str:
+    """LLM용 테이블 정보 context 생성"""
+    lines = []
+    
+    for table in tables:
+        lines.append(f"\n## {table['file_name']}")
+        lines.append(f"- row_represents: {table['row_represents']}")
+        lines.append(f"- entity_identifier: {table['entity_identifier'] or '(none)'}")
+        lines.append(f"- row_count: {table['row_count']:,}")
+        
+        # FK 후보 컬럼만 표시
+        fk_candidates = [c for c in table['columns'] 
+                        if c['concept_category'] in Phase2BConfig.FK_CANDIDATE_CONCEPTS
+                        or any(p in (c['original_name'] or '') for p in Phase2BConfig.FK_CANDIDATE_PATTERNS)]
+        
+        if fk_candidates:
+            lines.append("- FK candidate columns:")
+            for col in fk_candidates:
+                unique_str = f"unique: {col['unique_count']:,}" if col['unique_count'] else "unique: ?"
+                lines.append(f"    - {col['original_name']} ({col['concept_category'] or '-'}) [{unique_str}]")
+    
+    return "\n".join(lines)
+
+
+def _build_shared_columns_context(shared: List[Dict]) -> str:
+    """LLM용 공유 컬럼 정보 context 생성"""
+    if not shared:
+        return "(No shared columns found)"
+    
+    lines = []
+    for item in shared:
+        col_name = item['column_name']
+        tables = item['tables']
+        
+        lines.append(f"\n- {col_name}:")
+        for t in tables:
+            unique_str = f"{t['unique_count']:,}" if t['unique_count'] else "?"
+            lines.append(f"    - {t['file_name']}: unique={unique_str}, rows={t['row_count']:,}")
+    
+    return "\n".join(lines)
+
+
+# =============================================================================
+# LLM Call
+# =============================================================================
+
+def _call_llm_for_relationships(
+    tables: List[Dict],
+    shared: List[Dict]
+) -> Tuple[List[TableRelationship], int]:
+    """
+    LLM을 호출하여 FK 관계 추론
+    
+    Returns:
+        (관계 목록, LLM 호출 횟수)
+    """
+    if not tables or len(tables) < 2:
+        return [], 0
+    
+    if not shared:
+        print("   ℹ️ No shared columns - skipping LLM call")
+        return [], 0
+    
+    llm_client = get_llm_client()
+    
+    tables_context = _build_tables_context(tables)
+    shared_context = _build_shared_columns_context(shared)
+    
+    prompt = RELATIONSHIP_INFERENCE_PROMPT.format(
+        tables_context=tables_context,
+        shared_columns=shared_context
+    )
+    
+    print(f"   📤 Calling LLM for relationship inference...")
+    
+    llm_calls = 0
+    results = []
+    
+    for attempt in range(Phase2BConfig.MAX_RETRIES):
+        try:
+            response = llm_client.ask_json(prompt, max_tokens=LLMConfig.MAX_TOKENS)
+            llm_calls += 1
+            
+            if response and 'relationships' in response:
+                for rel_data in response['relationships']:
+                    rel = TableRelationship(
+                        source_table=rel_data.get('source_table', ''),
+                        target_table=rel_data.get('target_table', ''),
+                        source_column=rel_data.get('source_column', ''),
+                        target_column=rel_data.get('target_column', ''),
+                        relationship_type=rel_data.get('relationship_type', 'foreign_key'),
+                        cardinality=rel_data.get('cardinality', '1:N'),
+                        confidence=float(rel_data.get('confidence', 0.0)),
+                        reasoning=rel_data.get('reasoning', '')
+                    )
+                    results.append(rel)
+                
+                return results, llm_calls
+            else:
+                print(f"   ⚠️ Invalid LLM response, attempt {attempt + 1}")
+                
+        except Exception as e:
+            print(f"   ❌ LLM call failed (attempt {attempt + 1}): {e}")
+            if attempt < Phase2BConfig.MAX_RETRIES - 1:
+                import time
+                time.sleep(Phase2BConfig.RETRY_DELAY_SECONDS)
+    
+    return results, llm_calls
+
+
+# =============================================================================
+# PostgreSQL Save
+# =============================================================================
+
+def _save_relationships_to_postgres(
+    relationships: List[TableRelationship],
+    tables: List[Dict]
+) -> int:
+    """
+    FK 관계를 table_relationships 테이블에 저장
+    
+    Returns:
+        저장된 관계 수
+    """
+    if not relationships:
+        return 0
+    
+    # file_name → file_id 매핑
+    name_to_id = {t['file_name']: t['file_id'] for t in tables}
+    
+    rel_dicts = []
+    for rel in relationships:
+        source_id = name_to_id.get(rel.source_table)
+        target_id = name_to_id.get(rel.target_table)
+        
+        if not source_id or not target_id:
+            print(f"   ⚠️ Table not found: {rel.source_table} or {rel.target_table}")
+            continue
+        
+        rel_dicts.append({
+            "source_file_id": source_id,
+            "target_file_id": target_id,
+            "source_column": rel.source_column,
+            "target_column": rel.target_column,
+            "relationship_type": rel.relationship_type,
+            "cardinality": rel.cardinality,
+            "confidence": rel.confidence,
+            "reasoning": rel.reasoning
+        })
+    
+    if rel_dicts:
+        schema_manager = OntologySchemaManager()
+        schema_manager.save_table_relationships(rel_dicts)
+    
+    return len(rel_dicts)
+
+
+# =============================================================================
+# Neo4j Sync
+# =============================================================================
+
+def _get_neo4j_driver():
+    """Neo4j 드라이버 가져오기"""
+    try:
+        from neo4j import GraphDatabase
+        driver = GraphDatabase.driver(
+            Neo4jConfig.URI,
+            auth=(Neo4jConfig.USER, Neo4jConfig.PASSWORD)
+        )
+        # 연결 테스트
+        driver.verify_connectivity()
+        return driver
+    except Exception as e:
+        print(f"   ⚠️ Neo4j connection failed: {e}")
+        return None
+
+
+def _create_row_entity_nodes(driver, tables: List[Dict]) -> int:
+    """Level 1: RowEntity 노드 생성"""
+    if not driver:
+        return 0
+    
+    count = 0
+    with driver.session(database=Neo4jConfig.DATABASE) as session:
+        for table in tables:
+            try:
+                session.run("""
+                    MERGE (e:RowEntity {file_id: $file_id})
+                    SET e.file_name = $file_name,
+                        e.name = $row_represents,
+                        e.identifier_column = $entity_identifier,
+                        e.row_count = $row_count
+                """, {
+                    "file_id": table['file_id'],
+                    "file_name": table['file_name'],
+                    "row_represents": table['row_represents'],
+                    "entity_identifier": table['entity_identifier'],
+                    "row_count": table['row_count']
+                })
+                count += 1
+            except Exception as e:
+                print(f"   ❌ Error creating RowEntity {table['file_name']}: {e}")
+    
+    return count
+
+
+def _create_concept_category_nodes(driver, tables: List[Dict]) -> int:
+    """Level 2: ConceptCategory 노드 생성 (unique concept_category)"""
+    if not driver:
+        return 0
+    
+    # 모든 테이블에서 unique concept_category 수집
+    concepts: Set[str] = set()
+    for table in tables:
+        for col in table['columns']:
+            if col['concept_category']:
+                concepts.add(col['concept_category'])
+    
+    count = 0
+    with driver.session(database=Neo4jConfig.DATABASE) as session:
+        for concept in concepts:
+            try:
+                session.run("""
+                    MERGE (c:ConceptCategory {name: $name})
+                """, {"name": concept})
+                count += 1
+            except Exception as e:
+                print(f"   ❌ Error creating ConceptCategory {concept}: {e}")
+    
+    return count
+
+
+def _create_parameter_nodes(driver, tables: List[Dict]) -> int:
+    """Level 3: Parameter 노드 생성 (column_metadata 기반)"""
+    if not driver:
+        return 0
+    
+    # 모든 unique 컬럼 수집 (original_name 기준)
+    seen_keys = set()
+    params = []
+    
+    for table in tables:
+        for col in table['columns']:
+            key = col['original_name']
+            if key not in seen_keys:
+                seen_keys.add(key)
+                params.append({
+                    "key": key,
+                    "name": col['semantic_name'] or key,
+                    "unit": col['unit'],
+                    "concept": col['concept_category']
+                })
+    
+    count = 0
+    with driver.session(database=Neo4jConfig.DATABASE) as session:
+        for param in params:
+            try:
+                session.run("""
+                    MERGE (p:Parameter {key: $key})
+                    SET p.name = $name,
+                        p.unit = $unit,
+                        p.concept = $concept
+                """, param)
+                count += 1
+            except Exception as e:
+                print(f"   ❌ Error creating Parameter {param['key']}: {e}")
+    
+    return count
+
+
+def _create_links_to_edges(driver, relationships: List[TableRelationship], tables: List[Dict]) -> int:
+    """RowEntity 간 FK 관계 (LINKS_TO) 생성"""
+    if not driver or not relationships:
+        return 0
+    
+    # file_name → file_id 매핑
+    name_to_id = {t['file_name']: t['file_id'] for t in tables}
+    
+    count = 0
+    with driver.session(database=Neo4jConfig.DATABASE) as session:
+        for rel in relationships:
+            source_id = name_to_id.get(rel.source_table)
+            target_id = name_to_id.get(rel.target_table)
+            
+            if not source_id or not target_id:
+                continue
+            
+            try:
+                session.run("""
+                    MATCH (s:RowEntity {file_id: $source_id})
+                    MATCH (t:RowEntity {file_id: $target_id})
+                    MERGE (s)-[r:LINKS_TO]->(t)
+                    SET r.source_column = $source_column,
+                        r.target_column = $target_column,
+                        r.cardinality = $cardinality,
+                        r.confidence = $confidence
+                """, {
+                    "source_id": source_id,
+                    "target_id": target_id,
+                    "source_column": rel.source_column,
+                    "target_column": rel.target_column,
+                    "cardinality": rel.cardinality,
+                    "confidence": rel.confidence
+                })
+                count += 1
+            except Exception as e:
+                print(f"   ❌ Error creating LINKS_TO: {e}")
+    
+    return count
+
+
+def _create_has_concept_edges(driver, tables: List[Dict]) -> int:
+    """RowEntity → ConceptCategory (HAS_CONCEPT) 엣지 생성"""
+    if not driver:
+        return 0
+    
+    count = 0
+    with driver.session(database=Neo4jConfig.DATABASE) as session:
+        for table in tables:
+            # 해당 테이블의 unique concept_category
+            concepts = set(col['concept_category'] for col in table['columns'] if col['concept_category'])
+            
+            for concept in concepts:
+                try:
+                    session.run("""
+                        MATCH (e:RowEntity {file_id: $file_id})
+                        MATCH (c:ConceptCategory {name: $concept})
+                        MERGE (e)-[:HAS_CONCEPT]->(c)
+                    """, {
+                        "file_id": table['file_id'],
+                        "concept": concept
+                    })
+                    count += 1
+                except Exception as e:
+                    print(f"   ❌ Error creating HAS_CONCEPT: {e}")
+    
+    return count
+
+
+def _create_contains_edges(driver, tables: List[Dict]) -> int:
+    """ConceptCategory → Parameter (CONTAINS) 엣지 생성"""
+    if not driver:
+        return 0
+    
+    # concept → parameter keys 매핑
+    concept_to_params: Dict[str, Set[str]] = {}
+    for table in tables:
+        for col in table['columns']:
+            if col['concept_category']:
+                if col['concept_category'] not in concept_to_params:
+                    concept_to_params[col['concept_category']] = set()
+                concept_to_params[col['concept_category']].add(col['original_name'])
+    
+    count = 0
+    with driver.session(database=Neo4jConfig.DATABASE) as session:
+        for concept, param_keys in concept_to_params.items():
+            for key in param_keys:
+                try:
+                    session.run("""
+                        MATCH (c:ConceptCategory {name: $concept})
+                        MATCH (p:Parameter {key: $key})
+                        MERGE (c)-[:CONTAINS]->(p)
+                    """, {
+                        "concept": concept,
+                        "key": key
+                    })
+                    count += 1
+                except Exception as e:
+                    print(f"   ❌ Error creating CONTAINS: {e}")
+    
+    return count
+
+
+def _create_has_column_edges(driver, tables: List[Dict]) -> int:
+    """RowEntity → Parameter (HAS_COLUMN) 엣지 생성"""
+    if not driver:
+        return 0
+    
+    count = 0
+    with driver.session(database=Neo4jConfig.DATABASE) as session:
+        for table in tables:
+            for col in table['columns']:
+                try:
+                    session.run("""
+                        MATCH (e:RowEntity {file_id: $file_id})
+                        MATCH (p:Parameter {key: $key})
+                        MERGE (e)-[:HAS_COLUMN]->(p)
+                    """, {
+                        "file_id": table['file_id'],
+                        "key": col['original_name']
+                    })
+                    count += 1
+                except Exception as e:
+                    print(f"   ❌ Error creating HAS_COLUMN: {e}")
+    
+    return count
+
+
+def _sync_to_neo4j(
+    tables: List[Dict],
+    relationships: List[TableRelationship]
+) -> Dict[str, int]:
+    """
+    Neo4j 전체 동기화
+    
+    Returns:
+        {
+            "row_entity_nodes": n,
+            "concept_category_nodes": n,
+            "parameter_nodes": n,
+            "edges_links_to": n,
+            "edges_has_concept": n,
+            "edges_contains": n,
+            "edges_has_column": n
+        }
+    """
+    stats = {
+        "row_entity_nodes": 0,
+        "concept_category_nodes": 0,
+        "parameter_nodes": 0,
+        "edges_links_to": 0,
+        "edges_has_concept": 0,
+        "edges_contains": 0,
+        "edges_has_column": 0
+    }
+    
+    if not Phase2BConfig.NEO4J_ENABLED:
+        print("   ℹ️ Neo4j sync is disabled")
+        return stats
+    
+    driver = _get_neo4j_driver()
+    if not driver:
+        print("   ⚠️ Skipping Neo4j sync (connection failed)")
+        return stats
+    
+    try:
+        print("   📊 Creating Neo4j nodes and edges...")
+        
+        # Level 1: RowEntity
+        stats["row_entity_nodes"] = _create_row_entity_nodes(driver, tables)
+        print(f"      ✓ RowEntity nodes: {stats['row_entity_nodes']}")
+        
+        # Level 2: ConceptCategory
+        stats["concept_category_nodes"] = _create_concept_category_nodes(driver, tables)
+        print(f"      ✓ ConceptCategory nodes: {stats['concept_category_nodes']}")
+        
+        # Level 3: Parameter
+        stats["parameter_nodes"] = _create_parameter_nodes(driver, tables)
+        print(f"      ✓ Parameter nodes: {stats['parameter_nodes']}")
+        
+        # Edges
+        stats["edges_links_to"] = _create_links_to_edges(driver, relationships, tables)
+        print(f"      ✓ LINKS_TO edges: {stats['edges_links_to']}")
+        
+        stats["edges_has_concept"] = _create_has_concept_edges(driver, tables)
+        print(f"      ✓ HAS_CONCEPT edges: {stats['edges_has_concept']}")
+        
+        stats["edges_contains"] = _create_contains_edges(driver, tables)
+        print(f"      ✓ CONTAINS edges: {stats['edges_contains']}")
+        
+        stats["edges_has_column"] = _create_has_column_edges(driver, tables)
+        print(f"      ✓ HAS_COLUMN edges: {stats['edges_has_column']}")
+        
+    finally:
+        driver.close()
+    
+    return stats
+
+
+# =============================================================================
+# Main Node
+# =============================================================================
+
+def relationship_inference_node(state: AgentState) -> Dict[str, Any]:
+    """
+    Phase 2B: Relationship Inference + Neo4j Sync
+    
+    1. table_entities + column_metadata 로드
+    2. 공유 컬럼 탐지 (FK 후보)
+    3. LLM으로 FK 관계 추론
+    4. PostgreSQL table_relationships 저장
+    5. Neo4j 3-Level Ontology 구축
+    
+    Input (from state):
+        - phase2a_result: Phase 2A 완료 정보
+        - data_files: 데이터 파일 목록
+    
+    Output:
+        - phase2b_result: Phase2BResult 형태
+        - table_relationships: TableRelationship 목록
+    """
+    print("\n" + "="*60)
+    print("🔗 Phase 2B: Relationship Inference + Neo4j")
+    print("="*60)
+    
+    started_at = datetime.now().isoformat()
+    
+    # 1. 스키마 확인
+    schema_manager = OntologySchemaManager()
+    schema_manager.create_tables()
+    
+    # 2. 테이블 정보 로드
+    print("\n📥 Loading tables with entity and column info...")
+    tables = _load_tables_with_entity_and_columns()
+    
+    if not tables:
+        print("⚠️ No tables found (run Phase 2A first)")
+        return {
+            "phase2b_result": Phase2BResult(
+                started_at=started_at,
+                completed_at=datetime.now().isoformat()
+            ).model_dump(),
+            "table_relationships": []
+        }
+    
+    print(f"✅ Loaded {len(tables)} tables")
+    for t in tables:
+        print(f"   - {t['file_name']} ({t['row_represents']}, {len(t['columns'])} columns)")
+    
+    # 3. 공유 컬럼 찾기
+    print("\n🔍 Finding shared columns...")
+    shared_columns = _find_shared_columns(tables)
+    print(f"✅ Found {len(shared_columns)} shared columns")
+    for sc in shared_columns[:5]:
+        print(f"   - {sc['column_name']} (in {len(sc['tables'])} tables)")
+    
+    # 4. LLM으로 FK 관계 추론
+    print("\n🤖 Inferring relationships with LLM...")
+    relationships, llm_calls = _call_llm_for_relationships(tables, shared_columns)
+    print(f"✅ Found {len(relationships)} relationships (LLM calls: {llm_calls})")
+    
+    # 5. PostgreSQL 저장
+    print("\n💾 Saving to PostgreSQL...")
+    saved_count = _save_relationships_to_postgres(relationships, tables)
+    print(f"✅ Saved {saved_count} relationships")
+    
+    # 6. Neo4j 동기화
+    print("\n📊 Syncing to Neo4j...")
+    neo4j_stats = _sync_to_neo4j(tables, relationships)
+    neo4j_synced = sum(neo4j_stats.values()) > 0
+    
+    # 7. 결과 통계
+    high_conf = sum(1 for r in relationships if r.confidence >= Phase2BConfig.CONFIDENCE_THRESHOLD)
+    
+    # 8. 결과 출력
+    print("\n" + "-"*60)
+    print("📊 Phase 2B Summary:")
+    print(f"   Relationships found: {len(relationships)}")
+    print(f"   High confidence (≥{Phase2BConfig.CONFIDENCE_THRESHOLD}): {high_conf}")
+    print(f"   LLM calls: {llm_calls}")
+    
+    if relationships:
+        print("\n🔗 Relationships:")
+        for rel in relationships:
+            conf_emoji = "🟢" if rel.confidence >= Phase2BConfig.CONFIDENCE_THRESHOLD else "🟡"
+            print(f"   {conf_emoji} {rel.source_table} → {rel.target_table}")
+            print(f"      {rel.source_column} → {rel.target_column} ({rel.cardinality})")
+            print(f"      confidence: {rel.confidence:.2f}")
+    
+    if neo4j_synced:
+        print("\n📊 Neo4j Graph:")
+        print(f"   RowEntity nodes: {neo4j_stats['row_entity_nodes']}")
+        print(f"   ConceptCategory nodes: {neo4j_stats['concept_category_nodes']}")
+        print(f"   Parameter nodes: {neo4j_stats['parameter_nodes']}")
+        print(f"   LINKS_TO edges: {neo4j_stats['edges_links_to']}")
+        print(f"   HAS_CONCEPT edges: {neo4j_stats['edges_has_concept']}")
+        print(f"   CONTAINS edges: {neo4j_stats['edges_contains']}")
+        print(f"   HAS_COLUMN edges: {neo4j_stats['edges_has_column']}")
+    
+    # 9. 결과 반환
+    completed_at = datetime.now().isoformat()
+    
+    phase2b_result = Phase2BResult(
+        relationships_found=len(relationships),
+        relationships_high_conf=high_conf,
+        row_entity_nodes=neo4j_stats['row_entity_nodes'],
+        concept_category_nodes=neo4j_stats['concept_category_nodes'],
+        parameter_nodes=neo4j_stats['parameter_nodes'],
+        edges_links_to=neo4j_stats['edges_links_to'],
+        edges_has_concept=neo4j_stats['edges_has_concept'],
+        edges_contains=neo4j_stats['edges_contains'],
+        edges_has_column=neo4j_stats['edges_has_column'],
+        llm_calls=llm_calls,
+        neo4j_synced=neo4j_synced,
+        started_at=started_at,
+        completed_at=completed_at
+    )
+    
+    return {
+        "phase2b_result": phase2b_result.model_dump(),
+        "table_relationships": [r.model_dump() for r in relationships]
+    }
+

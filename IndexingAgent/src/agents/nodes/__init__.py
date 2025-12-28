@@ -18,6 +18,9 @@ from src.agents.nodes.aggregator import phase05_aggregation_node
 from src.agents.nodes.classification import file_classification_node
 from src.agents.nodes.metadata_semantic import metadata_semantic_node
 from src.agents.nodes.data_semantic import data_semantic_node
+from src.agents.nodes.entity_identification import entity_identification_node
+from src.agents.nodes.relationship_inference import relationship_inference_node
+from src.agents.nodes.ontology_enhancement import ontology_enhancement_node
 from src.agents.nodes.semantic import phase1_semantic_node
 from src.agents.nodes.batch import (
     batch_classifier_node,
@@ -41,8 +44,14 @@ __all__ = [
     "file_classification_node",
     # Phase 1A: MetaData Semantic
     "metadata_semantic_node",
-    # Phase 1B: Data Semantic Analysis (새로운 노드)
+    # Phase 1B: Data Semantic Analysis
     "data_semantic_node",
+    # Phase 2A: Entity Identification
+    "entity_identification_node",
+    # Phase 2B: Relationship Inference + Neo4j
+    "relationship_inference_node",
+    # Phase 2C: Ontology Enhancement
+    "ontology_enhancement_node",
     # Phase 1 (Legacy): Semantic Analysis
     "phase1_semantic_node",
     # Core nodes

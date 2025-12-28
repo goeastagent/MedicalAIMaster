@@ -291,6 +291,21 @@ class AgentState(TypedDict):
     phase1b_result: Optional[Dict[str, Any]]  # DataSemanticResult 형태
     data_semantic_entries: List[Dict[str, Any]]  # LLM이 분석한 데이터 컬럼 의미 정보
     
+    # --- 0.95 Phase 2A Result (Entity Identification) ---
+    phase2a_result: Optional[Dict[str, Any]]  # Phase2AResult 형태
+    table_entity_results: List[Dict[str, Any]]  # TableEntityResult 목록
+    
+    # --- 0.96 Phase 2B Result (Relationship Inference + Neo4j) ---
+    phase2b_result: Optional[Dict[str, Any]]  # Phase2BResult 형태
+    table_relationships: List[Dict[str, Any]]  # TableRelationship 목록
+    
+    # --- 0.97 Phase 2C Result (Ontology Enhancement) ---
+    phase2c_result: Optional[Dict[str, Any]]  # Phase2CResult 형태
+    ontology_subcategories: List[Dict[str, Any]]  # SubCategoryResult 목록
+    semantic_edges: List[Dict[str, Any]]  # SemanticEdge 목록
+    medical_term_mappings: List[Dict[str, Any]]  # MedicalTermMapping 목록
+    cross_table_semantics: List[Dict[str, Any]]  # CrossTableSemantic 목록
+    
     # --- 0.9.1 Legacy Phase 1 Result (기존 semantic.py 호환) ---
     phase1_result: Optional[Dict[str, Any]]  # Phase1Result 형태 (semantic.py)
     column_semantic_mappings: List[Dict[str, Any]]  # LLM이 분석한 컬럼 의미 매핑
