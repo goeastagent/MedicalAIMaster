@@ -236,6 +236,7 @@ class FileSemanticMapping(BaseModel):
     primary_entity: str = "unknown"       # 각 행이 나타내는 entity
     entity_identifier_column: Optional[str] = None  # entity 식별자 컬럼
     domain: str = "Medical"               # 의료 도메인
+    is_metadata: bool = False             # 메타데이터/카탈로그 파일 여부
     data_quality_notes: Optional[str] = None  # 데이터 품질 관련 노트
     confidence: float = Field(default=0.8, ge=0.0, le=1.0)
 
@@ -397,6 +398,80 @@ def parse_llm_response(response: Dict[str, Any], model_class: type) -> BaseModel
         return model_class()
 
 
+# =============================================================================
+# Phase 0.7: File Classification 모델
+# =============================================================================
+
+class FileClassificationItem(BaseModel):
+    """Phase 0.7: 개별 파일 분류 결과"""
+    file_name: str                        # 파일명
+    is_metadata: bool                     # True=메타데이터, False=데이터
+    confidence: float = Field(default=0.8, ge=0.0, le=1.0)
+    reasoning: str = ""                   # 판단 근거
+
+
+class FileClassificationResponse(BaseModel):
+    """Phase 0.7: LLM 응답 전체"""
+    classifications: List[FileClassificationItem] = []
+
+
+class FileClassificationResult(BaseModel):
+    """Phase 0.7: 파일 분류 최종 결과"""
+    total_files: int = 0
+    metadata_files: List[str] = []        # is_metadata=true 파일 경로
+    data_files: List[str] = []            # is_metadata=false 파일 경로
+    classifications: Dict[str, Dict[str, Any]] = {}  # 파일별 상세 분류 정보
+    llm_calls: int = 0
+    started_at: Optional[str] = None
+    completed_at: Optional[str] = None
+
+
+# =============================================================================
+# Phase 1A: MetaData Semantic 모델
+# =============================================================================
+
+class ColumnRoleMapping(BaseModel):
+    """Phase 1A: 컬럼 역할 매핑 결과"""
+    key_column: str                       # 파라미터 이름/코드 컬럼
+    desc_column: Optional[str] = None     # 설명 컬럼
+    unit_column: Optional[str] = None     # 단위 컬럼
+    extra_columns: Dict[str, str] = {}    # 추가 컬럼들 {역할: 컬럼명}
+    confidence: float = Field(default=0.8, ge=0.0, le=1.0)
+    reasoning: str = ""
+
+
+class ColumnRoleMappingResponse(BaseModel):
+    """Phase 1A: 컬럼 역할 LLM 응답"""
+    key_column: str
+    desc_column: Optional[str] = None
+    unit_column: Optional[str] = None
+    extra_columns: Dict[str, str] = {}
+    confidence: float = Field(default=0.8, ge=0.0, le=1.0)
+    reasoning: str = ""
+
+
+class DataDictionaryEntry(BaseModel):
+    """Phase 1A: data_dictionary 테이블에 저장될 엔트리"""
+    source_file_id: str
+    source_file_name: str
+    parameter_key: str
+    parameter_desc: Optional[str] = None
+    parameter_unit: Optional[str] = None
+    extra_info: Dict[str, Any] = {}
+    llm_confidence: Optional[float] = None
+
+
+class MetadataSemanticResult(BaseModel):
+    """Phase 1A: 메타데이터 시맨틱 분석 최종 결과"""
+    total_metadata_files: int = 0
+    processed_files: int = 0
+    total_entries_extracted: int = 0
+    entries_by_file: Dict[str, int] = {}
+    llm_calls: int = 0
+    started_at: Optional[str] = None
+    completed_at: Optional[str] = None
+
+
 def safe_parse_entity(response: Dict[str, Any]) -> EntityAnalysisResult:
     """
     Entity 분석 결과를 안전하게 변환
@@ -440,4 +515,45 @@ def safe_parse_entity(response: Dict[str, Any]) -> EntityAnalysisResult:
         response["confidence"] = max(0.0, min(1.0, float(response["confidence"])))
     
     return parse_llm_response(response, EntityAnalysisResult)
+
+
+# =============================================================================
+# Phase 1B: Data Semantic Analysis 모델
+# =============================================================================
+
+class ColumnSemanticResult(BaseModel):
+    """
+    Phase 1B: 데이터 파일 컬럼의 의미론적 분석 결과
+    
+    LLM이 컬럼 이름, 통계, data_dictionary를 참조하여 분석
+    """
+    original_name: str                        # 원본 컬럼명 (매칭용 키)
+    semantic_name: str                        # 표준화된 이름 (예: "Heart Rate")
+    unit: Optional[str] = None                # 측정 단위 (예: "bpm", "mmHg")
+    description: Optional[str] = None         # 상세 설명
+    concept_category: Optional[str] = None    # 개념 카테고리 (예: "Vital Signs")
+    dict_entry_key: Optional[str] = None      # data_dictionary의 정확한 parameter_key (없으면 null)
+    match_confidence: float = Field(default=0.0, ge=0.0, le=1.0)  # dictionary 매칭 확신도
+    reasoning: Optional[str] = None           # 판단 근거
+
+
+class DataSemanticResponse(BaseModel):
+    """Phase 1B: 파일별 LLM 응답"""
+    columns: List[ColumnSemanticResult] = []
+    file_summary: Optional[str] = None        # 파일 전체 요약 (선택)
+
+
+class DataSemanticResult(BaseModel):
+    """Phase 1B: 데이터 시맨틱 분석 최종 결과"""
+    total_data_files: int = 0
+    processed_files: int = 0
+    total_columns_analyzed: int = 0
+    columns_matched: int = 0                  # dict_entry_id 매칭 성공
+    columns_not_found: int = 0                # dict에 없는 key 반환
+    columns_null_from_llm: int = 0            # LLM이 null 반환
+    columns_by_file: Dict[str, int] = {}
+    batches_processed: int = 0                # 배치 분할 횟수
+    llm_calls: int = 0
+    started_at: Optional[str] = None
+    completed_at: Optional[str] = None
 

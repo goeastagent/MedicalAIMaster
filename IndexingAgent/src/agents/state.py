@@ -271,14 +271,27 @@ class AgentState(TypedDict):
     phase0_result: Optional[Dict[str, Any]]  # Phase0Result 형태 (catalog.py)
     phase0_file_ids: List[str]  # Phase 0에서 처리된 모든 파일의 file_id (UUID 문자열)
     
-    # --- 0.7 Phase 0.5 Result (Schema Aggregation) ---
+    # --- 0.6 Phase 0.5 Result (Schema Aggregation) ---
     phase05_result: Optional[Dict[str, Any]]  # AggregationResult 형태 (aggregator.py)
     unique_columns: List[Dict[str, Any]]  # 유니크 컬럼 리스트
     unique_files: List[Dict[str, Any]]  # 유니크 파일 리스트
     column_batches: List[List[Dict[str, Any]]]  # 컬럼 LLM 배치
     file_batches: List[List[Dict[str, Any]]]  # 파일 LLM 배치
     
-    # --- 0.9 Phase 1 Result (Semantic Analysis) ---
+    # --- 0.7 Phase 0.7 Result (File Classification) ---
+    phase07_result: Optional[Dict[str, Any]]  # FileClassificationResult 형태
+    metadata_files: List[str]  # is_metadata=true 파일 경로 목록
+    data_files: List[str]  # is_metadata=false 파일 경로 목록
+    
+    # --- 0.8 Phase 1A Result (MetaData Semantic) ---
+    phase1a_result: Optional[Dict[str, Any]]  # MetadataSemanticResult 형태
+    data_dictionary_entries: List[Dict[str, Any]]  # 추출된 key-desc-unit 엔트리들
+    
+    # --- 0.9 Phase 1B Result (Data Semantic Analysis) ---
+    phase1b_result: Optional[Dict[str, Any]]  # DataSemanticResult 형태
+    data_semantic_entries: List[Dict[str, Any]]  # LLM이 분석한 데이터 컬럼 의미 정보
+    
+    # --- 0.9.1 Legacy Phase 1 Result (기존 semantic.py 호환) ---
     phase1_result: Optional[Dict[str, Any]]  # Phase1Result 형태 (semantic.py)
     column_semantic_mappings: List[Dict[str, Any]]  # LLM이 분석한 컬럼 의미 매핑
     file_semantic_mappings: List[Dict[str, Any]]  # LLM이 분석한 파일 의미 매핑

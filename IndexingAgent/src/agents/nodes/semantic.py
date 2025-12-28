@@ -138,6 +138,7 @@ Return ONLY valid JSON (no markdown, no explanation):
       "primary_entity": "entity_type",
       "entity_identifier_column": "column_name_or_null",
       "domain": "Medical Domain",
+      "is_metadata": false,
       "data_quality_notes": null,
       "confidence": 0.9
     }}
@@ -609,6 +610,7 @@ def broadcast_file_mappings(mappings: List[FileSemanticMapping]) -> int:
                     primary_entity = %s,
                     entity_identifier_column = %s,
                     domain = %s,
+                    is_metadata = %s,
                     llm_confidence = %s,
                     llm_analyzed_at = %s
                 WHERE file_name = %s
@@ -619,6 +621,7 @@ def broadcast_file_mappings(mappings: List[FileSemanticMapping]) -> int:
                 mapping.primary_entity,
                 mapping.entity_identifier_column,
                 mapping.domain,
+                mapping.is_metadata,
                 mapping.confidence,
                 now,
                 mapping.file_name
@@ -938,33 +941,7 @@ def phase1_semantic_node(state: AgentState) -> Dict[str, Any]:
     batches_force_accepted = 0
     
     # =========================================================================
-    # 1. 컬럼 분석
-    # =========================================================================
-    print(f"\n📊 Column Semantic Analysis")
-    print(f"   Batches: {len(column_batches)}")
-    print(f"   Total columns: {sum(len(b) for b in column_batches)}")
-    
-    for i, batch in enumerate(column_batches):
-        mappings, review_state = process_column_batch_with_review(
-            batch, i, len(column_batches)
-        )
-        
-        all_column_mappings.extend([m.model_dump() for m in mappings])
-        all_batch_states.append(review_state.model_dump())
-        
-        total_llm_calls += review_state.retry_count + 1
-        if review_state.retry_count > 0:
-            total_review_requests += 1
-            total_reanalyzes += review_state.retry_count
-        if review_state.status == "max_retries":
-            batches_force_accepted += 1
-        
-        # Rate limit 방지
-        if i < len(column_batches) - 1:
-            time.sleep(Phase1Config.RETRY_DELAY_SECONDS)
-    
-    # =========================================================================
-    # 2. 파일 분석
+    # 1. 파일 분석 (먼저)
     # =========================================================================
     print(f"\n📁 File Semantic Analysis")
     print(f"   Batches: {len(file_batches)}")
@@ -985,7 +962,33 @@ def phase1_semantic_node(state: AgentState) -> Dict[str, Any]:
         if review_state.status == "max_retries":
             batches_force_accepted += 1
         
+        # Rate limit 방지
         if i < len(file_batches) - 1:
+            time.sleep(Phase1Config.RETRY_DELAY_SECONDS)
+    
+    # =========================================================================
+    # 2. 컬럼 분석 (나중에)
+    # =========================================================================
+    print(f"\n📊 Column Semantic Analysis")
+    print(f"   Batches: {len(column_batches)}")
+    print(f"   Total columns: {sum(len(b) for b in column_batches)}")
+    
+    for i, batch in enumerate(column_batches):
+        mappings, review_state = process_column_batch_with_review(
+            batch, i, len(column_batches)
+        )
+        
+        all_column_mappings.extend([m.model_dump() for m in mappings])
+        all_batch_states.append(review_state.model_dump())
+        
+        total_llm_calls += review_state.retry_count + 1
+        if review_state.retry_count > 0:
+            total_review_requests += 1
+            total_reanalyzes += review_state.retry_count
+        if review_state.status == "max_retries":
+            batches_force_accepted += 1
+        
+        if i < len(column_batches) - 1:
             time.sleep(Phase1Config.RETRY_DELAY_SECONDS)
     
     # =========================================================================

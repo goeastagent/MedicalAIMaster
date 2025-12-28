@@ -15,6 +15,9 @@ from src.agents.nodes.indexer import index_data_node
 from src.agents.nodes.human_review import human_review_node
 from src.agents.nodes.catalog import phase0_catalog_node
 from src.agents.nodes.aggregator import phase05_aggregation_node
+from src.agents.nodes.classification import file_classification_node
+from src.agents.nodes.metadata_semantic import metadata_semantic_node
+from src.agents.nodes.data_semantic import data_semantic_node
 from src.agents.nodes.semantic import phase1_semantic_node
 from src.agents.nodes.batch import (
     batch_classifier_node,
@@ -34,7 +37,13 @@ __all__ = [
     "phase0_catalog_node",
     # Phase 0.5: Schema Aggregation
     "phase05_aggregation_node",
-    # Phase 1: Semantic Analysis
+    # Phase 0.7: File Classification
+    "file_classification_node",
+    # Phase 1A: MetaData Semantic
+    "metadata_semantic_node",
+    # Phase 1B: Data Semantic Analysis (새로운 노드)
+    "data_semantic_node",
+    # Phase 1 (Legacy): Semantic Analysis
     "phase1_semantic_node",
     # Core nodes
     "load_data_node",

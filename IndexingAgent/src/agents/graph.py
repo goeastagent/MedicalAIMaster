@@ -92,7 +92,13 @@ from src.agents.nodes import (
     phase0_catalog_node,
     # Phase 0.5: Schema Aggregation
     phase05_aggregation_node,
-    # Phase 1: Semantic Analysis
+    # Phase 0.7: File Classification
+    file_classification_node,
+    # Phase 1A: MetaData Semantic
+    metadata_semantic_node,
+    # Phase 1B: Data Semantic Analysis (NEW)
+    data_semantic_node,
+    # Phase 1 (Legacy): Semantic Analysis
     phase1_semantic_node,
     # Core nodes
     load_data_node,
@@ -319,3 +325,103 @@ def build_phase1_only_agent(checkpointer=None):
         compile_config["checkpointer"] = checkpointer
     
     return workflow.compile(**compile_config)
+
+
+def build_phase07_agent(checkpointer=None):
+    """
+    Phase 0 + 0.5 + 0.7 실행하는 워크플로우 빌드 (테스트용)
+    
+    START → phase0_catalog → phase05_aggregation → file_classification → END
+    
+    Phase 0.7에서 파일을 metadata/data로 분류합니다.
+    """
+    workflow = StateGraph(AgentState)
+    
+    workflow.add_node("phase0_catalog", phase0_catalog_node)
+    workflow.add_node("phase05_aggregation", phase05_aggregation_node)
+    workflow.add_node("file_classification", file_classification_node)
+    
+    workflow.set_entry_point("phase0_catalog")
+    workflow.add_edge("phase0_catalog", "phase05_aggregation")
+    workflow.add_edge("phase05_aggregation", "file_classification")
+    workflow.add_edge("file_classification", END)
+    
+    compile_config = {}
+    if checkpointer:
+        compile_config["checkpointer"] = checkpointer
+    
+    return workflow.compile(**compile_config)
+
+
+def build_phase1a_agent(checkpointer=None):
+    """
+    Phase 0 + 0.5 + 0.7 + 1A 실행하는 워크플로우 빌드 (테스트용)
+    
+    START → phase0_catalog → phase05_aggregation → file_classification 
+          → metadata_semantic → END
+    
+    새로운 파이프라인:
+    - Phase 0.7: 파일을 metadata/data로 분류
+    - Phase 1A: metadata 파일에서 data_dictionary 추출
+    """
+    workflow = StateGraph(AgentState)
+    
+    workflow.add_node("phase0_catalog", phase0_catalog_node)
+    workflow.add_node("phase05_aggregation", phase05_aggregation_node)
+    workflow.add_node("file_classification", file_classification_node)
+    workflow.add_node("metadata_semantic", metadata_semantic_node)
+    
+    workflow.set_entry_point("phase0_catalog")
+    workflow.add_edge("phase0_catalog", "phase05_aggregation")
+    workflow.add_edge("phase05_aggregation", "file_classification")
+    workflow.add_edge("file_classification", "metadata_semantic")
+    workflow.add_edge("metadata_semantic", END)
+    
+    compile_config = {}
+    if checkpointer:
+        compile_config["checkpointer"] = checkpointer
+    
+    return workflow.compile(**compile_config)
+
+
+def build_phase1b_agent(checkpointer=None):
+    """
+    Phase 0 + 0.5 + 0.7 + 1A + 1B 실행하는 워크플로우 빌드 (테스트용)
+    
+    START → phase0_catalog → phase05_aggregation → file_classification 
+          → metadata_semantic → data_semantic → END
+    
+    새로운 파이프라인:
+    - Phase 0: 파일/컬럼 물리적 정보 수집 (rule-based)
+    - Phase 0.5: 스키마 집계 (rule-based)
+    - Phase 0.7: 파일을 metadata/data로 분류 (LLM)
+    - Phase 1A: metadata 파일에서 data_dictionary 추출 (LLM)
+    - Phase 1B: data 파일 컬럼 의미 분석 + dictionary 매칭 (LLM)
+    """
+    workflow = StateGraph(AgentState)
+    
+    workflow.add_node("phase0_catalog", phase0_catalog_node)
+    workflow.add_node("phase05_aggregation", phase05_aggregation_node)
+    workflow.add_node("file_classification", file_classification_node)
+    workflow.add_node("metadata_semantic", metadata_semantic_node)
+    workflow.add_node("data_semantic", data_semantic_node)  # 새로운 Phase 1B 노드
+    
+    workflow.set_entry_point("phase0_catalog")
+    workflow.add_edge("phase0_catalog", "phase05_aggregation")
+    workflow.add_edge("phase05_aggregation", "file_classification")
+    workflow.add_edge("file_classification", "metadata_semantic")
+    workflow.add_edge("metadata_semantic", "data_semantic")
+    workflow.add_edge("data_semantic", END)
+    
+    compile_config = {}
+    if checkpointer:
+        compile_config["checkpointer"] = checkpointer
+    
+    return workflow.compile(**compile_config)
+
+
+def build_full_new_pipeline_agent(checkpointer=None):
+    """
+    Alias for build_phase1b_agent (backward compatibility)
+    """
+    return build_phase1b_agent(checkpointer)

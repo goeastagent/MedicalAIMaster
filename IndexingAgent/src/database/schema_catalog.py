@@ -42,6 +42,7 @@ CREATE TABLE IF NOT EXISTS file_catalog (
     primary_entity VARCHAR(100),          -- 각 행이 나타내는 entity (예: "surgery", "patient")
     entity_identifier_column VARCHAR(100), -- entity 식별자 컬럼명
     domain VARCHAR(100),                  -- 의료 도메인 (예: "Anesthesia", "Laboratory")
+    is_metadata BOOLEAN DEFAULT FALSE,    -- 메타데이터/카탈로그 파일 여부 (데이터 사전, README 등)
     llm_confidence FLOAT,                 -- LLM 분석 확신도
     llm_analyzed_at TIMESTAMP,            -- LLM 분석 완료 시간
     
@@ -69,7 +70,7 @@ CREATE TABLE IF NOT EXISTS column_metadata (
     column_info JSONB DEFAULT '{}'::jsonb,
     value_distribution JSONB DEFAULT '{}'::jsonb,
     
-    -- Phase 1: LLM 분석 결과 (의미론적 정보)
+    -- Phase 1B: LLM 분석 결과 (의미론적 정보)
     semantic_name VARCHAR(255),           -- 표준화된 이름 (예: "Heart Rate")
     unit VARCHAR(50),                     -- 측정 단위 (예: "bpm", "mmHg")
     concept_category VARCHAR(100),        -- 개념 카테고리 (예: "Vital Signs", "Demographics")
@@ -78,6 +79,11 @@ CREATE TABLE IF NOT EXISTS column_metadata (
     is_pii BOOLEAN DEFAULT FALSE,         -- 개인식별정보 여부
     llm_confidence FLOAT,                 -- LLM 분석 확신도
     llm_analyzed_at TIMESTAMP,            -- LLM 분석 완료 시간
+    
+    -- Phase 1B: data_dictionary 연결
+    dict_entry_id UUID,                   -- FK는 data_dictionary 생성 후 추가
+    dict_match_status VARCHAR(20),        -- 'matched', 'not_found', 'null_from_llm'
+    match_confidence FLOAT,               -- dictionary 매칭 확신도
     
     -- 메타
     created_at TIMESTAMP DEFAULT NOW(),
@@ -92,6 +98,8 @@ CREATE INDEX IF NOT EXISTS idx_column_meta_info ON column_metadata USING gin (co
 CREATE INDEX IF NOT EXISTS idx_column_meta_type ON column_metadata (column_type);
 CREATE INDEX IF NOT EXISTS idx_column_meta_semantic ON column_metadata (semantic_name);
 CREATE INDEX IF NOT EXISTS idx_column_meta_concept ON column_metadata (concept_category);
+CREATE INDEX IF NOT EXISTS idx_column_meta_dict ON column_metadata (dict_entry_id);
+CREATE INDEX IF NOT EXISTS idx_column_meta_match ON column_metadata (dict_match_status);
 """
 
 # Updated_at 자동 갱신 트리거 (column_metadata만)

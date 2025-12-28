@@ -140,6 +140,33 @@ class Phase05Config:
     MAX_SAMPLE_VALUES = 5
 
 
+class Phase1BConfig:
+    """Phase 1B: Data Semantic Analysis 설정"""
+    
+    # --- 1. 컬럼 배치 크기 ---
+    # 파일 내 컬럼 수가 이 값을 초과하면 배치로 나눠서 LLM 호출
+    COLUMN_BATCH_SIZE = int(os.getenv("PHASE1B_COLUMN_BATCH_SIZE", "50"))
+    
+    # --- 2. Dictionary Context 설정 ---
+    # data_dictionary에서 context에 포함할 최대 entry 수 (0 = 전체)
+    MAX_DICT_ENTRIES = int(os.getenv("PHASE1B_MAX_DICT_ENTRIES", "0"))
+    
+    # --- 3. 통계 정보 설정 ---
+    # categorical 컬럼의 unique values 최대 표시 개수
+    MAX_UNIQUE_VALUES_DISPLAY = int(os.getenv("PHASE1B_MAX_UNIQUE_VALUES", "10"))
+    
+    # 샘플 값 최대 표시 개수
+    MAX_SAMPLES_DISPLAY = int(os.getenv("PHASE1B_MAX_SAMPLES", "3"))
+    
+    # --- 4. LLM 설정 ---
+    MAX_RETRIES = 3
+    RETRY_DELAY_SECONDS = 2
+    
+    # --- 5. Confidence 임계값 ---
+    # 이 값 미만이면 dict_entry_key를 null로 설정하라고 LLM에게 안내
+    MATCH_CONFIDENCE_THRESHOLD = float(os.getenv("PHASE1B_MATCH_CONFIDENCE", "0.7"))
+
+
 class Phase1Config:
     """Phase 1: Semantic Analysis (LLM 배치 처리) 설정"""
     

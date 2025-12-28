@@ -8,7 +8,12 @@ Dataset-First Architecture:
 
 역할 분리:
 - Neo4j: 그래프 구조 (Concept, Table, Relationships, Hierarchy)
-- PostgreSQL: 복잡한 문서형 데이터 (column_metadata - JSONB)
+- PostgreSQL: 복잡한 문서형 데이터 (ontology_column_metadata - JSONB)
+
+스키마 관리:
+- 스키마 정의는 src/database/schema_ontology.py에서 통합 관리
+- ontology_column_metadata: 데이터셋 기반 컬럼 메타데이터 (JSONB)
+- table_entities: 테이블별 Entity Understanding
 """
 
 import json
@@ -17,6 +22,7 @@ from typing import Dict, Any, List, Optional
 from datetime import datetime
 from src.database.neo4j_connection import Neo4jConnection
 from src.database.connection import get_db_manager
+from src.database.schema_ontology import ensure_ontology_schema, OntologySchemaManager
 from src.utils.naming import sanitize_for_neo4j_label
 
 logger = logging.getLogger(__name__)
@@ -35,135 +41,40 @@ class OntologyManager:
     def __init__(self, db_path: str = "data/processed/ontology_db.json"):
         # db_path는 하위 호환성을 위해 남겨두지만 실제로는 사용하지 않음
         self.neo4j = Neo4jConnection()
-        self.pg = get_db_manager()  # PostgreSQL for column_metadata
+        self.pg = get_db_manager()  # PostgreSQL for ontology_column_metadata
         self.ontology = self._create_empty_ontology()
         self.current_dataset_id: Optional[str] = None  # 현재 작업 중인 데이터셋
         
-        # PostgreSQL column_metadata 테이블 초기화
-        self._ensure_column_metadata_table()
+        # PostgreSQL 온톨로지 스키마 초기화 (schema_ontology.py에서 관리)
+        self._ensure_ontology_tables()
+        
+        # 스키마 매니저 (CRUD 작업용)
+        self._schema_manager = OntologySchemaManager()
     
-    def _ensure_column_metadata_table(self):
-        """PostgreSQL에 column_metadata 및 table_entities 테이블 생성 (없으면)"""
+    def _ensure_ontology_tables(self):
+        """PostgreSQL에 온톨로지 테이블 생성 (schema_ontology.py 사용)"""
         try:
-            conn = self.pg.get_connection()
-            cursor = conn.cursor()
-            
-            # column_metadata 테이블
-            cursor.execute("""
-                CREATE TABLE IF NOT EXISTS column_metadata (
-                    dataset_id TEXT NOT NULL,
-                    table_name TEXT NOT NULL,
-                    column_name TEXT NOT NULL,
-                    metadata JSONB NOT NULL DEFAULT '{}',
-                    created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
-                    updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
-                    PRIMARY KEY (dataset_id, table_name, column_name)
-                )
-            """)
-            
-            # 인덱스 생성 (쿼리 성능 향상)
-            cursor.execute("""
-                CREATE INDEX IF NOT EXISTS idx_column_metadata_dataset 
-                ON column_metadata(dataset_id)
-            """)
-            cursor.execute("""
-                CREATE INDEX IF NOT EXISTS idx_column_metadata_table 
-                ON column_metadata(dataset_id, table_name)
-            """)
-            
-            # NEW: table_entities 테이블 (Entity Understanding 저장)
-            cursor.execute("""
-                CREATE TABLE IF NOT EXISTS table_entities (
-                    dataset_id TEXT NOT NULL,
-                    table_name TEXT NOT NULL,
-                    row_represents TEXT,
-                    row_represents_kr TEXT,
-                    entity_identifier TEXT,
-                    linkable_columns JSONB DEFAULT '[]',
-                    hierarchy_explanation TEXT,
-                    confidence REAL DEFAULT 0.0,
-                    reasoning TEXT,
-                    status TEXT DEFAULT 'NEEDS_REVIEW',
-                    user_feedback_applied TEXT,
-                    created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
-                    updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
-                    PRIMARY KEY (dataset_id, table_name)
-                )
-            """)
-            
-            cursor.execute("""
-                CREATE INDEX IF NOT EXISTS idx_table_entities_dataset 
-                ON table_entities(dataset_id)
-            """)
-            
-            conn.commit()
+            ensure_ontology_schema()
         except Exception as e:
-            logger.warning(f"테이블 생성 실패: {e}")
+            logger.warning(f"온톨로지 테이블 생성 실패 (무시됨): {e}")
     
     def _load_column_metadata_from_pg(self, dataset_id: Optional[str] = None) -> Dict[str, Dict[str, Any]]:
-        """PostgreSQL에서 column_metadata 로드"""
-        column_metadata = {}
-        
+        """PostgreSQL에서 ontology_column_metadata 로드 (schema_ontology 사용)"""
         try:
-            conn = self.pg.get_connection()
-            cursor = conn.cursor()
-            
-            if dataset_id:
-                cursor.execute("""
-                    SELECT table_name, column_name, metadata
-                    FROM column_metadata
-                    WHERE dataset_id = %s
-                """, (dataset_id,))
-            else:
-                cursor.execute("""
-                    SELECT table_name, column_name, metadata
-                    FROM column_metadata
-                """)
-            
-            for row in cursor.fetchall():
-                table_name, col_name, metadata = row
-                
-                if table_name not in column_metadata:
-                    column_metadata[table_name] = {}
-                
-                # JSONB는 자동으로 dict로 변환됨
-                if isinstance(metadata, str):
-                    metadata = json.loads(metadata)
-                
-                column_metadata[table_name][col_name] = metadata
-                
+            return self._schema_manager.load_column_metadata(dataset_id)
         except Exception as e:
-            logger.warning(f"column_metadata 로드 실패: {e}")
-        
-        return column_metadata
+            logger.warning(f"ontology_column_metadata 로드 실패: {e}")
+            return {}
     
     def _save_column_metadata_to_pg(self, column_metadata: Dict, dataset_id: str):
-        """PostgreSQL에 column_metadata 저장 (UPSERT)"""
+        """PostgreSQL에 ontology_column_metadata 저장 (schema_ontology 사용)"""
         if not column_metadata:
             return
         
         try:
-            conn = self.pg.get_connection()
-            cursor = conn.cursor()
-            
-            for table_name, columns in column_metadata.items():
-                for col_name, col_info in columns.items():
-                    # JSONB로 저장
-                    metadata_json = json.dumps(col_info, ensure_ascii=False, default=str)
-                    
-                    cursor.execute("""
-                        INSERT INTO column_metadata (dataset_id, table_name, column_name, metadata, updated_at)
-                        VALUES (%s, %s, %s, %s, CURRENT_TIMESTAMP)
-                        ON CONFLICT (dataset_id, table_name, column_name)
-                        DO UPDATE SET 
-                            metadata = EXCLUDED.metadata,
-                            updated_at = CURRENT_TIMESTAMP
-                    """, (dataset_id, table_name, col_name, metadata_json))
-            
-            conn.commit()
-            
+            self._schema_manager.save_column_metadata(column_metadata, dataset_id)
         except Exception as e:
-            logger.error(f"column_metadata 저장 실패: {e}")
+            logger.error(f"ontology_column_metadata 저장 실패: {e}")
             raise
 
     # =========================================================================
@@ -171,107 +82,20 @@ class OntologyManager:
     # =========================================================================
     
     def _load_table_entities_from_pg(self, dataset_id: Optional[str] = None) -> Dict[str, Dict[str, Any]]:
-        """PostgreSQL에서 table_entities 로드"""
-        table_entities = {}
-        
+        """PostgreSQL에서 table_entities 로드 (schema_ontology 사용)"""
         try:
-            conn = self.pg.get_connection()
-            cursor = conn.cursor()
-            
-            if dataset_id:
-                cursor.execute("""
-                    SELECT table_name, row_represents, row_represents_kr, 
-                           entity_identifier, linkable_columns, hierarchy_explanation,
-                           confidence, reasoning, status, user_feedback_applied
-                    FROM table_entities
-                    WHERE dataset_id = %s
-                """, (dataset_id,))
-            else:
-                cursor.execute("""
-                    SELECT table_name, row_represents, row_represents_kr, 
-                           entity_identifier, linkable_columns, hierarchy_explanation,
-                           confidence, reasoning, status, user_feedback_applied
-                    FROM table_entities
-                """)
-            
-            for row in cursor.fetchall():
-                (table_name, row_represents, row_represents_kr, 
-                 entity_identifier, linkable_columns, hierarchy_explanation,
-                 confidence, reasoning, status, user_feedback_applied) = row
-                
-                # JSONB는 자동으로 list로 변환됨
-                if isinstance(linkable_columns, str):
-                    linkable_columns = json.loads(linkable_columns)
-                
-                table_entities[table_name] = {
-                    "row_represents": row_represents,
-                    "row_represents_kr": row_represents_kr,
-                    "entity_identifier": entity_identifier,
-                    "linkable_columns": linkable_columns or [],
-                    "hierarchy_explanation": hierarchy_explanation,
-                    "confidence": confidence or 0.0,
-                    "reasoning": reasoning,
-                    "status": status or "NEEDS_REVIEW",
-                    "user_feedback_applied": user_feedback_applied
-                }
-                
+            return self._schema_manager.load_table_entities(dataset_id)
         except Exception as e:
             logger.warning(f"table_entities 로드 실패: {e}")
-        
-        return table_entities
+            return {}
     
     def _save_table_entities_to_pg(self, table_entities: Dict, dataset_id: str):
-        """PostgreSQL에 table_entities 저장 (UPSERT)"""
+        """PostgreSQL에 table_entities 저장 (schema_ontology 사용)"""
         if not table_entities:
             return
         
         try:
-            conn = self.pg.get_connection()
-            cursor = conn.cursor()
-            
-            for table_name, entity_info in table_entities.items():
-                linkable_json = json.dumps(
-                    entity_info.get("linkable_columns", []), 
-                    ensure_ascii=False, 
-                    default=str
-                )
-                
-                cursor.execute("""
-                    INSERT INTO table_entities (
-                        dataset_id, table_name, row_represents, row_represents_kr,
-                        entity_identifier, linkable_columns, hierarchy_explanation,
-                        confidence, reasoning, status, user_feedback_applied, updated_at
-                    )
-                    VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, CURRENT_TIMESTAMP)
-                    ON CONFLICT (dataset_id, table_name)
-                    DO UPDATE SET 
-                        row_represents = EXCLUDED.row_represents,
-                        row_represents_kr = EXCLUDED.row_represents_kr,
-                        entity_identifier = EXCLUDED.entity_identifier,
-                        linkable_columns = EXCLUDED.linkable_columns,
-                        hierarchy_explanation = EXCLUDED.hierarchy_explanation,
-                        confidence = EXCLUDED.confidence,
-                        reasoning = EXCLUDED.reasoning,
-                        status = EXCLUDED.status,
-                        user_feedback_applied = EXCLUDED.user_feedback_applied,
-                        updated_at = CURRENT_TIMESTAMP
-                """, (
-                    dataset_id, 
-                    table_name,
-                    entity_info.get("row_represents"),
-                    entity_info.get("row_represents_kr"),
-                    entity_info.get("entity_identifier"),
-                    linkable_json,
-                    entity_info.get("hierarchy_explanation"),
-                    entity_info.get("confidence", 0.0),
-                    entity_info.get("reasoning"),
-                    entity_info.get("status", "NEEDS_REVIEW"),
-                    entity_info.get("user_feedback_applied")
-                ))
-            
-            conn.commit()
-            print(f"   💾 [Table Entities] {len(table_entities)}개 테이블 entity 정보 저장됨")
-            
+            self._schema_manager.save_table_entities(table_entities, dataset_id)
         except Exception as e:
             logger.error(f"table_entities 저장 실패: {e}")
             raise
