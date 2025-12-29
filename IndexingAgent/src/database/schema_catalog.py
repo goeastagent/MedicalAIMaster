@@ -35,6 +35,12 @@ CREATE TABLE IF NOT EXISTS file_catalog (
     file_metadata JSONB DEFAULT '{}'::jsonb,
     raw_stats JSONB,
     
+    -- Phase -1: 디렉토리 연결 (directory_catalog FK)
+    dir_id UUID,                          -- directory_catalog FK (테이블 생성 순서상 나중에 FK 추가)
+    
+    -- Phase 1C: 파일명에서 추출한 값 (LLM 분석 결과)
+    filename_values JSONB,                -- {"caseid": 1, "session": "A"} - 파일명에서 추출한 값
+    
     -- Phase 1: LLM 분석 결과 (의미론적 정보)
     semantic_type VARCHAR(100),           -- "Signal:Physiological", "Clinical:Demographics", "Lab:Chemistry"
     semantic_name VARCHAR(255),           -- 파일의 표준화된 이름
@@ -57,6 +63,7 @@ CREATE INDEX IF NOT EXISTS idx_file_catalog_meta ON file_catalog USING gin (file
 CREATE INDEX IF NOT EXISTS idx_file_catalog_type ON file_catalog (processor_type);
 CREATE INDEX IF NOT EXISTS idx_file_catalog_semantic ON file_catalog (semantic_type);
 CREATE INDEX IF NOT EXISTS idx_file_catalog_domain ON file_catalog (domain);
+CREATE INDEX IF NOT EXISTS idx_file_catalog_dir ON file_catalog (dir_id);
 """
 
 CREATE_COLUMN_METADATA_SQL = """

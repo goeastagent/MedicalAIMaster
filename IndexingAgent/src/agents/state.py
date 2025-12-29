@@ -256,16 +256,24 @@ class AgentState(TypedDict):
     Note: LangGraph 호환성을 위해 TypedDict를 사용합니다.
     개별 필드의 타입 검증은 Pydantic 모델로 수행합니다.
     
-    3-Phase Workflow:
+    Multi-Phase Workflow:
+    - Phase -1: 디렉토리 레벨 메타데이터 수집 (Directory Catalog)
     - Phase 0: 규칙 기반 메타데이터 추출 (DB 카탈로그)
     - Phase 1: LLM 기반 파일 분류
     - Phase 2: 개별 파일 semantic 분석 및 인덱싱
     """
     
+    # --- -1. Input Context ---
+    input_directory: Optional[str]  # 입력 디렉토리 경로
+    
     # --- 0. Dataset Context ---
     current_dataset_id: str
     current_table_name: Optional[str]
     data_catalog: Dict[str, Any]  # DataCatalog 형태
+    
+    # --- 0.4 Phase -1 Result (Directory Catalog) ---
+    phase_neg1_result: Optional[Dict[str, Any]]  # Phase-1 처리 결과
+    phase_neg1_dir_ids: List[str]  # Phase -1에서 생성된 dir_id 목록
     
     # --- 0.5 Phase 0 Result ---
     phase0_result: Optional[Dict[str, Any]]  # Phase0Result 형태 (catalog.py)
@@ -286,6 +294,10 @@ class AgentState(TypedDict):
     # --- 0.8 Phase 1A Result (MetaData Semantic) ---
     phase1a_result: Optional[Dict[str, Any]]  # MetadataSemanticResult 형태
     data_dictionary_entries: List[Dict[str, Any]]  # 추출된 key-desc-unit 엔트리들
+    
+    # --- 0.85 Phase 1C Result (Directory Pattern Analysis) ---
+    phase1c_result: Optional[Dict[str, Any]]  # Phase1CResult 형태 (directory_pattern.py)
+    phase1c_dir_patterns: Dict[str, Dict]  # {dir_id: pattern_info}
     
     # --- 0.9 Phase 1B Result (Data Semantic Analysis) ---
     phase1b_result: Optional[Dict[str, Any]]  # DataSemanticResult 형태

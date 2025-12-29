@@ -5,17 +5,20 @@ Full Pipeline Test + Results Viewer
 전체 파이프라인 실행 후 모든 DB 테이블 결과를 출력합니다.
 
 실행 Phase:
+- Phase -1: 디렉토리 구조 분석, 파일명 샘플 수집 (rule-based)
 - Phase 0: 파일/컬럼 물리적 정보 수집 (rule-based)
 - Phase 0.5: 스키마 집계 (rule-based)
 - Phase 0.7: 파일을 metadata/data로 분류 (LLM)
 - Phase 1A: metadata 파일에서 data_dictionary 추출 (LLM)
+- Phase 1C: 디렉토리 파일명 패턴 분석 + ID 추출 (LLM)
 - Phase 1B: data 파일 컬럼 의미 분석 + dictionary 매칭 (LLM)
 - Phase 2A: 테이블 Entity 식별 (row_represents, entity_identifier) (LLM)
 - Phase 2B: 테이블 간 FK 관계 추론 + Neo4j 3-Level Ontology (LLM + Rule)
 - Phase 2C: Ontology Enhancement (Concept Hierarchy, Semantic Edges, Medical Terms)
 
 결과 DB Tables:
-- file_catalog: 파일 메타데이터
+- directory_catalog: 디렉토리 메타데이터 + 파일명 패턴
+- file_catalog: 파일 메타데이터 + filename_values
 - column_metadata: 컬럼 메타데이터 + 시맨틱 정보
 - data_dictionary: 파라미터 정의 (key, desc, unit)
 - table_entities: 테이블 Entity 정보
@@ -47,14 +50,15 @@ def reset_database():
     """테스트 전 DB 초기화
     
     FK 참조 관계:
+    - file_catalog.dir_id → directory_catalog.dir_id
     - table_entities.file_id → file_catalog.file_id
     - table_relationships.source_file_id/target_file_id → file_catalog.file_id
     - cross_table_semantics.source_file_id/target_file_id → file_catalog.file_id
     - data_dictionary.source_file_id → file_catalog.file_id
     
     순서:
-    - 삭제: FK 참조하는 테이블 먼저 (Ontology → Dictionary → Catalog)
-    - 생성: FK 참조되는 테이블 먼저 (Catalog → Dictionary → Ontology)
+    - 삭제: FK 참조하는 테이블 먼저 (Ontology → Dictionary → Catalog → Directory)
+    - 생성: FK 참조되는 테이블 먼저 (Directory → Catalog → Dictionary → Ontology)
     """
     print("\n" + "="*80)
     print("🗑️  Resetting Database...")
@@ -63,6 +67,7 @@ def reset_database():
     from src.database.schema_catalog import CatalogSchemaManager
     from src.database.schema_dictionary import DictionarySchemaManager
     from src.database.schema_ontology import OntologySchemaManager
+    from src.database.schema_directory import DirectorySchemaManager
     
     # 1. 삭제: FK 참조하는 테이블 먼저 삭제 (역순)
     try:
@@ -86,7 +91,21 @@ def reset_database():
     except Exception as e:
         print(f"⚠️  Error dropping catalog: {e}")
     
+    try:
+        directory_manager = DirectorySchemaManager()
+        directory_manager.drop_tables(confirm=True)
+        print("✅ Directory tables dropped")
+    except Exception as e:
+        print(f"⚠️  Error dropping directory: {e}")
+    
     # 2. 생성: FK 참조되는 테이블 먼저 생성 (정순)
+    try:
+        directory_manager = DirectorySchemaManager()
+        directory_manager.create_tables()
+        print("✅ Directory tables created")
+    except Exception as e:
+        print(f"⚠️  Error creating directory: {e}")
+    
     try:
         catalog_manager = CatalogSchemaManager()
         catalog_manager.create_tables()
@@ -141,7 +160,7 @@ def find_data_files() -> list:
 def run_full_pipeline():
     """전체 파이프라인 실행"""
     print("\n" + "="*80)
-    print("🚀 Running Full Pipeline (Phase 0 → 2C)")
+    print("🚀 Running Full Pipeline (Phase -1 → 2C)")
     print("="*80)
     
     input_files = find_data_files()
@@ -154,32 +173,62 @@ def run_full_pipeline():
     agent = build_phase2c_agent()
     
     initial_state = {
+        # Phase -1: Input Directory
+        "input_directory": str(DATA_DIR),
+        
+        # Dataset Context
         "current_dataset_id": "open_vitaldb_v1.0.0",
         "current_table_name": None,
         "data_catalog": {},
+        
+        # Phase -1 Result
+        "phase_neg1_result": None,
+        "phase_neg1_dir_ids": [],
+        
+        # Phase 0 Result
         "phase0_result": None,
         "phase0_file_ids": [],
+        
+        # Phase 0.5 Result
         "phase05_result": None,
         "unique_columns": [],
         "unique_files": [],
         "column_batches": [],
         "file_batches": [],
+        
+        # Phase 0.7 Result
         "phase07_result": None,
         "metadata_files": [],
         "data_files": [],
+        
+        # Phase 1A Result
         "phase1a_result": None,
         "data_dictionary_entries": [],
+        
+        # Phase 1C Result
+        "phase1c_result": None,
+        "phase1c_dir_patterns": {},
+        
+        # Phase 1B Result
         "phase1b_result": None,
         "data_semantic_entries": [],
+        
+        # Phase 2A Result
         "phase2a_result": None,
         "table_entity_results": [],
+        
+        # Phase 2B Result
         "phase2b_result": None,
         "table_relationships": [],
+        
+        # Phase 2C Result
         "phase2c_result": None,
         "ontology_subcategories": [],
         "semantic_edges": [],
         "medical_term_mappings": [],
         "cross_table_semantics": [],
+        
+        # Legacy Phase 1 (호환용)
         "phase1_result": None,
         "column_semantic_mappings": [],
         "file_semantic_mappings": [],
@@ -187,6 +236,8 @@ def run_full_pipeline():
         "phase1_current_batch": None,
         "phase1_human_feedback": None,
         "phase1_all_batch_states": [],
+        
+        # Multi-Phase Workflow Context
         "input_files": input_files,
         "classification_result": None,
         "processing_progress": {
@@ -197,12 +248,18 @@ def run_full_pipeline():
             "current_file_index": 0,
             "total_files": len(input_files),
         },
+        
+        # Current File Context
         "file_path": "",
         "file_type": None,
         "raw_metadata": {},
+        
+        # Semantic Analysis
         "entity_identification": None,
         "finalized_schema": [],
         "entity_understanding": None,
+        
+        # Human-in-the-Loop
         "needs_human_review": False,
         "human_question": "",
         "human_feedback": None,
@@ -216,6 +273,8 @@ def run_full_pipeline():
             "entity_decisions": [],
             "user_preferences": {},
         },
+        
+        # System
         "logs": [],
         "ontology_context": {},
         "skip_indexing": False,
@@ -267,6 +326,68 @@ def get_fresh_connection():
     return conn
 
 
+def print_directory_catalog(limit: int = 10):
+    """directory_catalog 테이블 출력 (Phase -1 / Phase 1C 결과)"""
+    conn = get_fresh_connection()
+    cursor = conn.cursor()
+    
+    print("\n" + "="*80)
+    print("📂 TABLE: directory_catalog (Phase -1 + Phase 1C)")
+    print("="*80)
+    
+    try:
+        cursor.execute("SELECT COUNT(*) FROM directory_catalog")
+        total = cursor.fetchone()[0]
+        
+        cursor.execute("""
+            SELECT dir_id, dir_name, dir_type, file_count, 
+                   filename_pattern, pattern_confidence
+            FROM directory_catalog
+            ORDER BY file_count DESC
+            LIMIT %s
+        """, (limit,))
+        
+        rows = cursor.fetchall()
+        
+        print(f"\n{'Dir ID':<12} {'Dir Name':<25} {'Type':<15} {'Files':<8} {'Pattern':<25} {'Conf.'}")
+        print("-"*100)
+        
+        for row in rows:
+            dir_id, dir_name, dir_type, file_count, pattern, confidence = row
+            dir_id_short = str(dir_id)[:8] + "..."
+            name_short = dir_name[:22] + "..." if len(dir_name) > 25 else dir_name
+            type_short = (dir_type or '-')[:12]
+            pattern_short = (pattern or '-')[:22] if pattern else '-'
+            conf_str = f"{confidence:.2f}" if confidence else '-'
+            
+            print(f"{dir_id_short:<12} {name_short:<25} {type_short:<15} {file_count:<8} {pattern_short:<25} {conf_str}")
+        
+        print(f"\nTotal: {total} directories")
+        
+        # 패턴 분석 결과 상세
+        cursor.execute("""
+            SELECT dir_name, filename_pattern, filename_columns, pattern_reasoning
+            FROM directory_catalog
+            WHERE filename_pattern IS NOT NULL
+        """)
+        pattern_dirs = cursor.fetchall()
+        
+        if pattern_dirs:
+            print("\n📋 Directories with Patterns (Phase 1C):")
+            for dir_name, pattern, columns, reasoning in pattern_dirs:
+                print(f"\n   📁 {dir_name}")
+                print(f"      Pattern: {pattern}")
+                print(f"      Columns: {columns}")
+                if reasoning:
+                    print(f"      Reasoning: {reasoning[:80]}...")
+        
+        conn.commit()
+        
+    except Exception as e:
+        conn.rollback()
+        print(f"Error: {e}")
+
+
 def print_file_catalog(limit: int = 10):
     """file_catalog 테이블 출력"""
     conn = get_fresh_connection()
@@ -281,26 +402,39 @@ def print_file_catalog(limit: int = 10):
         total = cursor.fetchone()[0]
         
         cursor.execute("""
-            SELECT file_id, file_name, processor_type, is_metadata, semantic_type
-            FROM file_catalog
-            ORDER BY file_name
+            SELECT fc.file_id, fc.file_name, fc.processor_type, fc.is_metadata, 
+                   fc.semantic_type, dc.dir_name, fc.filename_values
+            FROM file_catalog fc
+            LEFT JOIN directory_catalog dc ON fc.dir_id = dc.dir_id
+            ORDER BY fc.file_name
             LIMIT %s
         """, (limit,))
         
         rows = cursor.fetchall()
         
-        print(f"\n{'File ID':<12} {'File Name':<35} {'Processor':<10} {'Meta?':<6} {'Semantic'}")
-        print("-"*85)
+        print(f"\n{'File ID':<12} {'File Name':<30} {'Processor':<10} {'Meta?':<6} {'Directory':<20} {'Values'}")
+        print("-"*100)
         
         for row in rows:
-            file_id, file_name, processor_type, is_meta, semantic = row
+            file_id, file_name, processor_type, is_meta, semantic, dir_name, filename_values = row
             file_id_short = str(file_id)[:8] + "..."
-            name_short = file_name[:32] + "..." if len(file_name) > 35 else file_name
+            name_short = file_name[:27] + "..." if len(file_name) > 30 else file_name
             is_meta_str = "✓" if is_meta else "-"
+            dir_short = (dir_name or '-')[:17] + "..." if dir_name and len(dir_name) > 20 else (dir_name or '-')
+            values_str = str(filename_values)[:15] if filename_values and filename_values != {} else '-'
             
-            print(f"{file_id_short:<12} {name_short:<35} {processor_type or '-':<10} {is_meta_str:<6} {semantic or '-'}")
+            print(f"{file_id_short:<12} {name_short:<30} {processor_type or '-':<10} {is_meta_str:<6} {dir_short:<20} {values_str}")
         
         print(f"\nTotal: {total} files")
+        
+        # filename_values 통계
+        cursor.execute("""
+            SELECT COUNT(*) FROM file_catalog 
+            WHERE filename_values IS NOT NULL AND filename_values != '{}'::jsonb
+        """)
+        files_with_values = cursor.fetchone()[0]
+        print(f"Files with filename_values: {files_with_values}")
+        
         conn.commit()
         
     except Exception as e:
@@ -788,6 +922,7 @@ def print_summary_stats():
     stats = {}
     
     tables = [
+        ('directory_catalog', 'Directories (Phase -1)'),
         ('file_catalog', 'Files'),
         ('column_metadata', 'Columns'),
         ('data_dictionary', 'Dictionary Entries'),
@@ -799,18 +934,36 @@ def print_summary_stats():
         ('cross_table_semantics', 'Cross-table Semantics'),
     ]
     
-    print(f"\n{'Table':<30} {'Count':>10}")
-    print("-"*45)
+    print(f"\n{'Table':<35} {'Count':>10}")
+    print("-"*50)
     
     for table_name, display_name in tables:
         try:
             cursor.execute(f"SELECT COUNT(*) FROM {table_name}")
             count = cursor.fetchone()[0]
             stats[table_name] = count
-            print(f"{display_name:<30} {count:>10}")
+            print(f"{display_name:<35} {count:>10}")
         except Exception as e:
             conn.rollback()  # 에러 후 트랜잭션 정리
-            print(f"{display_name:<30} {'ERROR':>10}")
+            print(f"{display_name:<35} {'ERROR':>10}")
+    
+    # Phase 1C 패턴 분석 통계
+    try:
+        cursor.execute("""
+            SELECT COUNT(*) FROM directory_catalog 
+            WHERE filename_pattern IS NOT NULL
+        """)
+        patterns_count = cursor.fetchone()[0]
+        print(f"\n{'Directories with Patterns (1C)':<35} {patterns_count:>10}")
+        
+        cursor.execute("""
+            SELECT COUNT(*) FROM file_catalog 
+            WHERE filename_values IS NOT NULL AND filename_values != '{}'::jsonb
+        """)
+        files_with_values = cursor.fetchone()[0]
+        print(f"{'Files with filename_values':<35} {files_with_values:>10}")
+    except Exception as e:
+        conn.rollback()
     
     try:
         conn.commit()
@@ -848,6 +1001,7 @@ def main():
     print("="*80)
     
     print_summary_stats()
+    print_directory_catalog(limit=20)  # Phase -1 / Phase 1C
     print_file_catalog(limit=20)
     print_column_metadata(limit=20)
     print_data_dictionary(limit=20)

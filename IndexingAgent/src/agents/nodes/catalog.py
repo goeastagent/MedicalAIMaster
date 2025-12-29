@@ -19,6 +19,7 @@ from src.agents.state import AgentState
 from src.agents.nodes.common import processors
 from src.database.connection import get_db_manager
 from src.database.schema_catalog import CatalogSchemaManager
+from src.database.schema_directory import get_directory_by_path
 
 
 # =============================================================================
@@ -156,6 +157,18 @@ def _extract_file_metadata(metadata: Dict[str, Any], processor_type: str) -> Dic
 # DB 저장 함수
 # =============================================================================
 
+def _get_dir_id_for_file(file_path: str) -> Optional[str]:
+    """
+    파일 경로에서 디렉토리 경로를 추출하고 dir_id 조회
+    
+    Returns:
+        dir_id (UUID string) if found, None otherwise
+    """
+    dir_path = os.path.dirname(os.path.abspath(file_path))
+    dir_info = get_directory_by_path(dir_path)
+    return dir_info.get("dir_id") if dir_info else None
+
+
 def _insert_file_catalog(file_path: str, metadata: Dict[str, Any]) -> str:
     """
     file_catalog 테이블에 파일 정보 삽입
@@ -172,13 +185,17 @@ def _insert_file_catalog(file_path: str, metadata: Dict[str, Any]) -> str:
     is_text_readable = _is_text_readable(file_path)
     file_modified_at = _get_file_modified_time(file_path)
     
+    # Phase -1에서 생성된 dir_id 조회
+    dir_id = _get_dir_id_for_file(file_path)
+    
     cursor.execute("""
         INSERT INTO file_catalog (
             file_path, file_name, file_extension, 
             file_size_bytes, file_size_mb, file_modified_at,
-            processor_type, is_text_readable, file_metadata, raw_stats
+            processor_type, is_text_readable, file_metadata, raw_stats,
+            dir_id
         ) VALUES (
-            %s, %s, %s, %s, %s, %s, %s, %s, %s, %s
+            %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s
         )
         ON CONFLICT (file_path) DO UPDATE SET
             file_name = EXCLUDED.file_name,
@@ -189,7 +206,8 @@ def _insert_file_catalog(file_path: str, metadata: Dict[str, Any]) -> str:
             processor_type = EXCLUDED.processor_type,
             is_text_readable = EXCLUDED.is_text_readable,
             file_metadata = EXCLUDED.file_metadata,
-            raw_stats = EXCLUDED.raw_stats
+            raw_stats = EXCLUDED.raw_stats,
+            dir_id = EXCLUDED.dir_id
         RETURNING file_id
     """, (
         file_path,
@@ -201,7 +219,8 @@ def _insert_file_catalog(file_path: str, metadata: Dict[str, Any]) -> str:
         processor_type,
         is_text_readable,
         json.dumps(file_meta),
-        json.dumps(metadata)  # 원본 전체 백업
+        json.dumps(metadata),  # 원본 전체 백업
+        dir_id  # Phase -1에서 생성된 dir_id
     ))
     
     file_id = cursor.fetchone()[0]

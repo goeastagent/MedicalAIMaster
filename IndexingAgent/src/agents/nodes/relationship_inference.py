@@ -88,6 +88,7 @@ def _load_tables_with_entity_and_columns() -> List[Dict[str, Any]]:
                 "row_represents": "surgery",
                 "entity_identifier": "caseid",
                 "row_count": 6388,
+                "filename_values": {"caseid": 1234},  # Phase 1C에서 추출
                 "columns": [
                     {
                         "original_name": "caseid",
@@ -109,7 +110,7 @@ def _load_tables_with_entity_and_columns() -> List[Dict[str, Any]]:
     tables_info = []
     
     try:
-        # 1. table_entities와 file_catalog 조인
+        # 1. table_entities와 file_catalog 조인 (filename_values 포함)
         cursor.execute("""
             SELECT 
                 te.file_id,
@@ -117,7 +118,8 @@ def _load_tables_with_entity_and_columns() -> List[Dict[str, Any]]:
                 fc.file_metadata,
                 te.row_represents,
                 te.entity_identifier,
-                te.confidence
+                te.confidence,
+                fc.filename_values
             FROM table_entities te
             JOIN file_catalog fc ON te.file_id = fc.file_id
         """)
@@ -125,7 +127,7 @@ def _load_tables_with_entity_and_columns() -> List[Dict[str, Any]]:
         table_rows = cursor.fetchall()
         
         for row in table_rows:
-            file_id, file_name, file_metadata, row_represents, entity_identifier, confidence = row
+            file_id, file_name, file_metadata, row_represents, entity_identifier, confidence, filename_values = row
             
             # row_count 추출
             row_count = 0
@@ -133,6 +135,13 @@ def _load_tables_with_entity_and_columns() -> List[Dict[str, Any]]:
                 if isinstance(file_metadata, str):
                     file_metadata = json.loads(file_metadata)
                 row_count = file_metadata.get('row_count', 0)
+            
+            # filename_values 파싱 (Phase 1C 결과)
+            if filename_values:
+                if isinstance(filename_values, str):
+                    filename_values = json.loads(filename_values)
+            else:
+                filename_values = {}
             
             # 2. 해당 테이블의 컬럼 정보 조회
             cursor.execute("""
@@ -174,7 +183,8 @@ def _load_tables_with_entity_and_columns() -> List[Dict[str, Any]]:
                 "entity_identifier": entity_identifier,
                 "row_count": row_count,
                 "confidence": confidence,
-                "columns": columns
+                "columns": columns,
+                "filename_values": filename_values  # Phase 1C에서 추출된 값
             })
     
     except Exception as e:
@@ -189,13 +199,16 @@ def _find_shared_columns(tables: List[Dict]) -> List[Dict[str, Any]]:
     """
     테이블 간 공유 컬럼 찾기 (rule-based FK 후보)
     
+    filename_values도 가상 컬럼으로 취급하여 FK 후보에 포함
+    예: 3249.vital의 filename_values={'caseid': 3249}는 clinical_data.caseid와 매칭
+    
     Returns:
         [
             {
                 "column_name": "caseid",
                 "tables": [
-                    {"file_name": "clinical_data.csv", "unique_count": 6388, "row_count": 6388},
-                    {"file_name": "lab_data.csv", "unique_count": 6388, "row_count": 928448}
+                    {"file_name": "clinical_data.csv", "unique_count": 6388, "row_count": 6388, "source": "column"},
+                    {"file_name": "3249.vital", "unique_count": 1, "row_count": 0, "source": "filename"}
                 ]
             },
             ...
@@ -208,6 +221,7 @@ def _find_shared_columns(tables: List[Dict]) -> List[Dict[str, Any]]:
         file_name = table['file_name']
         row_count = table['row_count']
         
+        # 1. 일반 컬럼
         for col in table['columns']:
             col_name = col['original_name']
             unique_count = col['unique_count']
@@ -218,8 +232,30 @@ def _find_shared_columns(tables: List[Dict]) -> List[Dict[str, Any]]:
             column_to_tables[col_name].append({
                 "file_name": file_name,
                 "unique_count": unique_count,
-                "row_count": row_count
+                "row_count": row_count,
+                "source": "column"  # 일반 컬럼
             })
+        
+        # 2. filename_values의 키도 가상 컬럼으로 추가 (Phase 1C 결과)
+        filename_values = table.get('filename_values', {})
+        if filename_values:
+            for fv_key, fv_value in filename_values.items():
+                if fv_key not in column_to_tables:
+                    column_to_tables[fv_key] = []
+                
+                # 중복 방지: 같은 파일에서 같은 컬럼명이 이미 있으면 스킵
+                already_exists = any(
+                    t['file_name'] == file_name 
+                    for t in column_to_tables[fv_key]
+                )
+                if not already_exists:
+                    column_to_tables[fv_key].append({
+                        "file_name": file_name,
+                        "unique_count": 1,  # 파일당 하나의 값
+                        "row_count": row_count,
+                        "source": "filename",  # filename_values에서 추출
+                        "extracted_value": fv_value  # 실제 추출된 값
+                    })
     
     # 2개 이상 테이블에 존재하는 컬럼만 반환
     shared = []
@@ -246,6 +282,11 @@ def _build_tables_context(tables: List[Dict]) -> str:
         lines.append(f"- row_represents: {table['row_represents']}")
         lines.append(f"- entity_identifier: {table['entity_identifier'] or '(none)'}")
         lines.append(f"- row_count: {table['row_count']:,}")
+        
+        # filename_values 표시 (Phase 1C 결과)
+        filename_values = table.get('filename_values', {})
+        if filename_values:
+            lines.append(f"- filename_values (extracted from filename): {filename_values}")
         
         # FK 후보 컬럼만 표시
         fk_candidates = [c for c in table['columns'] 
@@ -274,7 +315,14 @@ def _build_shared_columns_context(shared: List[Dict]) -> str:
         lines.append(f"\n- {col_name}:")
         for t in tables:
             unique_str = f"{t['unique_count']:,}" if t['unique_count'] else "?"
-            lines.append(f"    - {t['file_name']}: unique={unique_str}, rows={t['row_count']:,}")
+            source = t.get('source', 'column')
+            source_str = " [from filename]" if source == 'filename' else ""
+            
+            # filename에서 추출된 값 표시
+            if source == 'filename' and 'extracted_value' in t:
+                lines.append(f"    - {t['file_name']}: value={t['extracted_value']}, rows={t['row_count']:,}{source_str}")
+            else:
+                lines.append(f"    - {t['file_name']}: unique={unique_str}, rows={t['row_count']:,}{source_str}")
     
     return "\n".join(lines)
 
@@ -637,6 +685,148 @@ def _create_has_column_edges(driver, tables: List[Dict]) -> int:
     return count
 
 
+def _load_filename_column_mappings() -> Dict[str, Dict[str, Any]]:
+    """
+    directory_catalog에서 filename_columns 매핑 정보 로드
+    
+    Returns:
+        {
+            "vital_files": {
+                "caseid": {
+                    "type": "integer",
+                    "matched_column": "caseid",
+                    "match_confidence": 0.98,
+                    "match_reasoning": "..."
+                }
+            }
+        }
+    """
+    db = get_db_manager()
+    conn = db.get_connection()
+    cursor = conn.cursor()
+    
+    mappings = {}
+    
+    try:
+        cursor.execute("""
+            SELECT dir_name, filename_columns
+            FROM directory_catalog
+            WHERE filename_columns IS NOT NULL
+        """)
+        
+        for row in cursor.fetchall():
+            dir_name, filename_columns = row
+            if filename_columns:
+                if isinstance(filename_columns, str):
+                    filename_columns = json.loads(filename_columns)
+                
+                # filename_columns는 리스트 형태
+                col_map = {}
+                for col_info in filename_columns:
+                    col_name = col_info.get('name')
+                    if col_name:
+                        col_map[col_name] = {
+                            "type": col_info.get('type'),
+                            "matched_column": col_info.get('matched_column'),
+                            "match_confidence": col_info.get('match_confidence', 0.0),
+                            "match_reasoning": col_info.get('match_reasoning', '')
+                        }
+                
+                if col_map:
+                    mappings[dir_name] = col_map
+    
+    except Exception as e:
+        print(f"   ⚠️ Error loading filename column mappings: {e}")
+    
+    return mappings
+
+
+def _create_filename_value_edges(driver, tables: List[Dict]) -> int:
+    """
+    filename_values에서 추출된 값을 Parameter 노드와 FILENAME_VALUE 관계로 연결
+    
+    Phase 1C의 matched_column 정보를 활용하여 의미론적으로 풍부한 관계 생성
+    
+    관계 속성:
+    - value: 추출된 값 (예: 4388)
+    - semantic_role: 의미론적 역할 (예: "case_identifier")
+    - source: "filename"
+    - confidence: 매칭 확신도
+    - reasoning: LLM의 매칭 근거
+    """
+    if not driver:
+        return 0
+    
+    # directory_catalog에서 filename_columns 매핑 정보 로드
+    dir_mappings = _load_filename_column_mappings()
+    
+    count = 0
+    with driver.session(database=Neo4jConfig.DATABASE) as session:
+        for table in tables:
+            filename_values = table.get('filename_values', {})
+            if not filename_values:
+                continue
+            
+            # 파일이 속한 디렉토리 찾기 (file_name에서 추출)
+            file_name = table.get('file_name', '')
+            
+            for key, value in filename_values.items():
+                # dir_mappings에서 매칭 정보 찾기
+                matched_info = None
+                semantic_role = "extracted_value"  # 기본값
+                confidence = 0.8
+                reasoning = "Extracted from filename pattern"
+                
+                # 모든 디렉토리 매핑에서 해당 키 찾기
+                for dir_name, col_map in dir_mappings.items():
+                    if key in col_map:
+                        matched_info = col_map[key]
+                        break
+                
+                if matched_info:
+                    matched_column = matched_info.get('matched_column', key)
+                    confidence = matched_info.get('match_confidence', 0.8)
+                    reasoning = matched_info.get('match_reasoning', reasoning)
+                    
+                    # semantic_role 결정 (matched_column 기반)
+                    if 'id' in matched_column.lower() or 'case' in matched_column.lower():
+                        semantic_role = "case_identifier"
+                    elif 'subject' in matched_column.lower() or 'patient' in matched_column.lower():
+                        semantic_role = "subject_identifier"
+                    elif 'date' in matched_column.lower() or 'time' in matched_column.lower():
+                        semantic_role = "temporal_identifier"
+                    else:
+                        semantic_role = "identifier"
+                else:
+                    matched_column = key
+                
+                try:
+                    # Parameter 노드와 FILENAME_VALUE 관계 생성
+                    session.run("""
+                        MATCH (e:RowEntity {file_name: $file_name})
+                        MATCH (p:Parameter {key: $param_key})
+                        MERGE (e)-[r:FILENAME_VALUE]->(p)
+                        SET r.value = $value,
+                            r.semantic_role = $semantic_role,
+                            r.source = 'filename',
+                            r.confidence = $confidence,
+                            r.reasoning = $reasoning
+                    """, {
+                        "file_name": file_name,
+                        "param_key": matched_column,
+                        "value": value,
+                        "semantic_role": semantic_role,
+                        "confidence": confidence,
+                        "reasoning": reasoning
+                    })
+                    count += 1
+                    
+                except Exception as e:
+                    print(f"   ⚠️ Error creating FILENAME_VALUE for {file_name}.{key}: {e}")
+    
+    return count
+
+
 def _sync_to_neo4j(
     tables: List[Dict],
     relationships: List[TableRelationship]
@@ -652,7 +842,8 @@ def _sync_to_neo4j(
             "edges_links_to": n,
             "edges_has_concept": n,
             "edges_contains": n,
-            "edges_has_column": n
+            "edges_has_column": n,
+            "edges_filename_value": n
         }
     """
     stats = {
@@ -662,7 +853,8 @@ def _sync_to_neo4j(
         "edges_links_to": 0,
         "edges_has_concept": 0,
         "edges_contains": 0,
-        "edges_has_column": 0
+        "edges_has_column": 0,
+        "edges_filename_value": 0
     }
     
     if not Phase2BConfig.NEO4J_ENABLED:
@@ -701,6 +893,10 @@ def _sync_to_neo4j(
         
         stats["edges_has_column"] = _create_has_column_edges(driver, tables)
         print(f"      ✓ HAS_COLUMN edges: {stats['edges_has_column']}")
+        
+        # FILENAME_VALUE edges (Phase 1C 결과 활용)
+        stats["edges_filename_value"] = _create_filename_value_edges(driver, tables)
+        print(f"      ✓ FILENAME_VALUE edges: {stats['edges_filename_value']}")
         
     finally:
         driver.close()

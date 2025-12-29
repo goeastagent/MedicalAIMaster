@@ -42,6 +42,7 @@ def reset_postgres(recreate_tables=True):
         from database.schema_catalog import CatalogSchemaManager
         from database.schema_dictionary import DictionarySchemaManager
         from database.schema_ontology import OntologySchemaManager
+        from database.schema_directory import DirectorySchemaManager
         
         # 현재 테이블 목록 조회
         from database.connection import get_db_manager
@@ -65,6 +66,7 @@ def reset_postgres(recreate_tables=True):
             print("   - 삭제할 테이블 없음")
         
         # 1. 삭제: FK 참조하는 테이블 먼저 (역순)
+        # 순서: Ontology → Dictionary → Catalog → Directory
         print("\n   📤 테이블 삭제 (FK 참조 순서)...")
         try:
             OntologySchemaManager().drop_tables(confirm=True)
@@ -81,9 +83,20 @@ def reset_postgres(recreate_tables=True):
         except Exception as e:
             print(f"      ⚠️ Catalog: {e}")
         
+        try:
+            DirectorySchemaManager().drop_tables(confirm=True)
+        except Exception as e:
+            print(f"      ⚠️ Directory: {e}")
+        
         # 2. 생성: FK 참조되는 테이블 먼저 (정순)
+        # 순서: Directory → Catalog → Dictionary → Ontology
         if recreate_tables:
             print("\n   📥 테이블 생성 (FK 참조 순서)...")
+            try:
+                DirectorySchemaManager().create_tables()
+            except Exception as e:
+                print(f"      ⚠️ Directory: {e}")
+            
             try:
                 CatalogSchemaManager().create_tables()
             except Exception as e:

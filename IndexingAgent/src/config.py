@@ -312,6 +312,63 @@ class Phase1Config:
     ]
 
 
+class Phase1CConfig:
+    """Phase 1C: Directory Pattern Analysis 설정"""
+    
+    # LLM 설정은 LLMConfig 사용 (별도 정의 불필요)
+    
+    # --- 1. 배치 처리 ---
+    # 한 번에 분석할 최대 디렉토리 수
+    MAX_DIRS_PER_BATCH = int(os.getenv("PHASE1C_MAX_DIRS_BATCH", "10"))
+    
+    # LLM에 전달할 파일명 샘플 수 (DB에는 PhaseNeg1Config.FILENAME_SAMPLE_SIZE개 저장)
+    MAX_SAMPLES_PER_DIR = int(os.getenv("PHASE1C_MAX_SAMPLES", "10"))
+    
+    # --- 2. 필터링 ---
+    # 패턴 분석 최소 파일 수 (이 값 미만이면 패턴 분석 스킵)
+    MIN_FILES_FOR_PATTERN = int(os.getenv("PHASE1C_MIN_FILES", "3"))
+    
+    # 패턴 분석 제외 확장자 (메타데이터/텍스트 파일)
+    SKIP_EXTENSIONS = {"txt", "md", "json", "xml", "yaml", "yml"}
+
+
+class PhaseNeg1Config:
+    """Phase -1: Directory Catalog 설정"""
+    
+    # --- 1. 파일명 샘플링 ---
+    # 샘플링할 파일명 수
+    FILENAME_SAMPLE_SIZE = int(os.getenv("PHASE_NEG1_SAMPLE_SIZE", "20"))
+    
+    # 샘플링 전략: "first", "random", "diverse"
+    # - first: 처음 N개
+    # - random: 랜덤 N개
+    # - diverse: 처음 + 중간 + 마지막 혼합 (권장)
+    SAMPLE_STRATEGY = os.getenv("PHASE_NEG1_SAMPLE_STRATEGY", "diverse")
+    
+    # --- 2. 디렉토리 필터링 ---
+    # 무시할 디렉토리 이름
+    IGNORE_DIRS = [".git", "__pycache__", "node_modules", ".venv", "venv", ".idea", ".vscode"]
+    
+    # 무시할 파일 패턴 (glob)
+    IGNORE_PATTERNS = [".*", "*.pyc", "*.log", "*.tmp", "*.bak"]
+    
+    # --- 3. 처리 옵션 ---
+    # 패턴 분석을 위한 최소 파일 수 (이 값 미만이면 패턴 분석 스킵)
+    MIN_FILES_FOR_PATTERN = int(os.getenv("PHASE_NEG1_MIN_FILES", "3"))
+    
+    # 최대 디렉토리 깊이 (재귀 탐색 제한)
+    MAX_DEPTH = int(os.getenv("PHASE_NEG1_MAX_DEPTH", "10"))
+    
+    # --- 4. 확장자 그룹 (디렉토리 타입 분류용) ---
+    SIGNAL_EXTENSIONS = {"vital", "edf", "bdf", "wav", "wfdb"}
+    TABULAR_EXTENSIONS = {"csv", "tsv", "xlsx", "xls", "parquet"}
+    METADATA_EXTENSIONS = {"json", "xml", "yaml", "yml", "txt", "md"}
+    
+    # --- 5. 디렉토리 타입 분류 기준 ---
+    # 파일의 N% 이상이 특정 타입이면 해당 타입으로 분류
+    TYPE_CLASSIFICATION_THRESHOLD = float(os.getenv("PHASE_NEG1_TYPE_THRESHOLD", "0.8"))
+
+
 class ProcessingConfig:
     """파일 처리 관련 설정"""
     
