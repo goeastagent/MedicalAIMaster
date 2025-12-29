@@ -13,5 +13,9 @@ venv/
 **/postgres.log
 **/postgres.pid
 
+# Ignore neo4j data
+**/neo4j.log
+**/neo4j.pid
+
 # System
 .DS_Store
