@@ -23,7 +23,6 @@ from datetime import datetime
 from src.database.neo4j_connection import Neo4jConnection
 from src.database.connection import get_db_manager
 from src.database.schema_ontology import ensure_ontology_schema, OntologySchemaManager
-from src.utils.naming import sanitize_for_neo4j_label
 
 logger = logging.getLogger(__name__)
 

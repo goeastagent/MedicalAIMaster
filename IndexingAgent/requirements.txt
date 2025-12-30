@@ -35,13 +35,10 @@ numpy>=1.24.0
 pydantic>=2.0.0
 
 # ============================================
-# Resilience & Caching
+# Resilience
 # ============================================
 # Tenacity for retry logic
 tenacity>=8.2.0
-
-# Diskcache for LLM response caching
-diskcache>=5.6.0
 
 # ============================================
 # Logging
@@ -75,12 +72,6 @@ neo4j>=5.0.0
 
 # SQLAlchemy (pandas to_sql용)
 sqlalchemy>=2.0.0
-
-# ============================================
-# VectorDB (Phase 3)
-# ============================================
-# ChromaDB for semantic search
-chromadb>=0.4.0
 
 # ============================================
 # Development & Testing (Optional)

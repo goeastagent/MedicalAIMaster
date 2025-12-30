@@ -3,56 +3,92 @@
 Pydantic 모델들 - LLM 응답 구조화
 
 사용 예시:
-    from src.agents.models import FeedbackParseResult, EntityAnalysisResult
+    from src.agents.models.llm_responses import FileClassificationItem
     
     # LLM 응답을 구조화
-    result = FeedbackParseResult(**llm_response)
-    
-    # 타입 안전한 접근
-    if result.action == "skip":
-        ...
+    item = FileClassificationItem(**llm_response)
 """
 
 from .llm_responses import (
-    # Enums
-    FeedbackAction,
-    IdentifierSource,
-    IdentificationStatus,
-    ColumnType,
-    EntityRelationType,
-    
-    # 응답 모델들
-    FeedbackParseResult,
-    ColumnSchemaResult,
-    ColumnAnalysisResponse,
-    
-    # Entity Understanding 모델
-    LinkableColumnInfo,
-    EntityAnalysisResult,
-    
     # 헬퍼 함수
     parse_llm_response,
-    safe_parse_entity,
+    
+    # Phase 4: File Classification
+    FileClassificationItem,
+    FileClassificationResponse,
+    FileClassificationResult,
+    
+    # Phase 5: Metadata Semantic
+    ColumnRoleMapping,
+    ColumnRoleMappingResponse,
+    DataDictionaryEntry,
+    MetadataSemanticResult,
+    
+    # Phase 6: Data Semantic
+    ColumnSemanticResult,
+    DataSemanticResponse,
+    DataSemanticResult,
+    
+    # Phase 8: Entity Identification
+    TableEntityResult,
+    EntityIdentificationResponse,
+    Phase8Result,
+    
+    # Phase 9: Relationship Inference
+    TableRelationship,
+    RelationshipInferenceResponse,
+    Phase9Result,
+    
+    # Phase 10: Ontology Enhancement
+    SubCategoryResult,
+    ConceptHierarchyResponse,
+    SemanticEdge,
+    SemanticEdgesResponse,
+    MedicalTermMapping,
+    MedicalTermResponse,
+    CrossTableSemantic,
+    CrossTableResponse,
+    Phase10Result,
 )
 
 __all__ = [
-    # Enums
-    "FeedbackAction",
-    "IdentifierSource",
-    "IdentificationStatus",
-    "ColumnType",
-    "EntityRelationType",
-    
-    # 응답 모델들
-    "FeedbackParseResult",
-    "ColumnSchemaResult",
-    "ColumnAnalysisResponse",
-    
-    # Entity Understanding 모델
-    "LinkableColumnInfo",
-    "EntityAnalysisResult",
-    
     # 헬퍼 함수
     "parse_llm_response",
-    "safe_parse_entity",
+    
+    # Phase 4
+    "FileClassificationItem",
+    "FileClassificationResponse",
+    "FileClassificationResult",
+    
+    # Phase 5
+    "ColumnRoleMapping",
+    "ColumnRoleMappingResponse",
+    "DataDictionaryEntry",
+    "MetadataSemanticResult",
+    
+    # Phase 6
+    "ColumnSemanticResult",
+    "DataSemanticResponse",
+    "DataSemanticResult",
+    
+    # Phase 8
+    "TableEntityResult",
+    "EntityIdentificationResponse",
+    "Phase8Result",
+    
+    # Phase 9
+    "TableRelationship",
+    "RelationshipInferenceResponse",
+    "Phase9Result",
+    
+    # Phase 10
+    "SubCategoryResult",
+    "ConceptHierarchyResponse",
+    "SemanticEdge",
+    "SemanticEdgesResponse",
+    "MedicalTermMapping",
+    "MedicalTermResponse",
+    "CrossTableSemantic",
+    "CrossTableResponse",
+    "Phase10Result",
 ]

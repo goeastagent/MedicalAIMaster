@@ -3,8 +3,8 @@
 """
 LangGraph 3-Phase Workflow 테스트
 
-⭐ 3-Phase Architecture:
-   Phase 0: 데이터 카탈로그 (Data Catalog)
+⭐ 10-Phase Architecture:
+   Phase 2: 데이터 카탈로그 (Data Catalog)
             - phase0_catalog: 규칙 기반 메타데이터 추출 및 DB 저장 (LLM 없음)
    
    Phase 1: 전체 파일 분류 (Classification)
@@ -44,8 +44,8 @@ def test_batch_workflow(file_paths: list, dataset_id: str = None):
     """
     [NEW] 3-Phase Batch Workflow 테스트
     
-    Phase 0: 규칙 기반 메타데이터 추출 및 DB 카탈로그 저장
-    Phase 1: 파일 분류 (메타데이터/데이터)
+    Phase 2: 규칙 기반 메타데이터 추출 및 DB 카탈로그 저장
+    Phase 4: 파일 분류 (메타데이터/데이터)
     Phase 2: 메타데이터 → 데이터 순서로 처리
     """
     print("\n" + "🌐"*40)
@@ -265,10 +265,10 @@ def _print_batch_summary(final_state: dict, shared_ontology: dict, ontology_mgr,
     processing_progress = final_state.get("processing_progress", {})
     
     # =========================================================================
-    # Phase 0: Data Catalog 결과
+    # Phase 2: Data Catalog 결과
     # =========================================================================
-    file_ids = final_state.get("phase0_file_ids", [])
-    print(f"\n📦 [Phase 0] Data Catalog 결과:")
+    file_ids = final_state.get("phase2_file_ids", [])
+    print(f"\n📦 [Phase 2] Data Catalog 결과:")
     print(f"   - 전체 파일: {phase0_result.get('total_files', 0)}개")
     print(f"   - 처리 완료: {phase0_result.get('processed_files', 0)}개")
     print(f"   - 스킵 (변경없음): {phase0_result.get('skipped_files', 0)}개")
@@ -388,41 +388,7 @@ def main():
     # ⭐ 2-Phase Batch Workflow 실행
     test_batch_workflow(all_files, dataset_id=dataset_id)
     
-    # 캐시 통계 출력
-    from src.utils.llm_cache import get_llm_cache
-    cache = get_llm_cache()
-    cache.print_stats()
-    
-    # [DISABLED] VectorDB 임베딩 생성 - 시간이 오래 걸려서 비활성화
-    # 필요 시 주석 해제하세요
-    # print("\n" + "="*80)
-    # print(f"🔢 [VectorDB] 임베딩 생성 시작... (dataset: {dataset_id})")
-    # print("="*80)
-    # 
-    # try:
-    #     from src.knowledge.vector_store import VectorStore
-    #     from src.utils.ontology_manager import get_ontology_manager
-    #     
-    #     ontology_mgr = get_ontology_manager()
-    #     ontology = ontology_mgr.load(dataset_id=dataset_id)
-    #     
-    #     if ontology and (ontology.get("definitions") or ontology.get("column_metadata")):
-    #         vector_store = VectorStore()
-    #         vector_store.initialize()
-    #         vector_store.build_index(ontology, dataset_id=dataset_id)
-    #         
-    #         stats = vector_store.get_stats()
-    #         print(f"\n✅ [VectorDB] 임베딩 생성 완료")
-    #         print(f"   - Dataset: {dataset_id}")
-    #         print(f"   - Provider: {stats.get('provider')}")
-    #         print(f"   - Dimensions: {stats.get('dimensions')}")
-    #         print(f"   - Total Embeddings: {stats.get('total', 0)}개")
-    #     else:
-    #         print("⚠️  [VectorDB] 임베딩할 데이터 없음 (온톨로지 비어있음)")
-    # except Exception as e:
-    #     print(f"⚠️  [VectorDB] 임베딩 생성 실패: {e}")
-    #     print("   (pgvector 미설치 시: brew install pgvector)")
-    
+    # 테스트 완료
     print("\n" + "="*80)
     print("✅ 모든 작업 완료!")
     print("="*80)

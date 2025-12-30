@@ -235,7 +235,7 @@ def print_ontology_subcategories(limit=20):
     cur = conn.cursor()
     
     print("\n" + "="*100)
-    print("📂 ontology_subcategories (Phase 2C)")
+    print("📂 ontology_subcategories (Phase 10)")
     print("="*100)
     
     try:
@@ -275,7 +275,7 @@ def print_semantic_edges(limit=20):
     cur = conn.cursor()
     
     print("\n" + "="*100)
-    print("🔗 semantic_edges (Phase 2C)")
+    print("🔗 semantic_edges (Phase 10)")
     print("="*100)
     
     try:
@@ -321,7 +321,7 @@ def print_medical_term_mappings(limit=20):
     cur = conn.cursor()
     
     print("\n" + "="*100)
-    print("🏥 medical_term_mappings (Phase 2C)")
+    print("🏥 medical_term_mappings (Phase 10)")
     print("="*100)
     
     try:
@@ -369,7 +369,7 @@ def print_cross_table_semantics(limit=20):
     cur = conn.cursor()
     
     print("\n" + "="*100)
-    print("🔄 cross_table_semantics (Phase 2C)")
+    print("🔄 cross_table_semantics (Phase 10)")
     print("="*100)
     
     try:

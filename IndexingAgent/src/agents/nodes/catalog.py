@@ -172,7 +172,7 @@ def _insert_file_catalog(file_path: str, metadata: Dict[str, Any]) -> str:
     is_text_readable = _is_text_readable(file_path)
     file_modified_at = _get_file_modified_time(file_path)
     
-    # Phase -1에서 생성된 dir_id 조회
+    # Phase 1에서 생성된 dir_id 조회
     dir_id = _get_dir_id_for_file(file_path)
     
     cursor.execute("""
@@ -207,7 +207,7 @@ def _insert_file_catalog(file_path: str, metadata: Dict[str, Any]) -> str:
         is_text_readable,
         json.dumps(file_meta),
         json.dumps(metadata),  # 원본 전체 백업
-        dir_id  # Phase -1에서 생성된 dir_id
+        dir_id  # Phase 1에서 생성된 dir_id
     ))
     
     file_id = cursor.fetchone()[0]
@@ -474,7 +474,7 @@ def process_files(
         verbose: True면 진행 상황 출력
     
     Returns:
-        Phase0 결과 딕셔너리 (file_ids 포함)
+        Phase 2 결과 딕셔너리 (file_ids 포함)
     """
     ensure_schema()
     
@@ -537,7 +537,7 @@ def process_directory(
         verbose: True면 진행 상황 출력
     
     Returns:
-        Phase0 결과 딕셔너리
+        Phase 2 결과 딕셔너리
     """
     file_paths = []
     
@@ -563,7 +563,7 @@ def process_directory(
 # 편의 함수
 # =============================================================================
 
-def run_phase0(
+def run_phase2(
     directory: str = None,
     file_paths: List[str] = None,
     recursive: bool = True,
@@ -571,7 +571,7 @@ def run_phase0(
     verbose: bool = True
 ) -> Dict[str, Any]:
     """
-    Phase 0 실행
+    Phase 2 실행 - 편의 함수
     
     Args:
         directory: 처리할 디렉토리 (file_paths가 없을 때)
@@ -581,7 +581,7 @@ def run_phase0(
         verbose: True면 진행 상황 출력
     
     Returns:
-        Phase0 결과 딕셔너리 (file_ids 포함)
+        Phase 2 결과 딕셔너리 (file_ids 포함)
     """
     if file_paths:
         return process_files(file_paths, skip_unchanged, verbose)
@@ -616,7 +616,7 @@ def phase2_file_catalog_node(state: AgentState) -> Dict[str, Any]:
         state: AgentState (input_files 필드 필요)
     
     Returns:
-        업데이트된 상태 (phase0_result, phase0_file_ids, logs)
+        업데이트된 상태 (phase2_result, phase2_file_ids, logs)
     """
     print("\n" + "="*80)
     print("📦 [PHASE 2] File Catalog - 메타데이터 추출 시작")
@@ -642,7 +642,7 @@ def phase2_file_catalog_node(state: AgentState) -> Dict[str, Any]:
     
     print(f"   📂 처리할 파일: {len(input_files)}개\n")
     
-    # Phase 0 실행 (변경되지 않은 파일은 스킵)
+    # Phase 2 실행 (변경되지 않은 파일은 스킵)
     result = process_files(
         file_paths=input_files,
         skip_unchanged=True,  # file_path + modified_time이 같으면 스킵

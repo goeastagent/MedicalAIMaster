@@ -1,6 +1,6 @@
 # src/agents/nodes/entity_identification.py
 """
-Phase 2A: Entity Identification Node
+Phase 8: Entity Identification Node
 
 데이터 파일(is_metadata=false)의 행이 무엇을 나타내는지(row_represents)와
 고유 식별자 컬럼(entity_identifier)을 식별합니다.
@@ -19,7 +19,7 @@ from ..state import AgentState
 from ..models.llm_responses import (
     TableEntityResult,
     EntityIdentificationResponse,
-    Phase2AResult,
+    Phase8Result,
 )
 from src.database.connection import get_db_manager
 from src.database.schema_ontology import OntologySchemaManager
@@ -137,7 +137,7 @@ def _load_data_files_with_columns(data_files: List[str]) -> List[Dict[str, Any]]
             else:
                 row_count = 0
             
-            # 컬럼 정보 조회 (Phase 1B에서 분석된 semantic 정보 포함)
+            # 컬럼 정보 조회 (Phase 6에서 분석된 semantic 정보 포함)
             cursor.execute("""
                 SELECT 
                     original_name,
@@ -190,7 +190,7 @@ def _load_data_files_with_columns(data_files: List[str]) -> List[Dict[str, Any]]
             })
     
     except Exception as e:
-        print(f"❌ [Phase2A] Error loading data files: {e}")
+        print(f"❌ [Phase8] Error loading data files: {e}")
         import traceback
         traceback.print_exc()
     
@@ -360,17 +360,17 @@ def _save_table_entities(
 
 def phase8_entity_identification_node(state: AgentState) -> Dict[str, Any]:
     """
-    Phase 2A: Entity Identification Node
+    Phase 8: Entity Identification Node
     
     데이터 파일의 행이 무엇을 나타내는지(row_represents)와
     고유 식별자 컬럼(entity_identifier)을 식별합니다.
     
     Input (from state):
         - data_files: is_metadata=false인 파일 경로 목록
-        - phase1b_result: Phase 1B 완료 정보 (column_metadata 분석 완료)
+        - phase6_result: Phase 6 완료 정보 (column_metadata 분석 완료)
     
     Output:
-        - phase2a_result: Phase2AResult 형태
+        - phase8_result: Phase8Result 형태
         - table_entity_results: TableEntityResult 목록
     """
     print("\n" + "="*60)
@@ -385,7 +385,7 @@ def phase8_entity_identification_node(state: AgentState) -> Dict[str, Any]:
     if not data_files:
         print("ℹ️  No data files to analyze")
         return {
-            "phase8_result": Phase2AResult(
+            "phase8_result": Phase8Result(
                 started_at=started_at,
                 completed_at=datetime.now().isoformat()
             ).model_dump(),
@@ -409,7 +409,7 @@ def phase8_entity_identification_node(state: AgentState) -> Dict[str, Any]:
     if not files_info:
         print("⚠️  No file info loaded from database")
         return {
-            "phase8_result": Phase2AResult(
+            "phase8_result": Phase8Result(
                 total_tables=len(data_files),
                 started_at=started_at,
                 completed_at=datetime.now().isoformat()
@@ -475,7 +475,7 @@ def phase8_entity_identification_node(state: AgentState) -> Dict[str, Any]:
     # 8. 결과 반환
     completed_at = datetime.now().isoformat()
     
-    phase2a_result = Phase2AResult(
+    phase8_result = Phase8Result(
         total_tables=len(files_info),
         tables_analyzed=len(all_results),
         entities_identified=entities_identified,
@@ -488,7 +488,7 @@ def phase8_entity_identification_node(state: AgentState) -> Dict[str, Any]:
     )
     
     return {
-        "phase8_result": phase2a_result.model_dump(),
+        "phase8_result": phase8_result.model_dump(),
         "table_entity_results": [r.model_dump() for r in all_results]
     }
 

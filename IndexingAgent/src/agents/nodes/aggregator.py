@@ -287,15 +287,15 @@ def get_aggregation_stats() -> Dict[str, Any]:
 
 def phase3_aggregation_node(state: AgentState) -> Dict[str, Any]:
     """
-    Phase 0.5: Schema Aggregation 노드
+    Phase 3: Schema Aggregation 노드
     
     DB에서 유니크 컬럼과 파일을 집계하고 Phase 1 LLM 배치를 준비합니다.
     
     Input (from state):
-        - phase0_file_ids: Phase 0에서 처리된 파일 ID들 (참고용)
+        - phase2_file_ids: Phase 2에서 처리된 파일 ID들 (참고용)
     
     Output (to state):
-        - phase05_result: 집계 결과 요약
+        - phase3_result: 집계 결과 요약
         - unique_columns: 유니크 컬럼 리스트
         - unique_files: 유니크 파일 리스트
         - column_batches: 컬럼 LLM 배치 리스트
@@ -508,7 +508,7 @@ def prepare_file_batches(
 
 def run_aggregation(verbose: bool = True) -> Dict[str, Any]:
     """
-    Phase 0.5 실행 (독립 실행용)
+    Phase 3 실행 (독립 실행용)
     
     Returns:
         Dict with unique_columns, batches, and stats

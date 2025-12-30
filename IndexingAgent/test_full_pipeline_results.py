@@ -318,7 +318,7 @@ def get_fresh_connection():
 
 
 def print_directory_catalog(limit: int = 10):
-    """directory_catalog 테이블 출력 (Phase -1 / Phase 1C 결과)"""
+    """directory_catalog 테이블 출력 (Phase 1 / Phase 7 결과)"""
     conn = get_fresh_connection()
     cursor = conn.cursor()
     
@@ -938,7 +938,7 @@ def print_summary_stats():
             conn.rollback()  # 에러 후 트랜잭션 정리
             print(f"{display_name:<35} {'ERROR':>10}")
     
-    # Phase 1C 패턴 분석 통계
+    # Phase 7 패턴 분석 통계
     try:
         cursor.execute("""
             SELECT COUNT(*) FROM directory_catalog 
@@ -992,7 +992,7 @@ def main():
     print("="*80)
     
     print_summary_stats()
-    print_directory_catalog(limit=20)  # Phase -1 / Phase 1C
+    print_directory_catalog(limit=20)  # Phase 1 / Phase 7
     print_file_catalog(limit=20)
     print_column_metadata(limit=20)
     print_data_dictionary(limit=20)

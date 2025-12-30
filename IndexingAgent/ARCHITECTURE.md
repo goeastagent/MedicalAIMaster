@@ -313,11 +313,10 @@ IndexingAgent/
 │   │   └── schema_ontology.py    # 온톨로지 관련 테이블
 │   ├── utils/
 │   │   ├── llm_client.py         # LLM API 클라이언트
-│   │   └── llm_cache.py          # LLM 응답 캐시
+│   │   └── ontology_manager.py   # 온톨로지 관리 (Neo4j)
 │   └── config.py                 # 설정 (Phase별 Config 클래스)
 ├── data/
-│   ├── raw/                      # 원본 데이터 파일
-│   └── cache/llm_disk/           # LLM 응답 캐시
+│   └── raw/                      # 원본 데이터 파일
 └── test_full_pipeline_results.py # 전체 파이프라인 실행 + 결과 확인
 ```
 

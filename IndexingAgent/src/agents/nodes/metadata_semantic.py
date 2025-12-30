@@ -1,6 +1,6 @@
 # src/agents/nodes/metadata_semantic.py
 """
-Phase 1A: MetaData Semantic Analysis Node
+Phase 5: MetaData Semantic Analysis Node
 
 metadata 파일에서 key-desc-unit을 추출하여 data_dictionary에 저장합니다.
 
@@ -462,9 +462,9 @@ def _extract_from_raw_data(file_info: Dict[str, Any], column_mapping: ColumnRole
 
 def phase5_metadata_semantic_node(state: AgentState) -> Dict[str, Any]:
     """
-    Phase 1A: 메타데이터 파일에서 key-desc-unit 추출
+    Phase 5: 메타데이터 파일에서 key-desc-unit 추출
     
-    입력: state.metadata_files (Phase 0.7에서 분류된 metadata 파일들)
+    입력: state.metadata_files (Phase 4에서 분류된 metadata 파일들)
     
     처리:
     1. 각 metadata 파일에 대해:

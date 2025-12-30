@@ -3,8 +3,8 @@
 Data Catalog 스키마
 
 파일과 컬럼 메타데이터를 저장하는 테이블 정의
-- file_catalog: 파일 단위 거시적 정보 (Phase 0 + Phase 1)
-- column_metadata: 컬럼 단위 미시적 정보 (Phase 0 + Phase 1)
+- file_catalog: 파일 단위 거시적 정보 (Phase 2 + Phase 4-6)
+- column_metadata: 컬럼 단위 미시적 정보 (Phase 2 + Phase 6)
 """
 
 from typing import Optional
@@ -22,7 +22,7 @@ CREATE EXTENSION IF NOT EXISTS "uuid-ossp";
 
 CREATE_FILE_CATALOG_SQL = """
 CREATE TABLE IF NOT EXISTS file_catalog (
-    -- Phase 0: 물리적 정보
+    -- Phase 2: 물리적 정보
     file_id UUID PRIMARY KEY DEFAULT uuid_generate_v4(),
     file_path TEXT UNIQUE NOT NULL,
     file_name VARCHAR(255) NOT NULL,
@@ -35,10 +35,10 @@ CREATE TABLE IF NOT EXISTS file_catalog (
     file_metadata JSONB DEFAULT '{}'::jsonb,
     raw_stats JSONB,
     
-    -- Phase -1: 디렉토리 연결 (directory_catalog FK)
+    -- Phase 1: 디렉토리 연결 (directory_catalog FK)
     dir_id UUID,                          -- directory_catalog FK (테이블 생성 순서상 나중에 FK 추가)
     
-    -- Phase 1C: 파일명에서 추출한 값 (LLM 분석 결과)
+    -- Phase 7: 파일명에서 추출한 값 (LLM 분석 결과)
     filename_values JSONB,                -- {"caseid": 1, "session": "A"} - 파일명에서 추출한 값
     
     -- Phase 1: LLM 분석 결과 (의미론적 정보)
@@ -68,7 +68,7 @@ CREATE INDEX IF NOT EXISTS idx_file_catalog_dir ON file_catalog (dir_id);
 
 CREATE_COLUMN_METADATA_SQL = """
 CREATE TABLE IF NOT EXISTS column_metadata (
-    -- Phase 0: 물리적 정보
+    -- Phase 2: 물리적 정보
     col_id SERIAL PRIMARY KEY,
     file_id UUID REFERENCES file_catalog(file_id) ON DELETE CASCADE,
     original_name VARCHAR(255),
@@ -77,7 +77,7 @@ CREATE TABLE IF NOT EXISTS column_metadata (
     column_info JSONB DEFAULT '{}'::jsonb,
     value_distribution JSONB DEFAULT '{}'::jsonb,
     
-    -- Phase 1B: LLM 분석 결과 (의미론적 정보)
+    -- Phase 6: LLM 분석 결과 (의미론적 정보)
     semantic_name TEXT,                   -- 표준화된 이름 (예: "Heart Rate") - LLM 결과 수용을 위해 TEXT
     unit VARCHAR(100),                    -- 측정 단위 (예: "bpm", "mmHg")
     concept_category VARCHAR(255),        -- 개념 카테고리 (예: "Vital Signs", "Demographics")
@@ -87,7 +87,7 @@ CREATE TABLE IF NOT EXISTS column_metadata (
     llm_confidence FLOAT,                 -- LLM 분석 확신도
     llm_analyzed_at TIMESTAMP,            -- LLM 분석 완료 시간
     
-    -- Phase 1B: data_dictionary 연결
+    -- Phase 6: data_dictionary 연결
     dict_entry_id UUID,                   -- FK는 data_dictionary 생성 후 추가
     dict_match_status VARCHAR(20),        -- 'matched', 'not_found', 'null_from_llm'
     match_confidence FLOAT,               -- dictionary 매칭 확신도

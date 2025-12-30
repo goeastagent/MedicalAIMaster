@@ -1,6 +1,6 @@
 # src/agents/nodes/classification.py
 """
-Phase 0.7: File Classification Node
+Phase 4: File Classification Node
 
 파일을 metadata/data로 분류합니다.
 - metadata: 데이터 사전, 파라미터 정의 파일 (clinical_parameters.csv 등)
@@ -279,9 +279,9 @@ def _update_file_is_metadata(file_name: str, is_metadata: bool, confidence: floa
 
 def phase4_classification_node(state: AgentState) -> Dict[str, Any]:
     """
-    Phase 0.7: 파일을 metadata/data로 분류
+    Phase 4: 파일을 metadata/data로 분류
     
-    입력: state.phase0_file_ids (Phase 0에서 처리된 파일들)
+    입력: state.phase2_file_ids (Phase 2에서 처리된 파일들)
     
     처리:
     1. 각 파일의 정보 수집 (컬럼명, unique values)
@@ -289,7 +289,7 @@ def phase4_classification_node(state: AgentState) -> Dict[str, Any]:
     3. file_catalog.is_metadata 업데이트
     
     출력:
-    - phase07_result: 분류 결과 요약
+    - phase4_result: 분류 결과 요약
     - metadata_files: is_metadata=true 파일 경로 목록
     - data_files: is_metadata=false 파일 경로 목록
     """

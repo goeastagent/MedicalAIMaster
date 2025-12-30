@@ -11,7 +11,7 @@ LLM 호출 없이 순수하게 규칙 기반으로 데이터 수집만 수행합
 수집 정보:
 - 디렉토리 계층 구조 (parent_dir_id)
 - 파일 확장자별 카운트
-- 파일명 샘플 (LLM 분석용, Phase 1C에서 사용)
+- 파일명 샘플 (LLM 분석용, Phase 7에서 사용)
 - 총 파일 크기
 """
 
@@ -414,7 +414,7 @@ def phase1_directory_catalog_node(state: AgentState) -> Dict[str, Any]:
     수집 정보:
     - 디렉토리 계층 구조
     - 파일 확장자별 카운트
-    - 파일명 샘플 (Phase 1C에서 LLM이 분석)
+    - 파일명 샘플 (Phase 7에서 LLM이 분석)
     - 파일 크기 통계
     
     Args:
@@ -538,7 +538,7 @@ def run_phase_neg1(
     verbose: bool = True
 ) -> Dict[str, Any]:
     """
-    Phase -1 직접 실행 (테스트/디버깅용)
+    Phase 1 직접 실행 (테스트/디버깅용)
     
     Args:
         directory: 처리할 디렉토리 경로
@@ -551,7 +551,7 @@ def run_phase_neg1(
     ensure_schema()
     
     if verbose:
-        print(f"[Phase -1] Processing directory: {directory}")
+        print(f"[Phase 1] Processing directory: {directory}")
     
     return process_directory_tree(
         root_path=directory,

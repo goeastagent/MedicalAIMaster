@@ -1,5 +1,5 @@
 """
-Phase 1C: Directory Pattern Analysis Node
+Phase 7: Directory Pattern Analysis Node
 
 디렉토리 내 파일명 패턴을 LLM으로 분석하고, 파일명에서 ID/값을 추출하여 
 다른 테이블과의 관계를 연결합니다.
@@ -9,8 +9,8 @@ Phase 1C: Directory Pattern Analysis Node
   2. 패턴에서 추출 가능한 값이 Data Dictionary의 어떤 컬럼과 매칭되는지 판단
 
 입력 (DB에서 읽기):
-  - directory_catalog.filename_samples (Phase -1에서 수집)
-  - column_metadata (Phase 1A에서 분석됨)
+  - directory_catalog.filename_samples (Phase 1에서 수집)
+  - column_metadata (Phase 5에서 분석됨)
 
 출력 (DB에 저장):
   - directory_catalog.filename_pattern, filename_columns
@@ -467,11 +467,11 @@ def _update_filename_values(results: List[Dict]):
 
 def phase7_directory_pattern_node(state: AgentState) -> Dict[str, Any]:
     """
-    [Phase 1C] Directory Pattern Analysis Node
+    [Phase 7] Directory Pattern Analysis Node
     
     All data is read from DB (no file re-reading):
-    - directory_catalog: filename_samples, file_extensions (from Phase -1)
-    - column_metadata: column info with semantic descriptions (from Phase 1A)
+    - directory_catalog: filename_samples, file_extensions (from Phase 1)
+    - column_metadata: column info with semantic descriptions (from Phase 5)
     
     Steps:
     1. Query directories from directory_catalog

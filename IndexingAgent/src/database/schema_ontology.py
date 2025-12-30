@@ -7,7 +7,7 @@ Ontology 스키마 정의
 - table_entities: 테이블별 Entity Understanding
 
 Note: schema_catalog.py의 column_metadata와는 다른 테이블입니다.
-      - schema_catalog.py: 파일 기반, Phase 0/1 워크플로우용
+      - schema_catalog.py: 파일 기반, Phase 2/6 워크플로우용
       - schema_ontology.py: 데이터셋 기반, 온톨로지 분석용
 """
 
@@ -94,7 +94,7 @@ CREATE INDEX IF NOT EXISTS idx_table_rel_target ON table_relationships(target_fi
 """
 
 # =============================================================================
-# Phase 2C: Ontology Enhancement 테이블
+# Phase 10: Ontology Enhancement 테이블
 # =============================================================================
 
 CREATE_ONTOLOGY_SUBCATEGORIES_SQL = """
@@ -209,11 +209,11 @@ class OntologySchemaManager:
         cursor = conn.cursor()
         
         try:
-            # Phase 2A/2B 테이블
+            # Phase 8/9 테이블
             cursor.execute(CREATE_ONTOLOGY_COLUMN_METADATA_SQL)
             cursor.execute(CREATE_TABLE_ENTITIES_SQL)
             cursor.execute(CREATE_TABLE_RELATIONSHIPS_SQL)
-            # Phase 2C 테이블
+            # Phase 10 테이블
             cursor.execute(CREATE_ONTOLOGY_SUBCATEGORIES_SQL)
             cursor.execute(CREATE_SEMANTIC_EDGES_SQL)
             cursor.execute(CREATE_MEDICAL_TERM_MAPPINGS_SQL)
@@ -235,12 +235,12 @@ class OntologySchemaManager:
         cursor = conn.cursor()
         
         try:
-            # Phase 2C 테이블 (역순 삭제)
+            # Phase 10 테이블 (역순 삭제)
             cursor.execute("DROP TABLE IF EXISTS cross_table_semantics CASCADE")
             cursor.execute("DROP TABLE IF EXISTS medical_term_mappings CASCADE")
             cursor.execute("DROP TABLE IF EXISTS semantic_edges CASCADE")
             cursor.execute("DROP TABLE IF EXISTS ontology_subcategories CASCADE")
-            # Phase 2A/2B 테이블
+            # Phase 8/9 테이블
             cursor.execute("DROP TABLE IF EXISTS table_relationships CASCADE")
             cursor.execute("DROP TABLE IF EXISTS ontology_column_metadata CASCADE")
             cursor.execute("DROP TABLE IF EXISTS table_entities CASCADE")
@@ -538,7 +538,7 @@ class OntologySchemaManager:
             raise
     
     # =========================================================================
-    # Phase 2C: ontology_subcategories CRUD
+    # Phase 10: ontology_subcategories CRUD
     # =========================================================================
     
     def save_subcategories(self, subcategories: List[Dict[str, Any]]):
@@ -611,7 +611,7 @@ class OntologySchemaManager:
         return subcategories
     
     # =========================================================================
-    # Phase 2C: semantic_edges CRUD
+    # Phase 10: semantic_edges CRUD
     # =========================================================================
     
     def save_semantic_edges(self, edges: List[Dict[str, Any]]):
@@ -685,7 +685,7 @@ class OntologySchemaManager:
         return edges
     
     # =========================================================================
-    # Phase 2C: medical_term_mappings CRUD
+    # Phase 10: medical_term_mappings CRUD
     # =========================================================================
     
     def save_medical_term_mappings(self, mappings: List[Dict[str, Any]]):
@@ -772,7 +772,7 @@ class OntologySchemaManager:
         return mappings
     
     # =========================================================================
-    # Phase 2C: cross_table_semantics CRUD
+    # Phase 10: cross_table_semantics CRUD
     # =========================================================================
     
     def save_cross_table_semantics(self, semantics: List[Dict[str, Any]]):

@@ -4,15 +4,12 @@ IndexingAgent 전체 초기화 스크립트
 
 - PostgreSQL: 모든 테이블 삭제 (file_catalog, column_metadata 포함)
 - Neo4j: 모든 노드/관계 삭제
-- VectorDB: ChromaDB 컬렉션 삭제
 - 온톨로지 JSON: 초기화
-- LLM 캐시: 삭제
 
 사용법:
-    python reset_all.py              # 확인 후 삭제 (캐시 제외)
-    python reset_all.py -y           # 확인 없이 삭제 (캐시 제외)
-    python reset_all.py --clear-cache   # 캐시도 삭제 (확인 필요)
-    python reset_all.py --all -y     # 전체 삭제 (캐시 포함, 확인 없이)
+    python reset_all.py              # 확인 후 삭제
+    python reset_all.py -y           # 확인 없이 삭제
+    python reset_all.py --no-recreate    # 테이블 삭제만 (재생성 안 함)
 """
 
 import sys
@@ -172,69 +169,6 @@ def reset_ontology_json():
     print("✅ [온톨로지 JSON] 초기화 완료")
 
 
-def reset_vector_db():
-    """VectorDB (ChromaDB) 초기화"""
-    print("\n" + "=" * 60)
-    print("🔢 [VectorDB] 초기화 중...")
-    print("=" * 60)
-    
-    import shutil
-    
-    vector_db_path = os.path.join(
-        os.path.dirname(__file__), 
-        "data", "processed", "vector_db"
-    )
-    
-    if os.path.exists(vector_db_path):
-        file_count = sum(1 for _ in os.scandir(vector_db_path) if _.is_file())
-        shutil.rmtree(vector_db_path)
-        os.makedirs(vector_db_path, exist_ok=True)
-        print(f"   ✅ 삭제됨: {vector_db_path} ({file_count}개 파일)")
-    else:
-        print(f"   - 폴더 없음: {vector_db_path}")
-    
-    print("✅ [VectorDB] 초기화 완료")
-
-
-def reset_llm_cache(confirm=False):
-    """LLM 캐시 삭제 (JSON 캐시 + diskcache 모두 삭제)"""
-    print("\n" + "=" * 60)
-    print("🧠 [LLM 캐시] 초기화 중...")
-    print("=" * 60)
-    
-    import shutil
-    
-    # 캐시 디렉토리 목록 (JSON 캐시 + diskcache)
-    cache_dirs = [
-        os.path.join(os.path.dirname(__file__), "data", "cache", "llm"),       # 옛 JSON 캐시
-        os.path.join(os.path.dirname(__file__), "data", "cache", "llm_disk"),  # diskcache
-    ]
-    
-    total_deleted = 0
-    
-    for cache_dir in cache_dirs:
-        dir_name = os.path.basename(cache_dir)
-        
-        if os.path.exists(cache_dir):
-            cache_files = os.listdir(cache_dir)
-            print(f"   - [{dir_name}] 캐시 파일: {len(cache_files)}개")
-            
-            if confirm:
-                shutil.rmtree(cache_dir)
-                os.makedirs(cache_dir)
-                print(f"   ✅ [{dir_name}] 삭제됨")
-                total_deleted += len(cache_files)
-            else:
-                print(f"   ⚠️  [{dir_name}] 삭제 스킵 (--clear-cache 옵션으로 삭제)")
-        else:
-            print(f"   - [{dir_name}] 폴더 없음")
-    
-    if confirm and total_deleted > 0:
-        print(f"   📊 총 {total_deleted}개 캐시 항목 삭제됨")
-    
-    print("✅ [LLM 캐시] 처리 완료")
-
-
 def print_help():
     """도움말 출력"""
     print("""
@@ -242,15 +176,12 @@ def print_help():
 
 옵션:
     -y, --yes          확인 없이 실행
-    --clear-cache      LLM 캐시도 삭제
-    --all              전체 삭제 (캐시 포함)
     --no-recreate      테이블 삭제만 (재생성 안 함)
     -h, --help         도움말 출력
 
 예시:
-    python reset_all.py              # 확인 후 삭제/재생성 (캐시 제외)
-    python reset_all.py -y           # 확인 없이 삭제/재생성 (캐시 제외)
-    python reset_all.py --all -y     # 전체 삭제/재생성 (캐시 포함, 확인 없이)
+    python reset_all.py              # 확인 후 삭제/재생성
+    python reset_all.py -y           # 확인 없이 삭제/재생성
     python reset_all.py --no-recreate -y  # 테이블 삭제만 (재생성 안 함)
 """)
 
@@ -266,8 +197,6 @@ def main():
         return
     
     # 옵션 파싱
-    clear_all = "--all" in sys.argv
-    clear_cache = "--clear-cache" in sys.argv or clear_all
     skip_confirm = "-y" in sys.argv or "--yes" in sys.argv
     no_recreate = "--no-recreate" in sys.argv
     
@@ -279,12 +208,7 @@ def main():
         else:
             print("     → 삭제 후 빈 테이블 재생성")
         print("   - Neo4j 노드/관계")
-        print("   - VectorDB (ChromaDB)")
         print("   - 온톨로지 JSON")
-        if clear_cache:
-            print("   - LLM 캐시 ✓")
-        else:
-            print("   - LLM 캐시 (--all 또는 --clear-cache로 삭제)")
         
         confirm = input("\n계속하시겠습니까? (y/N): ").strip().lower()
         if confirm != 'y':
@@ -294,9 +218,7 @@ def main():
     # 초기화 실행
     reset_postgres(recreate_tables=not no_recreate)
     reset_neo4j()
-    reset_vector_db()
     reset_ontology_json()
-    reset_llm_cache(confirm=clear_cache)
     
     print("\n" + "=" * 60)
     print("✅ 전체 초기화 완료!")

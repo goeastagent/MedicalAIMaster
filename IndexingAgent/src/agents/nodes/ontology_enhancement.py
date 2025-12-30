@@ -1,8 +1,8 @@
 # src/agents/nodes/ontology_enhancement.py
 """
-Phase 2C: Ontology Enhancement Node
+Phase 10: Ontology Enhancement Node
 
-Phase 2B에서 구축한 3-Level 온톨로지를 LLM을 활용해 확장/강화합니다.
+Phase 9에서 구축한 3-Level 온톨로지를 LLM을 활용해 확장/강화합니다.
 
 Tasks:
 1. Concept Hierarchy: ConceptCategory를 SubCategory로 세분화
@@ -25,7 +25,7 @@ from ..models.llm_responses import (
     MedicalTermResponse,
     CrossTableSemantic,
     CrossTableResponse,
-    Phase2CResult,
+    Phase10Result,
 )
 from src.database.connection import get_db_manager
 from src.database.schema_ontology import OntologySchemaManager
@@ -241,7 +241,7 @@ def _load_concept_categories_with_parameters() -> Dict[str, List[Dict]]:
             })
     
     except Exception as e:
-        print(f"❌ [Phase2C] Error loading concepts: {e}")
+        print(f"❌ [Phase10] Error loading concepts: {e}")
     
     return concept_params
 
@@ -280,7 +280,7 @@ def _load_all_parameters() -> List[Dict[str, Any]]:
                 })
     
     except Exception as e:
-        print(f"❌ [Phase2C] Error loading parameters: {e}")
+        print(f"❌ [Phase10] Error loading parameters: {e}")
     
     return parameters
 
@@ -333,7 +333,7 @@ def _load_tables_with_columns() -> List[Dict[str, Any]]:
             })
     
     except Exception as e:
-        print(f"❌ [Phase2C] Error loading tables: {e}")
+        print(f"❌ [Phase10] Error loading tables: {e}")
     
     return tables
 
@@ -894,7 +894,7 @@ def _sync_to_neo4j(
 
 def phase10_ontology_enhancement_node(state: AgentState) -> Dict[str, Any]:
     """
-    Phase 2C: Ontology Enhancement
+    Phase 10: Ontology Enhancement
     
     1. Concept Hierarchy: ConceptCategory를 SubCategory로 세분화
     2. Semantic Edges: Parameter 간 의미 관계 추론
@@ -902,7 +902,7 @@ def phase10_ontology_enhancement_node(state: AgentState) -> Dict[str, Any]:
     4. Cross-table Semantics: 테이블 간 시맨틱 관계 탐지
     
     Returns:
-        - phase2c_result: Phase2CResult 형태
+        - phase10_result: Phase10Result 형태
         - ontology_subcategories: SubCategoryResult 목록
         - semantic_edges: SemanticEdge 목록
         - medical_term_mappings: MedicalTermMapping 목록
@@ -996,7 +996,7 @@ def phase10_ontology_enhancement_node(state: AgentState) -> Dict[str, Any]:
     # 결과 생성
     completed_at = datetime.now().isoformat()
     
-    phase2c_result = Phase2CResult(
+    phase10_result = Phase10Result(
         subcategories_created=len(subcategories),
         subcategories_high_conf=high_conf_subcats,
         semantic_edges_created=len(edges),
@@ -1017,7 +1017,7 @@ def phase10_ontology_enhancement_node(state: AgentState) -> Dict[str, Any]:
     )
     
     return {
-        "phase10_result": phase2c_result.model_dump(),
+        "phase10_result": phase10_result.model_dump(),
         "ontology_subcategories": [s.model_dump() for s in subcategories],
         "semantic_edges": [e.model_dump() for e in edges],
         "medical_term_mappings": [m.model_dump() for m in mappings],

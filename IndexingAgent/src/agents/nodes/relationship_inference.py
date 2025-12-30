@@ -1,6 +1,6 @@
 # src/agents/nodes/relationship_inference.py
 """
-Phase 2B: Relationship Inference + Neo4j Node
+Phase 9: Relationship Inference + Neo4j Node
 
 테이블 간 FK 관계를 추론하고 Neo4j에 3-Level Ontology를 구축합니다.
 
@@ -21,7 +21,7 @@ from ..state import AgentState
 from ..models.llm_responses import (
     TableRelationship,
     RelationshipInferenceResponse,
-    Phase2BResult,
+    Phase9Result,
 )
 from src.database.connection import get_db_manager
 from src.database.schema_ontology import OntologySchemaManager
@@ -88,7 +88,7 @@ def _load_tables_with_entity_and_columns() -> List[Dict[str, Any]]:
                 "row_represents": "surgery",
                 "entity_identifier": "caseid",
                 "row_count": 6388,
-                "filename_values": {"caseid": 1234},  # Phase 1C에서 추출
+                "filename_values": {"caseid": 1234},  # Phase 7에서 추출
                 "columns": [
                     {
                         "original_name": "caseid",
@@ -136,7 +136,7 @@ def _load_tables_with_entity_and_columns() -> List[Dict[str, Any]]:
                     file_metadata = json.loads(file_metadata)
                 row_count = file_metadata.get('row_count', 0)
             
-            # filename_values 파싱 (Phase 1C 결과)
+            # filename_values 파싱 (Phase 7 결과)
             if filename_values:
                 if isinstance(filename_values, str):
                     filename_values = json.loads(filename_values)
@@ -184,11 +184,11 @@ def _load_tables_with_entity_and_columns() -> List[Dict[str, Any]]:
                 "row_count": row_count,
                 "confidence": confidence,
                 "columns": columns,
-                "filename_values": filename_values  # Phase 1C에서 추출된 값
+                "filename_values": filename_values  # Phase 7에서 추출된 값
             })
     
     except Exception as e:
-        print(f"❌ [Phase2B] Error loading tables: {e}")
+        print(f"❌ [Phase9] Error loading tables: {e}")
         import traceback
         traceback.print_exc()
     
@@ -236,7 +236,7 @@ def _find_shared_columns(tables: List[Dict]) -> List[Dict[str, Any]]:
                 "source": "column"  # 일반 컬럼
             })
         
-        # 2. filename_values의 키도 가상 컬럼으로 추가 (Phase 1C 결과)
+        # 2. filename_values의 키도 가상 컬럼으로 추가 (Phase 7 결과)
         filename_values = table.get('filename_values', {})
         if filename_values:
             for fv_key, fv_value in filename_values.items():
@@ -283,7 +283,7 @@ def _build_tables_context(tables: List[Dict]) -> str:
         lines.append(f"- entity_identifier: {table['entity_identifier'] or '(none)'}")
         lines.append(f"- row_count: {table['row_count']:,}")
         
-        # filename_values 표시 (Phase 1C 결과)
+        # filename_values 표시 (Phase 7 결과)
         filename_values = table.get('filename_values', {})
         if filename_values:
             lines.append(f"- filename_values (extracted from filename): {filename_values}")
@@ -745,7 +745,7 @@ def _create_filename_value_edges(driver, tables: List[Dict]) -> int:
     """
     filename_values에서 추출된 값을 Parameter 노드와 FILENAME_VALUE 관계로 연결
     
-    Phase 1C의 matched_column 정보를 활용하여 의미론적으로 풍부한 관계 생성
+    Phase 7의 matched_column 정보를 활용하여 의미론적으로 풍부한 관계 생성
     
     관계 속성:
     - value: 추출된 값 (예: 4388)
@@ -894,7 +894,7 @@ def _sync_to_neo4j(
         stats["edges_has_column"] = _create_has_column_edges(driver, tables)
         print(f"      ✓ HAS_COLUMN edges: {stats['edges_has_column']}")
         
-        # FILENAME_VALUE edges (Phase 1C 결과 활용)
+        # FILENAME_VALUE edges (Phase 7 결과 활용)
         stats["edges_filename_value"] = _create_filename_value_edges(driver, tables)
         print(f"      ✓ FILENAME_VALUE edges: {stats['edges_filename_value']}")
         
@@ -910,7 +910,7 @@ def _sync_to_neo4j(
 
 def phase9_relationship_inference_node(state: AgentState) -> Dict[str, Any]:
     """
-    Phase 2B: Relationship Inference + Neo4j Sync
+    Phase 9: Relationship Inference + Neo4j Sync
     
     1. table_entities + column_metadata 로드
     2. 공유 컬럼 탐지 (FK 후보)
@@ -919,11 +919,11 @@ def phase9_relationship_inference_node(state: AgentState) -> Dict[str, Any]:
     5. Neo4j 3-Level Ontology 구축
     
     Input (from state):
-        - phase2a_result: Phase 2A 완료 정보
+        - phase8_result: Phase 8 완료 정보
         - data_files: 데이터 파일 목록
     
     Output:
-        - phase2b_result: Phase2BResult 형태
+        - phase9_result: Phase9Result 형태
         - table_relationships: TableRelationship 목록
     """
     print("\n" + "="*60)
@@ -943,7 +943,7 @@ def phase9_relationship_inference_node(state: AgentState) -> Dict[str, Any]:
     if not tables:
         print("⚠️ No tables found (run Phase 8 first)")
         return {
-            "phase9_result": Phase2BResult(
+            "phase9_result": Phase9Result(
                 started_at=started_at,
                 completed_at=datetime.now().isoformat()
             ).model_dump(),
@@ -1007,7 +1007,7 @@ def phase9_relationship_inference_node(state: AgentState) -> Dict[str, Any]:
     # 9. 결과 반환
     completed_at = datetime.now().isoformat()
     
-    phase2b_result = Phase2BResult(
+    phase9_result = Phase9Result(
         relationships_found=len(relationships),
         relationships_high_conf=high_conf,
         row_entity_nodes=neo4j_stats['row_entity_nodes'],
@@ -1024,7 +1024,7 @@ def phase9_relationship_inference_node(state: AgentState) -> Dict[str, Any]:
     )
     
     return {
-        "phase9_result": phase2b_result.model_dump(),
+        "phase9_result": phase9_result.model_dump(),
         "table_relationships": [r.model_dump() for r in relationships]
     }
 

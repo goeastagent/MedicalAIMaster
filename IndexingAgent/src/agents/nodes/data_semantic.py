@@ -1,6 +1,6 @@
 # src/agents/nodes/data_semantic.py
 """
-Phase 1B: Data Semantic Analysis Node
+Phase 6: Data Semantic Analysis Node
 
 데이터 파일(is_metadata=false)의 컬럼을 의미론적으로 분석하고
 data_dictionary와 연결합니다.
@@ -222,7 +222,7 @@ def _build_columns_info(columns: List[Dict], config: Phase6Config) -> str:
     
     Args:
         columns: 컬럼 정보 리스트
-        config: Phase1B 설정 (표시 개수 제한)
+        config: Phase6Config 설정 (표시 개수 제한)
     
     Returns:
         포맷된 컬럼 정보 문자열
@@ -326,7 +326,7 @@ def _call_llm_for_semantic(
         columns: 분석할 컬럼 목록
         dict_keys_list: dictionary key 목록 문자열
         dict_context: dictionary 상세 정보 문자열
-        config: Phase1B 설정
+        config: Phase6Config 설정
     
     Returns:
         DataSemanticResponse or None
@@ -508,17 +508,17 @@ def _get_data_files_info(db, data_files: List[str]) -> List[Dict]:
 
 def phase6_data_semantic_node(state: AgentState) -> AgentState:
     """
-    Phase 1B: Data Semantic Analysis Node
+    Phase 6: Data Semantic Analysis Node
     
     데이터 파일의 컬럼을 의미론적으로 분석하고 data_dictionary와 연결
     
     Input State:
         - data_files: 분석할 데이터 파일 경로 목록
-        - (DB) data_dictionary: Phase 1A에서 생성된 parameter definitions
-        - (DB) column_metadata: Phase 0에서 생성된 컬럼 정보 + 통계
+        - (DB) data_dictionary: Phase 5에서 생성된 parameter definitions
+        - (DB) column_metadata: Phase 2에서 생성된 컬럼 정보 + 통계
     
     Output State:
-        - phase1b_result: DataSemanticResult
+        - phase6_result: DataSemanticResult
         - data_semantic_entries: 분석된 컬럼 정보 리스트
         - (DB) column_metadata 업데이트: semantic_name, unit, dict_entry_id 등
     """
