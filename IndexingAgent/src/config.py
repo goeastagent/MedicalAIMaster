@@ -2,21 +2,21 @@
 """
 IndexingAgent Configuration
 
-10-Phase Sequential Pipeline 설정:
-- Phase 1: Directory Catalog
-- Phase 3: Schema Aggregation
-- Phase 5: Metadata Semantic
-- Phase 6: Data Semantic
-- Phase 7: Directory Pattern
-- Phase 8: Entity Identification
-- Phase 9: Relationship Inference
-- Phase 10: Ontology Enhancement
+10-Node Sequential Pipeline 설정:
+- DirectoryCatalogConfig: 디렉토리 카탈로그
+- SchemaAggregationConfig: 스키마 집계
+- MetadataSemanticConfig: 메타데이터 시맨틱 분석
+- DataSemanticConfig: 데이터 시맨틱 분석
+- DirectoryPatternConfig: 디렉토리 패턴 분석
+- EntityIdentificationConfig: 엔티티 식별
+- RelationshipInferenceConfig: 관계 추론
+- OntologyEnhancementConfig: 온톨로지 강화
 
 구조:
 - Neo4jConfig: Neo4j 데이터베이스 설정
 - LLMConfig: LLM Provider 설정
-- BaseLLMPhaseConfig: LLM 사용 Phase의 공통 설정 (추상)
-- Phase1~10Config: 각 Phase별 설정
+- BaseLLMNodeConfig: LLM 사용 Node의 공통 설정 (추상)
+- *Config: 각 Node별 설정
 - ProcessingConfig: 파일 처리 관련 설정
 """
 import os
@@ -68,11 +68,11 @@ class LLMConfig:
 # Base Configuration Classes (공통 설정)
 # =============================================================================
 
-class BaseLLMPhaseConfig:
+class BaseLLMNodeConfig:
     """
-    LLM을 사용하는 Phase의 공통 설정
+    LLM을 사용하는 Node의 공통 설정
     
-    Phase 5, 6, 8, 9, 10이 상속받아 사용합니다.
+    metadata_semantic, data_semantic, entity_identification 등이 상속받아 사용합니다.
     서브클래스에서 필요시 오버라이드 가능합니다.
     """
     # LLM 재시도 설정
@@ -83,36 +83,44 @@ class BaseLLMPhaseConfig:
     CONFIDENCE_THRESHOLD: float = 0.8
 
 
-class BaseNeo4jPhaseConfig(BaseLLMPhaseConfig):
+# Backward compatibility alias
+BaseLLMPhaseConfig = BaseLLMNodeConfig
+
+
+class BaseNeo4jNodeConfig(BaseLLMNodeConfig):
     """
-    Neo4j를 사용하는 Phase의 공통 설정
+    Neo4j를 사용하는 Node의 공통 설정
     
-    Phase 9, 10이 상속받아 사용합니다.
+    relationship_inference, ontology_enhancement이 상속받아 사용합니다.
     """
     # Neo4j 연결 설정
     NEO4J_ENABLED: bool = os.getenv("NEO4J_ENABLED", "true").lower() == "true"
 
 
+# Backward compatibility alias
+BaseNeo4jPhaseConfig = BaseNeo4jNodeConfig
+
+
 # =============================================================================
-# Phase 1-3: Rule-based Phases (LLM 미사용)
+# Rule-based Nodes (LLM 미사용): directory_catalog, file_catalog, schema_aggregation
 # =============================================================================
 
-class Phase1Config:
-    """Phase 1: Directory Catalog 설정"""
+class DirectoryCatalogConfig:
+    """[directory_catalog] 디렉토리 카탈로그 설정"""
     
     # --- 1. 파일명 샘플링 ---
-    FILENAME_SAMPLE_SIZE = int(os.getenv("PHASE_NEG1_SAMPLE_SIZE", "20"))
+    FILENAME_SAMPLE_SIZE = int(os.getenv("DIR_CATALOG_SAMPLE_SIZE", "20"))
     
     # 샘플링 전략: "first", "random", "diverse"
-    SAMPLE_STRATEGY = os.getenv("PHASE_NEG1_SAMPLE_STRATEGY", "diverse")
+    SAMPLE_STRATEGY = os.getenv("DIR_CATALOG_SAMPLE_STRATEGY", "diverse")
     
     # --- 2. 디렉토리 필터링 ---
     IGNORE_DIRS = [".git", "__pycache__", "node_modules", ".venv", "venv", ".idea", ".vscode"]
     IGNORE_PATTERNS = [".*", "*.pyc", "*.log", "*.tmp", "*.bak"]
     
     # --- 3. 처리 옵션 ---
-    MIN_FILES_FOR_PATTERN = int(os.getenv("PHASE_NEG1_MIN_FILES", "3"))
-    MAX_DEPTH = int(os.getenv("PHASE_NEG1_MAX_DEPTH", "10"))
+    MIN_FILES_FOR_PATTERN = int(os.getenv("DIR_CATALOG_MIN_FILES", "3"))
+    MAX_DEPTH = int(os.getenv("DIR_CATALOG_MAX_DEPTH", "10"))
     
     # --- 4. 확장자 그룹 ---
     SIGNAL_EXTENSIONS = {"vital", "edf", "bdf", "wav", "wfdb"}
@@ -120,35 +128,43 @@ class Phase1Config:
     METADATA_EXTENSIONS = {"json", "xml", "yaml", "yml", "txt", "md"}
     
     # --- 5. 디렉토리 타입 분류 기준 ---
-    TYPE_CLASSIFICATION_THRESHOLD = float(os.getenv("PHASE_NEG1_TYPE_THRESHOLD", "0.8"))
+    TYPE_CLASSIFICATION_THRESHOLD = float(os.getenv("DIR_CATALOG_TYPE_THRESHOLD", "0.8"))
 
 
-class Phase3Config:
-    """Phase 3: Schema Aggregation 설정"""
+# Backward compatibility alias
+Phase1Config = DirectoryCatalogConfig
+
+
+class SchemaAggregationConfig:
+    """[schema_aggregation] 스키마 집계 설정"""
     
     # --- 1. 배치 크기 ---
-    BATCH_SIZE = int(os.getenv("PHASE05_BATCH_SIZE", "100"))
+    BATCH_SIZE = int(os.getenv("SCHEMA_AGG_BATCH_SIZE", "100"))
     
     # --- 2. 집계 설정 ---
     MAX_SAMPLE_FILE_IDS = 3
     MAX_SAMPLE_VALUES = 5
 
 
+# Backward compatibility alias
+Phase3Config = SchemaAggregationConfig
+
+
 # =============================================================================
-# Phase 5-10: LLM-based Phases
+# LLM-based Nodes: file_classification ~ ontology_enhancement
 # =============================================================================
 
-class Phase5Config(BaseLLMPhaseConfig):
-    """Phase 5: Metadata Semantic Analysis 설정"""
+class MetadataSemanticConfig(BaseLLMNodeConfig):
+    """[metadata_semantic] 메타데이터 시맨틱 분석 설정"""
     
     # --- 1. 배치 크기 ---
-    COLUMN_BATCH_SIZE = int(os.getenv("PHASE1_COLUMN_BATCH_SIZE", "50"))
-    FILE_BATCH_SIZE = int(os.getenv("PHASE1_FILE_BATCH_SIZE", "20"))
+    COLUMN_BATCH_SIZE = int(os.getenv("METADATA_SEM_COLUMN_BATCH_SIZE", "50"))
+    FILE_BATCH_SIZE = int(os.getenv("METADATA_SEM_FILE_BATCH_SIZE", "20"))
     
-    # --- 2. Confidence 설정 (BaseLLMPhaseConfig.CONFIDENCE_THRESHOLD 오버라이드) ---
-    CONFIDENCE_THRESHOLD = float(os.getenv("PHASE1_CONFIDENCE_THRESHOLD", "0.8"))
-    MAX_REVIEW_RETRIES = int(os.getenv("PHASE1_MAX_REVIEW_RETRIES", "3"))
-    MIN_LOW_CONF_RATIO = float(os.getenv("PHASE1_MIN_LOW_CONF_RATIO", "0.55"))
+    # --- 2. Confidence 설정 ---
+    CONFIDENCE_THRESHOLD = float(os.getenv("METADATA_SEM_CONFIDENCE_THRESHOLD", "0.8"))
+    MAX_REVIEW_RETRIES = int(os.getenv("METADATA_SEM_MAX_REVIEW_RETRIES", "3"))
+    MIN_LOW_CONF_RATIO = float(os.getenv("METADATA_SEM_MIN_LOW_CONF_RATIO", "0.55"))
     
     # --- 3. 컨셉 카테고리 ---
     CONCEPT_CATEGORIES = [
@@ -197,75 +213,99 @@ class Phase5Config(BaseLLMPhaseConfig):
     ]
 
 
-class Phase6Config(BaseLLMPhaseConfig):
-    """Phase 6: Data Semantic Analysis 설정"""
+# Backward compatibility alias
+Phase5Config = MetadataSemanticConfig
+
+
+class DataSemanticConfig(BaseLLMNodeConfig):
+    """[data_semantic] 데이터 시맨틱 분석 설정"""
     
     # --- 1. 컬럼 배치 크기 ---
-    COLUMN_BATCH_SIZE = int(os.getenv("PHASE1B_COLUMN_BATCH_SIZE", "50"))
+    COLUMN_BATCH_SIZE = int(os.getenv("DATA_SEM_COLUMN_BATCH_SIZE", "50"))
     
     # --- 2. Dictionary Context 설정 ---
-    MAX_DICT_ENTRIES = int(os.getenv("PHASE1B_MAX_DICT_ENTRIES", "0"))
+    MAX_DICT_ENTRIES = int(os.getenv("DATA_SEM_MAX_DICT_ENTRIES", "0"))
     
     # --- 3. 통계 정보 설정 ---
-    MAX_UNIQUE_VALUES_DISPLAY = int(os.getenv("PHASE1B_MAX_UNIQUE_VALUES", "10"))
-    MAX_SAMPLES_DISPLAY = int(os.getenv("PHASE1B_MAX_SAMPLES", "3"))
+    MAX_UNIQUE_VALUES_DISPLAY = int(os.getenv("DATA_SEM_MAX_UNIQUE_VALUES", "10"))
+    MAX_SAMPLES_DISPLAY = int(os.getenv("DATA_SEM_MAX_SAMPLES", "3"))
     
-    # --- 4. Confidence 임계값 (오버라이드) ---
-    CONFIDENCE_THRESHOLD = float(os.getenv("PHASE1B_MATCH_CONFIDENCE", "0.7"))
+    # --- 4. Confidence 임계값 ---
+    CONFIDENCE_THRESHOLD = float(os.getenv("DATA_SEM_MATCH_CONFIDENCE", "0.7"))
 
 
-class Phase7Config:
-    """Phase 7: Directory Pattern Analysis 설정"""
+# Backward compatibility alias
+Phase6Config = DataSemanticConfig
+
+
+class DirectoryPatternConfig:
+    """[directory_pattern] 디렉토리 패턴 분석 설정"""
     
     # --- 1. 배치 처리 ---
-    MAX_DIRS_PER_BATCH = int(os.getenv("PHASE1C_MAX_DIRS_BATCH", "10"))
-    MAX_SAMPLES_PER_DIR = int(os.getenv("PHASE1C_MAX_SAMPLES", "10"))
+    MAX_DIRS_PER_BATCH = int(os.getenv("DIR_PATTERN_MAX_DIRS_BATCH", "10"))
+    MAX_SAMPLES_PER_DIR = int(os.getenv("DIR_PATTERN_MAX_SAMPLES", "10"))
     
     # --- 2. 필터링 ---
-    MIN_FILES_FOR_PATTERN = int(os.getenv("PHASE1C_MIN_FILES", "3"))
+    MIN_FILES_FOR_PATTERN = int(os.getenv("DIR_PATTERN_MIN_FILES", "3"))
     SKIP_EXTENSIONS = {"txt", "md", "json", "xml", "yaml", "yml"}
 
 
-class Phase8Config(BaseLLMPhaseConfig):
-    """Phase 8: Entity Identification 설정"""
+# Backward compatibility alias
+Phase7Config = DirectoryPatternConfig
+
+
+class EntityIdentificationConfig(BaseLLMNodeConfig):
+    """[entity_identification] 엔티티 식별 설정"""
     
     # --- 1. 배치 크기 ---
-    TABLE_BATCH_SIZE = int(os.getenv("PHASE2A_TABLE_BATCH_SIZE", "10"))
+    TABLE_BATCH_SIZE = int(os.getenv("ENTITY_ID_TABLE_BATCH_SIZE", "10"))
     
-    # --- 2. Confidence 임계값 (오버라이드) ---
-    CONFIDENCE_THRESHOLD = float(os.getenv("PHASE2A_CONFIDENCE", "0.8"))
+    # --- 2. Confidence 임계값 ---
+    CONFIDENCE_THRESHOLD = float(os.getenv("ENTITY_ID_CONFIDENCE", "0.8"))
     
     # --- 3. 컬럼 정보 표시 설정 ---
-    MAX_COLUMNS_PER_TABLE = int(os.getenv("PHASE2A_MAX_COLUMNS", "30"))
+    MAX_COLUMNS_PER_TABLE = int(os.getenv("ENTITY_ID_MAX_COLUMNS", "30"))
     SHOW_UNIQUE_COUNTS = True
 
 
-class Phase9Config(BaseNeo4jPhaseConfig):
-    """Phase 9: Relationship Inference + Neo4j 설정"""
+# Backward compatibility alias
+Phase8Config = EntityIdentificationConfig
+
+
+class RelationshipInferenceConfig(BaseNeo4jNodeConfig):
+    """[relationship_inference] 관계 추론 + Neo4j 설정"""
     
-    # --- 1. Confidence 임계값 (오버라이드) ---
-    CONFIDENCE_THRESHOLD = float(os.getenv("PHASE2B_CONFIDENCE", "0.8"))
+    # --- 1. Confidence 임계값 ---
+    CONFIDENCE_THRESHOLD = float(os.getenv("REL_INFER_CONFIDENCE", "0.8"))
     
     # --- 2. FK 후보 탐지 설정 ---
     FK_CANDIDATE_CONCEPTS = ["Identifiers", "Demographics"]
     FK_CANDIDATE_PATTERNS = ["id", "ID", "Id", "key", "Key", "code", "Code"]
 
 
-class Phase10Config(BaseNeo4jPhaseConfig):
-    """Phase 10: Ontology Enhancement 설정"""
+# Backward compatibility alias
+Phase9Config = RelationshipInferenceConfig
+
+
+class OntologyEnhancementConfig(BaseNeo4jNodeConfig):
+    """[ontology_enhancement] 온톨로지 강화 설정"""
     
-    # --- 1. Confidence 임계값 (오버라이드) ---
-    CONFIDENCE_THRESHOLD = float(os.getenv("PHASE2C_CONFIDENCE", "0.7"))
+    # --- 1. Confidence 임계값 ---
+    CONFIDENCE_THRESHOLD = float(os.getenv("ONTOLOGY_ENH_CONFIDENCE", "0.7"))
     
     # --- 2. Task 활성화 설정 ---
-    ENABLE_CONCEPT_HIERARCHY = os.getenv("PHASE2C_CONCEPT_HIERARCHY", "true").lower() == "true"
-    ENABLE_SEMANTIC_EDGES = os.getenv("PHASE2C_SEMANTIC_EDGES", "true").lower() == "true"
-    ENABLE_MEDICAL_TERMS = os.getenv("PHASE2C_MEDICAL_TERMS", "true").lower() == "true"
-    ENABLE_CROSS_TABLE = os.getenv("PHASE2C_CROSS_TABLE", "true").lower() == "true"
+    ENABLE_CONCEPT_HIERARCHY = os.getenv("ONTOLOGY_ENH_CONCEPT_HIERARCHY", "true").lower() == "true"
+    ENABLE_SEMANTIC_EDGES = os.getenv("ONTOLOGY_ENH_SEMANTIC_EDGES", "true").lower() == "true"
+    ENABLE_MEDICAL_TERMS = os.getenv("ONTOLOGY_ENH_MEDICAL_TERMS", "true").lower() == "true"
+    ENABLE_CROSS_TABLE = os.getenv("ONTOLOGY_ENH_CROSS_TABLE", "true").lower() == "true"
     
     # --- 3. 배치 설정 ---
-    PARAMETER_BATCH_SIZE = int(os.getenv("PHASE2C_PARAM_BATCH_SIZE", "30"))
-    MEDICAL_TERM_BATCH_SIZE = int(os.getenv("PHASE2C_MED_TERM_BATCH_SIZE", "20"))
+    PARAMETER_BATCH_SIZE = int(os.getenv("ONTOLOGY_ENH_PARAM_BATCH_SIZE", "30"))
+    MEDICAL_TERM_BATCH_SIZE = int(os.getenv("ONTOLOGY_ENH_MED_TERM_BATCH_SIZE", "20"))
+
+
+# Backward compatibility alias
+Phase10Config = OntologyEnhancementConfig
 
 
 # =============================================================================
@@ -275,9 +315,9 @@ class Phase10Config(BaseNeo4jPhaseConfig):
 class ProcessingConfig:
     """파일 처리 관련 설정"""
     
-    # --- 0. 파일 확장자 (Phase1Config에서 참조) ---
-    SIGNAL_EXTENSIONS = Phase1Config.SIGNAL_EXTENSIONS
-    TABULAR_EXTENSIONS = Phase1Config.TABULAR_EXTENSIONS
+    # --- 0. 파일 확장자 (DirectoryCatalogConfig에서 참조) ---
+    SIGNAL_EXTENSIONS = DirectoryCatalogConfig.SIGNAL_EXTENSIONS
+    TABULAR_EXTENSIONS = DirectoryCatalogConfig.TABULAR_EXTENSIONS
     
     # --- 1. 파일 크기 임계값 ---
     LARGE_FILE_THRESHOLD_MB = 50

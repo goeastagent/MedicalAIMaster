@@ -68,9 +68,9 @@ class PhaseResultBase(BaseModel):
 
 class Neo4jPhaseResultBase(PhaseResultBase):
     """
-    Neo4j 사용 Phase 결과의 공통 필드
+    Neo4j 사용 Node 결과의 공통 필드
     
-    Phase 9, 10 등 Neo4j를 사용하는 Phase의 결과 모델이 상속받습니다.
+    relationship_inference, ontology_enhancement 등 Neo4j를 사용하는 노드의 결과 모델이 상속받습니다.
     """
     neo4j_synced: bool = False
 

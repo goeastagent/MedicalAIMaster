@@ -81,7 +81,7 @@ class DictionaryRepository(BaseRepository):
         """
         parameter_key → dict_id 매핑 반환
         
-        Phase 6에서 LLM이 반환한 key를 dict_id로 변환할 때 사용
+        data_semantic node에서 LLM이 반환한 key를 dict_id로 변환할 때 사용
         """
         entries = self.get_all_entries()
         return {e['parameter_key']: e['dict_id'] for e in entries}

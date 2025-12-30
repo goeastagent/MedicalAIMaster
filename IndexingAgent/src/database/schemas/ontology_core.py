@@ -1,6 +1,6 @@
 # src/database/schemas/ontology_core.py
 """
-Ontology Core DDL (Phase 8/9)
+Ontology Core DDL (entity_identification / relationship_inference)
 
 테이블 Entity와 Relationship 정의:
 - ontology_column_metadata: LLM 분석 컬럼 메타데이터 (JSONB 기반)

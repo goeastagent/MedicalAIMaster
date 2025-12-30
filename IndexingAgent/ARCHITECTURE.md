@@ -15,7 +15,7 @@ Indexing Agent는 의료 데이터 파일(CSV, Signal 등)을 분석하여:
 
 ---
 
-## 🔄 10-Phase Sequential Pipeline
+## 🔄 10-Node Sequential Pipeline
 
 ```
 ┌─────────────────────────────────────────────────────────────────────┐
@@ -24,16 +24,16 @@ Indexing Agent는 의료 데이터 파일(CSV, Signal 등)을 분석하여:
                                     │
                                     ▼
 ┌─────────────────────────────────────────────────────────────────────┐
-│  Phase 1: Directory Catalog (Rule-based)                            │
+│  [directory_catalog] (Rule-based)                                   │
 │  ───────────────────────────────────────                            │
 │  • 디렉토리 구조 분석                                                 │
 │  • 파일 확장자별 카운트                                               │
-│  • 파일명 샘플 수집 (Phase 7에서 LLM 분석용)                          │
+│  • 파일명 샘플 수집 (directory_pattern에서 LLM 분석용)                │
 └─────────────────────────────────────────────────────────────────────┘
                                     │
                                     ▼
 ┌─────────────────────────────────────────────────────────────────────┐
-│  Phase 2: File Catalog (Rule-based)                                 │
+│  [file_catalog] (Rule-based)                                        │
 │  ─────────────────────────────────                                  │
 │  • 파일별 메타데이터 추출 (컬럼명, 타입, 통계)                         │
 │  • DB 저장 (file_catalog, column_metadata)                          │
@@ -41,7 +41,7 @@ Indexing Agent는 의료 데이터 파일(CSV, Signal 등)을 분석하여:
                                     │
                                     ▼
 ┌─────────────────────────────────────────────────────────────────────┐
-│  Phase 3: Schema Aggregation (Rule-based)                           │
+│  [schema_aggregation] (Rule-based)                                  │
 │  ────────────────────────────────────────                           │
 │  • 유니크 컬럼명 집계                                                 │
 │  • 대표 통계 계산                                                     │
@@ -50,7 +50,7 @@ Indexing Agent는 의료 데이터 파일(CSV, Signal 등)을 분석하여:
                                     │
                                     ▼
 ┌─────────────────────────────────────────────────────────────────────┐
-│  Phase 4: File Classification (LLM)                                 │
+│  [file_classification] (LLM)                                        │
 │  ──────────────────────────────────                                 │
 │  • 파일을 "metadata" vs "data"로 분류                                │
 │  • 🤖 LLM 사용: 파일명, 컬럼명, 샘플 데이터 분석                       │
@@ -58,7 +58,7 @@ Indexing Agent는 의료 데이터 파일(CSV, Signal 등)을 분석하여:
                                     │
                                     ▼
 ┌─────────────────────────────────────────────────────────────────────┐
-│  Phase 5: Metadata Semantic (LLM)                                   │
+│  [metadata_semantic] (LLM)                                          │
 │  ────────────────────────────────                                   │
 │  • metadata 파일에서 data_dictionary 추출                            │
 │  • key, description, unit 파싱                                       │
@@ -67,7 +67,7 @@ Indexing Agent는 의료 데이터 파일(CSV, Signal 등)을 분석하여:
                                     │
                                     ▼
 ┌─────────────────────────────────────────────────────────────────────┐
-│  Phase 6: Data Semantic (LLM)                                       │
+│  [data_semantic] (LLM)                                              │
 │  ────────────────────────────                                       │
 │  • data 파일 컬럼 의미 분석                                           │
 │  • data_dictionary와 매칭                                            │
@@ -76,7 +76,7 @@ Indexing Agent는 의료 데이터 파일(CSV, Signal 등)을 분석하여:
                                     │
                                     ▼
 ┌─────────────────────────────────────────────────────────────────────┐
-│  Phase 7: Directory Pattern (LLM)                                   │
+│  [directory_pattern] (LLM)                                          │
 │  ────────────────────────────────                                   │
 │  • 디렉토리별 파일명 패턴 분석                                         │
 │  • ID 값 추출 (예: 00001.vital → caseid=00001)                       │
@@ -85,7 +85,7 @@ Indexing Agent는 의료 데이터 파일(CSV, Signal 등)을 분석하여:
                                     │
                                     ▼
 ┌─────────────────────────────────────────────────────────────────────┐
-│  Phase 8: Entity Identification (LLM)                               │
+│  [entity_identification] (LLM)                                      │
 │  ────────────────────────────────────                               │
 │  • 테이블별 row_represents 식별 (각 행이 무엇을 나타내는가)            │
 │  • entity_identifier 컬럼 식별 (행을 고유하게 식별하는 컬럼)           │
@@ -94,7 +94,7 @@ Indexing Agent는 의료 데이터 파일(CSV, Signal 등)을 분석하여:
                                     │
                                     ▼
 ┌─────────────────────────────────────────────────────────────────────┐
-│  Phase 9: Relationship Inference (LLM + Neo4j)                      │
+│  [relationship_inference] (LLM + Neo4j)                             │
 │  ─────────────────────────────────────────────                      │
 │  • 테이블 간 FK 관계 추론                                             │
 │  • Neo4j에 3-Level Ontology 구축                                     │
@@ -103,7 +103,7 @@ Indexing Agent는 의료 데이터 파일(CSV, Signal 등)을 분석하여:
                                     │
                                     ▼
 ┌─────────────────────────────────────────────────────────────────────┐
-│  Phase 10: Ontology Enhancement (LLM + Neo4j)                       │
+│  [ontology_enhancement] (LLM + Neo4j)                               │
 │  ────────────────────────────────────────────                       │
 │  • Concept Hierarchy (SubCategory 세분화)                            │
 │  • Semantic Edges (파라미터 간 의미 관계)                             │
@@ -122,75 +122,75 @@ Indexing Agent는 의료 데이터 파일(CSV, Signal 등)을 분석하여:
 
 ---
 
-## 📊 Phase별 상세 설명
+## 📊 Node별 상세 설명
 
-### Phase 1-3: Rule-based 메타데이터 수집
+### Rule-based 메타데이터 수집 (order 100~300)
 
-| Phase | 이름 | 역할 | 저장 테이블 |
-|-------|------|------|------------|
-| 1 | Directory Catalog | 디렉토리 구조 분석 | directory_catalog |
-| 2 | File Catalog | 파일/컬럼 메타데이터 | file_catalog, column_metadata |
-| 3 | Schema Aggregation | 유니크 컬럼 집계 | (state에만 저장) |
+| Node | 역할 | 저장 테이블 |
+|------|------|------------|
+| directory_catalog | 디렉토리 구조 분석 | directory_catalog |
+| file_catalog | 파일/컬럼 메타데이터 | file_catalog, column_metadata |
+| schema_aggregation | 유니크 컬럼 집계 | (state에만 저장) |
 
-### Phase 4-10: LLM 기반 의미 분석
+### LLM 기반 의미 분석 (order 400~1000)
 
-| Phase | 이름 | 역할 | 저장 테이블 |
-|-------|------|------|------------|
-| 4 | File Classification | metadata/data 분류 | file_catalog.is_metadata |
-| 5 | Metadata Semantic | data_dictionary 추출 | data_dictionary |
-| 6 | Data Semantic | 컬럼 의미 분석 | column_metadata (semantic 필드) |
-| 7 | Directory Pattern | 파일명 패턴 분석 | directory_catalog, file_catalog |
-| 8 | Entity Identification | row_represents 식별 | table_entities |
-| 9 | Relationship Inference | FK 관계 추론 | table_relationships, Neo4j |
-| 10 | Ontology Enhancement | 온톨로지 확장 | 다수 테이블, Neo4j |
+| Node | 역할 | 저장 테이블 |
+|------|------|------------|
+| file_classification | metadata/data 분류 | file_catalog.is_metadata |
+| metadata_semantic | data_dictionary 추출 | data_dictionary |
+| data_semantic | 컬럼 의미 분석 | column_metadata (semantic 필드) |
+| directory_pattern | 파일명 패턴 분석 | directory_catalog, file_catalog |
+| entity_identification | row_represents 식별 | table_entities |
+| relationship_inference | FK 관계 추론 | table_relationships, Neo4j |
+| ontology_enhancement | 온톨로지 확장 | 다수 테이블, Neo4j |
 
 ---
 
 ## 🤖 LLM이 사용되는 곳
 
-### Phase 4: 파일 분류
+### [file_classification] 파일 분류
 ```
 입력: 파일명, 컬럼 목록, 샘플 데이터
 질문: "이 파일이 메타데이터(코드북/사전)인가요, 실제 데이터인가요?"
 출력: { is_metadata: true/false, confidence: 0.95, reasoning: "..." }
 ```
 
-### Phase 5: 메타데이터 분석
+### [metadata_semantic] 메타데이터 분석
 ```
 입력: metadata 파일의 컬럼 정보
 질문: "어떤 컬럼이 key, description, unit 역할인가요?"
 출력: { key_column: "...", desc_column: "...", unit_column: "..." }
 ```
 
-### Phase 6: 데이터 시맨틱 분석
+### [data_semantic] 데이터 시맨틱 분석
 ```
 입력: data 파일의 컬럼 정보 + data_dictionary 컨텍스트
 질문: "이 컬럼들의 의미와 dictionary entry 매칭 결과는?"
 출력: [{ column: "...", semantic_name: "...", concept_category: "...", dict_match: "..." }, ...]
 ```
 
-### Phase 7: 디렉토리 패턴 분석
+### [directory_pattern] 디렉토리 패턴 분석
 ```
 입력: 파일명 샘플 (예: ["00001.vital", "00002.vital", ...])
 질문: "파일명에서 어떤 필드를 추출할 수 있나요?"
 출력: { pattern: "{caseid}.vital", columns: ["caseid"] }
 ```
 
-### Phase 8: Entity 식별
+### [entity_identification] Entity 식별
 ```
 입력: 테이블 컬럼 정보
 질문: "이 테이블의 각 행은 무엇을 나타내나요? 행을 고유하게 식별하는 컬럼은?"
 출력: { row_represents: "surgery", entity_identifier: "caseid" }
 ```
 
-### Phase 9: 관계 추론
+### [relationship_inference] 관계 추론
 ```
 입력: 두 테이블의 Entity 정보
 질문: "이 테이블들 간의 FK 관계는?"
 출력: { source_column: "caseid", target_column: "caseid", cardinality: "1:N" }
 ```
 
-### Phase 10: 온톨로지 강화
+### [ontology_enhancement] 온톨로지 강화
 ```
 입력: concept_category별 파라미터 목록
 질문: "이 파라미터들을 더 세분화하고, SNOMED/LOINC 코드를 매핑해주세요"
@@ -224,39 +224,39 @@ Indexing Agent는 의료 데이터 파일(CSV, Signal 등)을 분석하여:
 
 ### PostgreSQL
 
-| 테이블 | 생성 Phase | 설명 |
+| 테이블 | 생성 Node | 설명 |
 |--------|-----------|------|
-| directory_catalog | 1, 7 | 디렉토리 메타데이터 + 파일명 패턴 |
-| file_catalog | 2, 4 | 파일 메타데이터 + 분류 결과 |
-| column_metadata | 2, 6 | 컬럼 메타데이터 + 시맨틱 정보 |
-| data_dictionary | 5 | 파라미터 정의 (key, desc, unit) |
-| table_entities | 8 | 테이블 Entity 정보 |
-| table_relationships | 9 | FK 관계 |
-| ontology_subcategories | 10 | SubCategory 세분화 |
-| semantic_edges | 10 | 파라미터 간 의미 관계 |
-| medical_term_mappings | 10 | SNOMED/LOINC 매핑 |
-| cross_table_semantics | 10 | 테이블 간 시맨틱 관계 |
+| directory_catalog | directory_catalog, directory_pattern | 디렉토리 메타데이터 + 파일명 패턴 |
+| file_catalog | file_catalog, file_classification | 파일 메타데이터 + 분류 결과 |
+| column_metadata | file_catalog, data_semantic | 컬럼 메타데이터 + 시맨틱 정보 |
+| data_dictionary | metadata_semantic | 파라미터 정의 (key, desc, unit) |
+| table_entities | entity_identification | 테이블 Entity 정보 |
+| table_relationships | relationship_inference | FK 관계 |
+| ontology_subcategories | ontology_enhancement | SubCategory 세분화 |
+| semantic_edges | ontology_enhancement | 파라미터 간 의미 관계 |
+| medical_term_mappings | ontology_enhancement | SNOMED/LOINC 매핑 |
+| cross_table_semantics | ontology_enhancement | 테이블 간 시맨틱 관계 |
 
 ### Neo4j
 
-| 노드 타입 | 생성 Phase | 설명 |
+| 노드 타입 | 생성 Node | 설명 |
 |----------|-----------|------|
-| RowEntity | 9 | 테이블이 나타내는 Entity |
-| ConceptCategory | 9 | 개념 카테고리 (Vital Signs 등) |
-| SubCategory | 10 | 세분화된 카테고리 |
-| Parameter | 9, 10 | 측정 파라미터 |
-| MedicalTerm | 10 | 표준 의료 용어 |
+| RowEntity | relationship_inference | 테이블이 나타내는 Entity |
+| ConceptCategory | relationship_inference | 개념 카테고리 (Vital Signs 등) |
+| SubCategory | ontology_enhancement | 세분화된 카테고리 |
+| Parameter | relationship_inference, ontology_enhancement | 측정 파라미터 |
+| MedicalTerm | ontology_enhancement | 표준 의료 용어 |
 
-| 관계 타입 | 생성 Phase | 설명 |
+| 관계 타입 | 생성 Node | 설명 |
 |----------|-----------|------|
-| LINKS_TO | 9 | 테이블 간 FK 관계 |
-| HAS_CONCEPT | 9 | Entity → Category |
-| HAS_SUBCATEGORY | 10 | Category → SubCategory |
-| CONTAINS | 9 | Category → Parameter |
-| HAS_COLUMN | 9 | Entity → Parameter |
-| DERIVED_FROM | 10 | 파라미터 파생 관계 |
-| RELATED_TO | 10 | 파라미터 상관 관계 |
-| MAPS_TO | 10 | 표준 용어 매핑 |
+| LINKS_TO | relationship_inference | 테이블 간 FK 관계 |
+| HAS_CONCEPT | relationship_inference | Entity → Category |
+| HAS_SUBCATEGORY | ontology_enhancement | Category → SubCategory |
+| CONTAINS | relationship_inference | Category → Parameter |
+| HAS_COLUMN | relationship_inference | Entity → Parameter |
+| DERIVED_FROM | ontology_enhancement | 파라미터 파생 관계 |
+| RELATED_TO | ontology_enhancement | 파라미터 상관 관계 |
+| MAPS_TO | ontology_enhancement | 표준 용어 매핑 |
 
 ---
 
@@ -291,16 +291,16 @@ IndexingAgent/
 │   │   ├── state.py              # 상태 객체 정의
 │   │   └── nodes/
 │   │       ├── __init__.py       # 노드 모듈 export
-│   │       ├── directory_catalog.py   # Phase 1
-│   │       ├── catalog.py             # Phase 2
-│   │       ├── aggregator.py          # Phase 3
-│   │       ├── classification.py      # Phase 4
-│   │       ├── metadata_semantic.py   # Phase 5
-│   │       ├── data_semantic.py       # Phase 6
-│   │       ├── directory_pattern.py   # Phase 7
-│   │       ├── entity_identification.py # Phase 8
-│   │       ├── relationship_inference.py # Phase 9
-│   │       └── ontology_enhancement.py   # Phase 10
+│   │       ├── directory_catalog.py   # order=100
+│   │       ├── catalog.py             # order=200
+│   │       ├── aggregator.py          # order=300
+│   │       ├── classification.py      # order=400
+│   │       ├── metadata_semantic.py   # order=500
+│   │       ├── data_semantic.py       # order=600
+│   │       ├── directory_pattern.py   # order=700
+│   │       ├── entity_identification.py # order=800
+│   │       ├── relationship_inference.py # order=900
+│   │       └── ontology_enhancement.py   # order=1000
 │   ├── processors/
 │   │   ├── tabular.py            # CSV 처리기
 │   │   └── signal.py             # Signal 파일 처리기
@@ -313,8 +313,8 @@ IndexingAgent/
 │   │   └── schema_ontology.py    # 온톨로지 관련 테이블
 │   ├── utils/
 │   │   ├── llm_client.py         # LLM API 클라이언트
-│   │   └── ontology_manager.py   # 온톨로지 관리 (Neo4j)
-│   └── config.py                 # 설정 (Phase별 Config 클래스)
+│   │   └── (removed)             # ontology_manager.py 제거됨
+│   └── config.py                 # 설정 (Node별 Config 클래스)
 ├── data/
 │   └── raw/                      # 원본 데이터 파일
 └── test_full_pipeline_results.py # 전체 파이프라인 실행 + 결과 확인
@@ -324,8 +324,9 @@ IndexingAgent/
 
 ## 🎯 설계 원칙
 
-1. **10-Phase Sequential Pipeline**: 명확하게 분리된 10단계 처리
+1. **10-Node Sequential Pipeline**: 명확하게 분리된 10단계 처리 (order 기반)
 2. **Rule Prepares, LLM Decides**: 규칙 기반 전처리 + LLM 최종 판단
 3. **Human-in-the-Loop**: 불확실할 때는 사람에게 확인
 4. **캐싱 최적화**: 동일한 LLM 질문은 재사용하여 비용 절감
 5. **점진적 학습**: 파일을 처리할수록 온톨로지가 풍부해짐
+6. **NodeRegistry 패턴**: 동적으로 노드 추가/제거 가능

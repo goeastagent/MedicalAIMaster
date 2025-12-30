@@ -117,7 +117,7 @@ class FileRepository(BaseRepository):
         """
         분류용 파일 정보 조회 (컬럼 정보 포함)
         
-        Phase 4에서 사용: file_catalog + column_metadata 조인
+        file_classification node에서 사용: file_catalog + column_metadata 조인
         
         Returns:
             [

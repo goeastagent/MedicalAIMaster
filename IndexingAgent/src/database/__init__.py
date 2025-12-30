@@ -12,7 +12,7 @@ PostgreSQL 및 Neo4j 연결과 스키마 관리
 │   ├── dictionary.py     # data_dictionary
 │   ├── directory.py      # directory_catalog
 │   ├── ontology_core.py  # table_entities, table_relationships
-│   └── ontology_phase10.py  # subcategories, semantic_edges, etc.
+│   └── ontology_enhancement.py  # subcategories, semantic_edges, etc.
 ├── managers/             # SchemaManager 클래스
 │   ├── base.py           # BaseSchemaManager
 │   ├── catalog.py        # CatalogSchemaManager

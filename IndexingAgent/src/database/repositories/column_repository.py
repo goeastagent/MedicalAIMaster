@@ -62,7 +62,7 @@ class ColumnRepository(BaseRepository):
     
     def get_columns_for_classification(self, file_id: str) -> List[Dict[str, Any]]:
         """
-        분류용 컬럼 정보 조회 (Phase 4)
+        분류용 컬럼 정보 조회 (file_classification node)
         
         Returns:
             [
@@ -109,7 +109,7 @@ class ColumnRepository(BaseRepository):
     
     def get_columns_with_stats(self, file_id: str) -> List[Dict[str, Any]]:
         """
-        통계 포함 컬럼 정보 조회 (Phase 6, 8)
+        통계 포함 컬럼 정보 조회 (data_semantic, entity_identification)
         
         Returns:
             [
@@ -166,8 +166,8 @@ class ColumnRepository(BaseRepository):
         file_id: str
     ) -> List[Dict[str, Any]]:
         """
-        Entity 분석용 컬럼 정보 조회 (Phase 8)
-        Phase 6에서 분석된 semantic 정보 포함
+        Entity 분석용 컬럼 정보 조회 (entity_identification node)
+        data_semantic에서 분석된 semantic 정보 포함
         """
         rows = self._execute_query("""
             SELECT original_name, semantic_name, column_type,
@@ -206,7 +206,7 @@ class ColumnRepository(BaseRepository):
         file_id: str
     ) -> List[Dict[str, Any]]:
         """
-        관계 추론용 컬럼 정보 조회 (Phase 9)
+        관계 추론용 컬럼 정보 조회 (relationship_inference node)
         """
         rows = self._execute_query("""
             SELECT original_name, semantic_name, concept_category,

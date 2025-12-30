@@ -1,6 +1,6 @@
 # src/database/repositories/ontology_repository.py
 """
-OntologyRepository - Phase 10 온톨로지 테이블 CRUD
+OntologyRepository - ontology_enhancement 온톨로지 테이블 CRUD
 
 담당 테이블:
 - ontology_subcategories: 카테고리 세분화
@@ -17,7 +17,7 @@ from .base import BaseRepository
 
 class OntologyRepository(BaseRepository):
     """
-    Phase 10 온톨로지 테이블 CRUD Repository
+    ontology_enhancement 온톨로지 테이블 CRUD Repository
     """
     
     # =========================================================================

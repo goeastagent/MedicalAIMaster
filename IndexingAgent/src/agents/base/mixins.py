@@ -96,10 +96,10 @@ class LLMMixin:
         
         for attempt in range(max_retries):
             try:
+                # Note: ask_json() doesn't support temperature parameter
                 response = self.llm_client.ask_json(
                     prompt,
-                    max_tokens=max_tokens,
-                    temperature=temperature
+                    max_tokens=max_tokens
                 )
                 
                 if response is not None:

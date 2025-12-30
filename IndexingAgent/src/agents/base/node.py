@@ -113,17 +113,19 @@ class BaseNode(ABC):
     # Logging
     # =========================================================================
     
-    def log(self, message: str, emoji: str = ""):
+    def log(self, message: str, emoji: str = "", indent: int = 0):
         """
         로그 메시지 추가
         
         Args:
             message: 로그 메시지
             emoji: 접두사 이모지 (선택)
+            indent: 들여쓰기 레벨 (0=없음, 1=3칸, 2=6칸, ...)
         """
+        indent_str = "   " * indent
         prefix = f"{emoji} " if emoji else ""
-        log_entry = f"{prefix}[{self.name}] {message}"
-        self._logs.append(log_entry)
+        log_entry = f"{indent_str}{prefix}{message}"
+        self._logs.append(f"[{self.name}] {message}")
         print(log_entry)
     
     def _log_start(self):

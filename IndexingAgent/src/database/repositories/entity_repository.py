@@ -38,7 +38,7 @@ class EntityRepository(BaseRepository):
         Entity 정보가 포함된 테이블 목록 조회
         
         table_entities + file_catalog + column_metadata 조인
-        Phase 9에서 FK 관계 추론 시 사용
+        relationship_inference node에서 FK 관계 추론 시 사용
         
         Returns:
             [
@@ -106,7 +106,7 @@ class EntityRepository(BaseRepository):
     def get_entity_by_file(self, file_id: str) -> Optional[Dict[str, Any]]:
         """특정 파일의 entity 정보 조회"""
         row = self._execute_query("""
-            SELECT entity_id, file_id, row_represents, entity_identifier,
+            SELECT file_id, row_represents, entity_identifier,
                    confidence, reasoning
             FROM table_entities
             WHERE file_id = %s
@@ -115,10 +115,9 @@ class EntityRepository(BaseRepository):
         if not row:
             return None
         
-        entity_id, file_id, row_rep, entity_id_col, conf, reasoning = row
+        file_id, row_rep, entity_id_col, conf, reasoning = row
         
         return {
-            "entity_id": str(entity_id),
             "file_id": str(file_id),
             "row_represents": row_rep,
             "entity_identifier": entity_id_col,

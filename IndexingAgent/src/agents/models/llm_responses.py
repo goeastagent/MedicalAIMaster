@@ -8,13 +8,13 @@ LLM 응답 구조화를 위한 Pydantic 모델들
 - IDE 자동완성 지원
 - 디버깅 용이
 
-Phase별 모델:
-- Phase 4: File Classification
-- Phase 5: Metadata Semantic
-- Phase 6: Data Semantic
-- Phase 8: Entity Identification
-- Phase 9: Relationship Inference
-- Phase 10: Ontology Enhancement
+Node별 모델:
+- [file_classification]: File Classification
+- [metadata_semantic]: Metadata Semantic
+- [data_semantic]: Data Semantic
+- [entity_identification]: Entity Identification
+- [relationship_inference]: Relationship Inference
+- [ontology_enhancement]: Ontology Enhancement
 """
 
 from typing import List, Dict, Any, Optional
@@ -29,23 +29,23 @@ from .base import (
 
 
 # =============================================================================
-# Phase 4: File Classification 모델
+# [file_classification] node 모델
 # =============================================================================
 
 class FileClassificationItem(LLMAnalysisBase):
-    """Phase 4: 개별 파일 분류 결과"""
+    """[file_classification] 개별 파일 분류 결과"""
     file_name: str = ""                   # 파일명
     is_metadata: bool = False             # True=메타데이터, False=데이터
     # confidence, reasoning은 LLMAnalysisBase에서 상속
 
 
 class FileClassificationResponse(BaseModel):
-    """Phase 4: LLM 응답 전체"""
+    """[file_classification] LLM 응답 전체"""
     classifications: List[FileClassificationItem] = []
 
 
 class FileClassificationResult(PhaseResultBase):
-    """Phase 4: 파일 분류 최종 결과"""
+    """[file_classification] 파일 분류 최종 결과"""
     total_files: int = 0
     metadata_files: List[str] = []        # is_metadata=true 파일 경로
     data_files: List[str] = []            # is_metadata=false 파일 경로
@@ -54,11 +54,11 @@ class FileClassificationResult(PhaseResultBase):
 
 
 # =============================================================================
-# Phase 5: MetaData Semantic 모델
+# [metadata_semantic] node 모델
 # =============================================================================
 
 class ColumnRoleMapping(LLMAnalysisBase):
-    """Phase 5: 컬럼 역할 매핑 결과"""
+    """[metadata_semantic] 컬럼 역할 매핑 결과"""
     key_column: str = ""                  # 파라미터 이름/코드 컬럼
     desc_column: Optional[str] = None     # 설명 컬럼
     unit_column: Optional[str] = None     # 단위 컬럼
@@ -67,7 +67,7 @@ class ColumnRoleMapping(LLMAnalysisBase):
 
 
 class ColumnRoleMappingResponse(LLMAnalysisBase):
-    """Phase 5: 컬럼 역할 LLM 응답"""
+    """[metadata_semantic] 컬럼 역할 LLM 응답"""
     key_column: str = ""
     desc_column: Optional[str] = None
     unit_column: Optional[str] = None
@@ -76,7 +76,7 @@ class ColumnRoleMappingResponse(LLMAnalysisBase):
 
 
 class DataDictionaryEntry(BaseModel):
-    """Phase 5: data_dictionary 테이블에 저장될 엔트리"""
+    """[metadata_semantic] data_dictionary 테이블에 저장될 엔트리"""
     source_file_id: str = ""
     source_file_name: str = ""
     parameter_key: str = ""
@@ -87,7 +87,7 @@ class DataDictionaryEntry(BaseModel):
 
 
 class MetadataSemanticResult(PhaseResultBase):
-    """Phase 5: 메타데이터 시맨틱 분석 최종 결과"""
+    """[metadata_semantic] 메타데이터 시맨틱 분석 최종 결과"""
     total_metadata_files: int = 0
     processed_files: int = 0
     total_entries_extracted: int = 0
@@ -96,12 +96,12 @@ class MetadataSemanticResult(PhaseResultBase):
 
 
 # =============================================================================
-# Phase 6: Data Semantic Analysis 모델
+# [data_semantic] node 모델
 # =============================================================================
 
 class ColumnSemanticResult(BaseModel):
     """
-    Phase 6: 데이터 파일 컬럼의 의미론적 분석 결과
+    [data_semantic] 데이터 파일 컬럼의 의미론적 분석 결과
     
     LLM이 컬럼 이름, 통계, data_dictionary를 참조하여 분석
     
@@ -119,13 +119,13 @@ class ColumnSemanticResult(BaseModel):
 
 
 class DataSemanticResponse(BaseModel):
-    """Phase 6: 파일별 LLM 응답"""
+    """[data_semantic] 파일별 LLM 응답"""
     columns: List[ColumnSemanticResult] = []
     file_summary: Optional[str] = None        # 파일 전체 요약 (선택)
 
 
 class DataSemanticResult(PhaseResultBase):
-    """Phase 6: 데이터 시맨틱 분석 최종 결과"""
+    """[data_semantic] 데이터 시맨틱 분석 최종 결과"""
     total_data_files: int = 0
     processed_files: int = 0
     total_columns_analyzed: int = 0
@@ -138,12 +138,12 @@ class DataSemanticResult(PhaseResultBase):
 
 
 # =============================================================================
-# Phase 8: Entity Identification 모델
+# [entity_identification] node 모델
 # =============================================================================
 
 class TableEntityResult(LLMAnalysisBase):
     """
-    Phase 8: 단일 테이블의 Entity 분석 결과
+    [entity_identification] 단일 테이블의 Entity 분석 결과
     
     LLM이 각 테이블에 대해 분석한 결과:
     - row_represents: 각 행이 무엇을 나타내는지
@@ -156,12 +156,12 @@ class TableEntityResult(LLMAnalysisBase):
 
 
 class EntityIdentificationResponse(BaseModel):
-    """Phase 8: LLM 응답 전체"""
+    """[entity_identification] LLM 응답 전체"""
     tables: List[TableEntityResult] = []
 
 
-class Phase8Result(PhaseResultBase):
-    """Phase 8: Entity Identification 최종 결과"""
+class EntityIdentificationResult(PhaseResultBase):
+    """[entity_identification] Entity Identification 최종 결과"""
     total_tables: int = 0                       # 분석 대상 테이블 수
     tables_analyzed: int = 0                    # 실제 분석된 수
     entities_identified: int = 0                # row_represents가 식별된 수
@@ -171,13 +171,17 @@ class Phase8Result(PhaseResultBase):
     # llm_calls, started_at, completed_at은 PhaseResultBase에서 상속
 
 
+# Backward compatibility alias
+Phase8Result = EntityIdentificationResult
+
+
 # =============================================================================
-# Phase 9: Relationship Inference 모델
+# [relationship_inference] node 모델
 # =============================================================================
 
 class TableRelationship(LLMAnalysisBase):
     """
-    Phase 9: 테이블 간 관계
+    [relationship_inference] 테이블 간 관계
     
     LLM이 분석한 FK 관계 정보
     """
@@ -191,12 +195,12 @@ class TableRelationship(LLMAnalysisBase):
 
 
 class RelationshipInferenceResponse(BaseModel):
-    """Phase 9: LLM 응답"""
+    """[relationship_inference] LLM 응답"""
     relationships: List[TableRelationship] = []
 
 
-class Phase9Result(Neo4jPhaseResultBase):
-    """Phase 9: Relationship Inference + Neo4j 최종 결과"""
+class RelationshipInferenceResult(Neo4jPhaseResultBase):
+    """[relationship_inference] Relationship Inference + Neo4j 최종 결과"""
     # FK 관계
     relationships_found: int = 0
     relationships_high_conf: int = 0
@@ -212,13 +216,17 @@ class Phase9Result(Neo4jPhaseResultBase):
     # llm_calls, started_at, completed_at, neo4j_synced는 Neo4jPhaseResultBase에서 상속
 
 
+# Backward compatibility alias
+Phase9Result = RelationshipInferenceResult
+
+
 # =============================================================================
-# Phase 10: Ontology Enhancement 모델
+# [ontology_enhancement] node 모델
 # =============================================================================
 
 class SubCategoryResult(LLMAnalysisBase):
     """
-    Phase 10 Task 1: 서브카테고리 결과
+    [ontology_enhancement] Task 1: 서브카테고리 결과
     
     ConceptCategory를 세분화한 결과
     """
@@ -229,13 +237,13 @@ class SubCategoryResult(LLMAnalysisBase):
 
 
 class ConceptHierarchyResponse(BaseModel):
-    """Phase 10 Task 1: LLM 응답 - Concept Hierarchy"""
+    """[ontology_enhancement] Task 1: LLM 응답 - Concept Hierarchy"""
     subcategories: List[SubCategoryResult] = []
 
 
 class SemanticEdge(LLMAnalysisBase):
     """
-    Phase 10 Task 2: 의미 관계
+    [ontology_enhancement] Task 2: 의미 관계
     
     Parameter 간 의미적 관계
     """
@@ -246,13 +254,13 @@ class SemanticEdge(LLMAnalysisBase):
 
 
 class SemanticEdgesResponse(BaseModel):
-    """Phase 10 Task 2: LLM 응답 - Semantic Edges"""
+    """[ontology_enhancement] Task 2: LLM 응답 - Semantic Edges"""
     edges: List[SemanticEdge] = []
 
 
 class MedicalTermMapping(LLMAnalysisBase):
     """
-    Phase 10 Task 3: 의학 용어 매핑
+    [ontology_enhancement] Task 3: 의학 용어 매핑
     
     표준 의학 용어 시스템(SNOMED-CT, LOINC, ICD-10)으로 매핑
     """
@@ -267,13 +275,13 @@ class MedicalTermMapping(LLMAnalysisBase):
 
 
 class MedicalTermResponse(BaseModel):
-    """Phase 10 Task 3: LLM 응답 - Medical Term Mapping"""
+    """[ontology_enhancement] Task 3: LLM 응답 - Medical Term Mapping"""
     mappings: List[MedicalTermMapping] = []
 
 
 class CrossTableSemantic(LLMAnalysisBase):
     """
-    Phase 10 Task 4: 테이블 간 시맨틱 관계
+    [ontology_enhancement] Task 4: 테이블 간 시맨틱 관계
     
     다른 테이블에 있지만 의미적으로 연관된 컬럼
     """
@@ -286,12 +294,12 @@ class CrossTableSemantic(LLMAnalysisBase):
 
 
 class CrossTableResponse(BaseModel):
-    """Phase 10 Task 4: LLM 응답 - Cross Table Semantics"""
+    """[ontology_enhancement] Task 4: LLM 응답 - Cross Table Semantics"""
     semantics: List[CrossTableSemantic] = []
 
 
-class Phase10Result(Neo4jPhaseResultBase):
-    """Phase 10: Ontology Enhancement 최종 결과"""
+class OntologyEnhancementResult(Neo4jPhaseResultBase):
+    """[ontology_enhancement] Ontology Enhancement 최종 결과"""
     # Task 1: Concept Hierarchy
     subcategories_created: int = 0
     subcategories_high_conf: int = 0
@@ -315,3 +323,7 @@ class Phase10Result(Neo4jPhaseResultBase):
     neo4j_semantic_edges: int = 0
     neo4j_cross_table_edges: int = 0
     # llm_calls, started_at, completed_at, neo4j_synced는 Neo4jPhaseResultBase에서 상속
+
+
+# Backward compatibility alias
+Phase10Result = OntologyEnhancementResult

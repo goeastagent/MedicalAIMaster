@@ -273,7 +273,7 @@ def update_file_catalog_dir_ids(dir_id: str, file_paths: List[str], db_manager=N
 
 def get_directories_without_pattern(db_manager=None) -> List[Dict[str, Any]]:
     """
-    패턴 분석이 안 된 디렉토리 목록 조회 (Phase 7용)
+    패턴 분석이 안 된 디렉토리 목록 조회 (directory_pattern node용)
     
     Returns:
         [{"dir_id": ..., "dir_path": ..., "filename_samples": [...], ...}, ...]

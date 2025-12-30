@@ -1,6 +1,6 @@
-# src/database/schemas/ontology_phase10.py
+# src/database/schemas/ontology_enhancement.py
 """
-Ontology Enhancement DDL (Phase 10)
+Ontology Enhancement DDL (ontology_enhancement node)
 
 고급 온톨로지 테이블 정의:
 - ontology_subcategories: 카테고리 세분화

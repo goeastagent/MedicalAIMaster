@@ -62,7 +62,7 @@ vitaldb>=1.0.0
 # mne>=1.5.0
 
 # ============================================
-# Database (Phase 3) - PostgreSQL 전용
+# Database - PostgreSQL 전용
 # ============================================
 # PostgreSQL adapter (필수)
 psycopg2-binary>=2.9.0

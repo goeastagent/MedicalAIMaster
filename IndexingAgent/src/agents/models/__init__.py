@@ -46,36 +46,36 @@ from .state_schemas import (
 )
 
 # =============================================================================
-# llm_responses.py - Phase별 LLM 응답 스키마
+# llm_responses.py - Node별 LLM 응답 스키마
 # =============================================================================
 from .llm_responses import (
-    # Phase 4: File Classification
+    # [file_classification] node
     FileClassificationItem,
     FileClassificationResponse,
     FileClassificationResult,
     
-    # Phase 5: Metadata Semantic
+    # [metadata_semantic] node
     ColumnRoleMapping,
     ColumnRoleMappingResponse,
     DataDictionaryEntry,
     MetadataSemanticResult,
     
-    # Phase 6: Data Semantic
+    # [data_semantic] node
     ColumnSemanticResult,
     DataSemanticResponse,
     DataSemanticResult,
     
-    # Phase 8: Entity Identification
+    # [entity_identification] node
     TableEntityResult,
     EntityIdentificationResponse,
-    Phase8Result,
+    EntityIdentificationResult,
     
-    # Phase 9: Relationship Inference
+    # [relationship_inference] node
     TableRelationship,
     RelationshipInferenceResponse,
-    Phase9Result,
+    RelationshipInferenceResult,
     
-    # Phase 10: Ontology Enhancement
+    # [ontology_enhancement] node
     SubCategoryResult,
     ConceptHierarchyResponse,
     SemanticEdge,
@@ -84,7 +84,7 @@ from .llm_responses import (
     MedicalTermResponse,
     CrossTableSemantic,
     CrossTableResponse,
-    Phase10Result,
+    OntologyEnhancementResult,
 )
 
 
@@ -106,28 +106,28 @@ __all__ = [
     "OntologyContext",
     
     # === llm_responses.py ===
-    # Phase 4
+    # [file_classification]
     "FileClassificationItem",
     "FileClassificationResponse",
     "FileClassificationResult",
-    # Phase 5
+    # [metadata_semantic]
     "ColumnRoleMapping",
     "ColumnRoleMappingResponse",
     "DataDictionaryEntry",
     "MetadataSemanticResult",
-    # Phase 6
+    # [data_semantic]
     "ColumnSemanticResult",
     "DataSemanticResponse",
     "DataSemanticResult",
-    # Phase 8
+    # [entity_identification]
     "TableEntityResult",
     "EntityIdentificationResponse",
-    "Phase8Result",
-    # Phase 9
+    "EntityIdentificationResult",
+    # [relationship_inference]
     "TableRelationship",
     "RelationshipInferenceResponse",
-    "Phase9Result",
-    # Phase 10
+    "RelationshipInferenceResult",
+    # [ontology_enhancement]
     "SubCategoryResult",
     "ConceptHierarchyResponse",
     "SemanticEdge",
@@ -136,5 +136,5 @@ __all__ = [
     "MedicalTermResponse",
     "CrossTableSemantic",
     "CrossTableResponse",
-    "Phase10Result",
+    "OntologyEnhancementResult",
 ]

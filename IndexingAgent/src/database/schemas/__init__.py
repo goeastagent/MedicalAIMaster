@@ -6,8 +6,8 @@ DDL (Data Definition Language) 스키마 정의
 - catalog.py: file_catalog, column_metadata
 - dictionary.py: data_dictionary
 - directory.py: directory_catalog
-- ontology_core.py: table_entities, table_relationships (Phase 8/9)
-- ontology_phase10.py: ontology_subcategories, semantic_edges, medical_term_mappings, cross_table_semantics
+- ontology_core.py: table_entities, table_relationships (entity_identification / relationship_inference)
+- ontology_enhancement.py: ontology_subcategories, semantic_edges, medical_term_mappings, cross_table_semantics
 """
 
 from .catalog import (
@@ -33,7 +33,7 @@ from .ontology_core import (
     CREATE_TABLE_RELATIONSHIPS_SQL,
 )
 
-from .ontology_phase10 import (
+from .ontology_enhancement import (
     CREATE_ONTOLOGY_SUBCATEGORIES_SQL,
     CREATE_SEMANTIC_EDGES_SQL,
     CREATE_MEDICAL_TERM_MAPPINGS_SQL,
@@ -56,7 +56,7 @@ __all__ = [
     'CREATE_ONTOLOGY_COLUMN_METADATA_SQL',
     'CREATE_TABLE_ENTITIES_SQL',
     'CREATE_TABLE_RELATIONSHIPS_SQL',
-    # Ontology Phase 10
+    # Ontology (ontology_enhancement node)
     'CREATE_ONTOLOGY_SUBCATEGORIES_SQL',
     'CREATE_SEMANTIC_EDGES_SQL',
     'CREATE_MEDICAL_TERM_MAPPINGS_SQL',

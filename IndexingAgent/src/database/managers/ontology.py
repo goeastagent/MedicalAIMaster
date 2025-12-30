@@ -13,7 +13,7 @@ from ..schemas.ontology_core import (
     CREATE_TABLE_ENTITIES_SQL,
     CREATE_TABLE_RELATIONSHIPS_SQL,
 )
-from ..schemas.ontology_phase10 import (
+from ..schemas.ontology_enhancement import (
     CREATE_ONTOLOGY_SUBCATEGORIES_SQL,
     CREATE_SEMANTIC_EDGES_SQL,
     CREATE_MEDICAL_TERM_MAPPINGS_SQL,
@@ -27,7 +27,7 @@ class OntologySchemaManager(BaseSchemaManager):
     
     CRUD 작업은:
     - EntityRepository: table_entities, table_relationships
-    - OntologyRepository: Phase 10 테이블들
+    - OntologyRepository: ontology_enhancement 테이블들
     """
     
     @property

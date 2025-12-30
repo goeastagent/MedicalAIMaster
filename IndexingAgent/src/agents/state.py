@@ -10,9 +10,9 @@ Pydantic 스키마:
     - AgentState의 각 필드는 Dict[str, Any]로 저장되며,
       개별 검증이 필요한 경우 models에서 스키마를 import하여 사용합니다.
 
-10-Phase Sequential Pipeline Architecture:
-    - Phase 1-3: Rule-based 메타데이터 수집
-    - Phase 4-10: LLM 기반 의미 분석 및 온톨로지 구축
+10-Node Sequential Pipeline Architecture:
+    - directory_catalog, file_catalog, schema_aggregation: Rule-based 메타데이터 수집
+    - file_classification ~ ontology_enhancement: LLM 기반 의미 분석 및 온톨로지 구축
 """
 
 import operator
@@ -29,9 +29,9 @@ class AgentState(TypedDict):
     Note: LangGraph 호환성을 위해 TypedDict를 사용합니다.
     개별 필드의 타입 검증은 Pydantic 모델(models 패키지)로 수행합니다.
     
-    10-Phase Sequential Pipeline:
-    - Phase 1-3: Rule-based 메타데이터 수집 (Directory, File, Aggregation)
-    - Phase 4-10: LLM 기반 분류, 의미 분석, 온톨로지 구축
+    10-Node Sequential Pipeline:
+    - directory_catalog, file_catalog, schema_aggregation: Rule-based 메타데이터 수집
+    - file_classification ~ ontology_enhancement: LLM 기반 분류, 의미 분석, 온톨로지 구축
     """
     
     # --- -1. Input Context ---
@@ -42,47 +42,47 @@ class AgentState(TypedDict):
     current_table_name: Optional[str]
     data_catalog: Dict[str, Any]  # DataCatalog 형태
     
-    # --- Phase 1 Result (Directory Catalog) ---
+    # --- [directory_catalog] Result ---
     phase1_result: Optional[Dict[str, Any]]  # 디렉토리 구조 분석 결과
     phase1_dir_ids: List[str]  # 생성된 dir_id 목록
     
-    # --- Phase 2 Result (File Catalog) ---
+    # --- [file_catalog] Result ---
     phase2_result: Optional[Dict[str, Any]]  # 파일 메타데이터 추출 결과
     phase2_file_ids: List[str]  # 처리된 모든 파일의 file_id (UUID 문자열)
     
-    # --- Phase 3 Result (Schema Aggregation) ---
+    # --- [schema_aggregation] Result ---
     phase3_result: Optional[Dict[str, Any]]  # 스키마 집계 결과
     unique_columns: List[Dict[str, Any]]  # 유니크 컬럼 리스트
     unique_files: List[Dict[str, Any]]  # 유니크 파일 리스트
     column_batches: List[List[Dict[str, Any]]]  # 컬럼 LLM 배치
     file_batches: List[List[Dict[str, Any]]]  # 파일 LLM 배치
     
-    # --- Phase 4 Result (File Classification) ---
+    # --- [file_classification] Result ---
     phase4_result: Optional[Dict[str, Any]]  # 파일 분류 결과
     metadata_files: List[str]  # is_metadata=true 파일 경로 목록
     data_files: List[str]  # is_metadata=false 파일 경로 목록
     
-    # --- Phase 5 Result (Metadata Semantic) ---
+    # --- [metadata_semantic] Result ---
     phase5_result: Optional[Dict[str, Any]]  # 메타데이터 분석 결과
     data_dictionary_entries: List[Dict[str, Any]]  # 추출된 key-desc-unit 엔트리들
     
-    # --- Phase 6 Result (Data Semantic) ---
+    # --- [data_semantic] Result ---
     phase6_result: Optional[Dict[str, Any]]  # 데이터 시맨틱 분석 결과
     data_semantic_entries: List[Dict[str, Any]]  # LLM이 분석한 데이터 컬럼 의미 정보
     
-    # --- Phase 7 Result (Directory Pattern) ---
+    # --- [directory_pattern] Result ---
     phase7_result: Optional[Dict[str, Any]]  # 디렉토리 패턴 분석 결과
     phase7_dir_patterns: Dict[str, Dict]  # {dir_id: pattern_info}
     
-    # --- Phase 8 Result (Entity Identification) ---
+    # --- [entity_identification] Result ---
     phase8_result: Optional[Dict[str, Any]]  # Entity 식별 결과
     table_entity_results: List[Dict[str, Any]]  # TableEntityResult 목록
     
-    # --- Phase 9 Result (Relationship Inference + Neo4j) ---
+    # --- [relationship_inference] Result ---
     phase9_result: Optional[Dict[str, Any]]  # 관계 추론 결과
     table_relationships: List[Dict[str, Any]]  # TableRelationship 목록
     
-    # --- Phase 10 Result (Ontology Enhancement) ---
+    # --- [ontology_enhancement] Result ---
     phase10_result: Optional[Dict[str, Any]]  # 온톨로지 강화 결과
     ontology_subcategories: List[Dict[str, Any]]  # SubCategoryResult 목록
     semantic_edges: List[Dict[str, Any]]  # SemanticEdge 목록
