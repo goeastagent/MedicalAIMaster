@@ -125,8 +125,8 @@ class MetadataEnrichmentConfig:
     MAX_CONVERSATION_TURNS = 5
 
 
-class Phase05Config:
-    """Phase 0.5: Schema Aggregation 설정"""
+class Phase3Config:
+    """Phase 3: Schema Aggregation 설정"""
     
     # --- 1. 배치 크기 ---
     # LLM에 한 번에 보낼 유니크 컬럼 수
@@ -140,8 +140,8 @@ class Phase05Config:
     MAX_SAMPLE_VALUES = 5
 
 
-class Phase1BConfig:
-    """Phase 1B: Data Semantic Analysis 설정"""
+class Phase6Config:
+    """Phase 6: Data Semantic Analysis 설정"""
     
     # --- 1. 컬럼 배치 크기 ---
     # 파일 내 컬럼 수가 이 값을 초과하면 배치로 나눠서 LLM 호출
@@ -167,8 +167,8 @@ class Phase1BConfig:
     MATCH_CONFIDENCE_THRESHOLD = float(os.getenv("PHASE1B_MATCH_CONFIDENCE", "0.7"))
 
 
-class Phase2AConfig:
-    """Phase 2A: Entity Identification 설정"""
+class Phase8Config:
+    """Phase 8: Entity Identification 설정"""
     
     # --- 1. LLM 설정 ---
     MAX_RETRIES = 3
@@ -190,8 +190,8 @@ class Phase2AConfig:
     SHOW_UNIQUE_COUNTS = True
 
 
-class Phase2BConfig:
-    """Phase 2B: Relationship Inference + Neo4j 설정"""
+class Phase9Config:
+    """Phase 9: Relationship Inference + Neo4j 설정"""
     
     # --- 1. LLM 설정 ---
     MAX_RETRIES = 3
@@ -211,8 +211,8 @@ class Phase2BConfig:
     FK_CANDIDATE_PATTERNS = ["id", "ID", "Id", "key", "Key", "code", "Code"]
 
 
-class Phase2CConfig:
-    """Phase 2C: Ontology Enhancement 설정"""
+class Phase10Config:
+    """Phase 10: Ontology Enhancement 설정"""
     
     # --- 1. LLM 설정 ---
     MAX_RETRIES = 3
@@ -239,8 +239,8 @@ class Phase2CConfig:
     MEDICAL_TERM_BATCH_SIZE = int(os.getenv("PHASE2C_MED_TERM_BATCH_SIZE", "20"))
 
 
-class Phase1Config:
-    """Phase 1: Semantic Analysis (LLM 배치 처리) 설정"""
+class Phase5Config:
+    """Phase 5: Metadata Semantic Analysis (LLM 배치 처리) 설정"""
     
     # --- 1. 컬럼 분석 배치 크기 ---
     # 한 번의 LLM 호출에 포함할 컬럼 수
@@ -312,8 +312,8 @@ class Phase1Config:
     ]
 
 
-class Phase1CConfig:
-    """Phase 1C: Directory Pattern Analysis 설정"""
+class Phase7Config:
+    """Phase 7: Directory Pattern Analysis 설정"""
     
     # LLM 설정은 LLMConfig 사용 (별도 정의 불필요)
     
@@ -321,7 +321,7 @@ class Phase1CConfig:
     # 한 번에 분석할 최대 디렉토리 수
     MAX_DIRS_PER_BATCH = int(os.getenv("PHASE1C_MAX_DIRS_BATCH", "10"))
     
-    # LLM에 전달할 파일명 샘플 수 (DB에는 PhaseNeg1Config.FILENAME_SAMPLE_SIZE개 저장)
+    # LLM에 전달할 파일명 샘플 수 (DB에는 Phase1Config.FILENAME_SAMPLE_SIZE개 저장)
     MAX_SAMPLES_PER_DIR = int(os.getenv("PHASE1C_MAX_SAMPLES", "10"))
     
     # --- 2. 필터링 ---
@@ -332,8 +332,8 @@ class Phase1CConfig:
     SKIP_EXTENSIONS = {"txt", "md", "json", "xml", "yaml", "yml"}
 
 
-class PhaseNeg1Config:
-    """Phase -1: Directory Catalog 설정"""
+class Phase1Config:
+    """Phase 1: Directory Catalog 설정"""
     
     # --- 1. 파일명 샘플링 ---
     # 샘플링할 파일명 수

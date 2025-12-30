@@ -1,6 +1,6 @@
 # src/agents/nodes/directory_catalog.py
 """
-Phase -1: Directory Catalog Node
+Phase 1: Directory Catalog Node
 
 디렉토리 레벨 메타데이터를 수집하여 DB에 저장합니다.
 LLM 호출 없이 순수하게 규칙 기반으로 데이터 수집만 수행합니다.
@@ -29,21 +29,9 @@ from src.database.schema_directory import (
     get_directory_by_path,
     update_file_catalog_dir_ids,
 )
-from src.config import PhaseNeg1Config
+from src.config import Phase1Config
 
 
-# =============================================================================
-# 전역 리소스 초기화
-# =============================================================================
-
-_db_manager = None
-
-def _get_db():
-    """DB Manager 싱글톤 반환"""
-    global _db_manager
-    if _db_manager is None:
-        _db_manager = get_db_manager()
-    return _db_manager
 
 
 # =============================================================================
@@ -52,12 +40,12 @@ def _get_db():
 
 def _should_ignore_dir(dir_name: str) -> bool:
     """무시해야 할 디렉토리인지 확인"""
-    return dir_name in PhaseNeg1Config.IGNORE_DIRS or dir_name.startswith('.')
+    return dir_name in Phase1Config.IGNORE_DIRS or dir_name.startswith('.')
 
 
 def _should_ignore_file(filename: str) -> bool:
     """무시해야 할 파일인지 확인"""
-    for pattern in PhaseNeg1Config.IGNORE_PATTERNS:
+    for pattern in Phase1Config.IGNORE_PATTERNS:
         if fnmatch.fnmatch(filename, pattern):
             return True
     return False
@@ -155,12 +143,12 @@ def _collect_filename_samples(
         샘플 파일명 리스트
     """
     if max_samples is None:
-        max_samples = PhaseNeg1Config.FILENAME_SAMPLE_SIZE
+        max_samples = Phase1Config.FILENAME_SAMPLE_SIZE
     
     if len(files) <= max_samples:
         return sorted(files)
     
-    strategy = PhaseNeg1Config.SAMPLE_STRATEGY
+    strategy = Phase1Config.SAMPLE_STRATEGY
     
     if strategy == "first":
         return sorted(files[:max_samples])
@@ -210,20 +198,20 @@ def _classify_directory_type(file_extensions: Dict[str, int]) -> Optional[str]:
     if total_files == 0:
         return None
     
-    threshold = PhaseNeg1Config.TYPE_CLASSIFICATION_THRESHOLD
+    threshold = Phase1Config.TYPE_CLASSIFICATION_THRESHOLD
     
     # 각 타입별 파일 수 계산
     signal_count = sum(
         count for ext, count in file_extensions.items() 
-        if ext in PhaseNeg1Config.SIGNAL_EXTENSIONS
+        if ext in Phase1Config.SIGNAL_EXTENSIONS
     )
     tabular_count = sum(
         count for ext, count in file_extensions.items() 
-        if ext in PhaseNeg1Config.TABULAR_EXTENSIONS
+        if ext in Phase1Config.TABULAR_EXTENSIONS
     )
     metadata_count = sum(
         count for ext, count in file_extensions.items() 
-        if ext in PhaseNeg1Config.METADATA_EXTENSIONS
+        if ext in Phase1Config.METADATA_EXTENSIONS
     )
     
     # 비율 기반 분류
@@ -272,7 +260,7 @@ def process_directory_tree(
     root_path = os.path.abspath(root_path)
     
     # 깊이 제한 체크
-    if current_depth > PhaseNeg1Config.MAX_DEPTH:
+    if current_depth > Phase1Config.MAX_DEPTH:
         if verbose:
             print(f"   ⚠️ Max depth reached: {root_path}")
         return {
@@ -317,7 +305,7 @@ def process_directory_tree(
         
         # dir_type 업데이트 (별도 쿼리)
         if dir_type:
-            db = _get_db()
+            db = get_db_manager()
             conn = db.get_connection()
             cursor = conn.cursor()
             cursor.execute(
@@ -416,9 +404,9 @@ def ensure_schema():
 # LangGraph Node Function
 # =============================================================================
 
-def phase_neg1_directory_catalog_node(state: AgentState) -> Dict[str, Any]:
+def phase1_directory_catalog_node(state: AgentState) -> Dict[str, Any]:
     """
-    [Phase -1] Directory Catalog 노드 - LangGraph용
+    [Phase 1] Directory Catalog 노드 - LangGraph용
     
     입력 디렉토리의 구조를 분석하여 DB에 저장합니다.
     LLM 호출 없이 순수하게 규칙 기반으로 데이터 수집만 수행합니다.
@@ -439,7 +427,7 @@ def phase_neg1_directory_catalog_node(state: AgentState) -> Dict[str, Any]:
         - logs: 로그 메시지
     """
     print("\n" + "="*80)
-    print("📁 [PHASE -1] Directory Catalog - 디렉토리 구조 분석 시작")
+    print("📁 [PHASE 1] Directory Catalog - 디렉토리 구조 분석 시작")
     print("="*80)
     
     started_at = datetime.now().isoformat()
@@ -458,8 +446,8 @@ def phase_neg1_directory_catalog_node(state: AgentState) -> Dict[str, Any]:
         error_msg = "No input directory provided"
         print(f"   ❌ {error_msg}")
         return {
-            "logs": [f"❌ [Phase -1] Error: {error_msg}"],
-            "phase_neg1_result": {
+            "logs": [f"❌ [Phase 1] Error: {error_msg}"],
+            "phase1_result": {
                 "total_dirs": 0,
                 "processed_dirs": 0,
                 "skipped_dirs": 0,
@@ -469,7 +457,7 @@ def phase_neg1_directory_catalog_node(state: AgentState) -> Dict[str, Any]:
                 "completed_at": datetime.now().isoformat(),
                 "error": error_msg
             },
-            "phase_neg1_dir_ids": [],
+            "phase1_dir_ids": [],
             "error_message": error_msg
         }
     
@@ -478,8 +466,8 @@ def phase_neg1_directory_catalog_node(state: AgentState) -> Dict[str, Any]:
         error_msg = f"Directory not found: {input_directory}"
         print(f"   ❌ {error_msg}")
         return {
-            "logs": [f"❌ [Phase -1] Error: {error_msg}"],
-            "phase_neg1_result": {
+            "logs": [f"❌ [Phase 1] Error: {error_msg}"],
+            "phase1_result": {
                 "total_dirs": 0,
                 "processed_dirs": 0,
                 "skipped_dirs": 0,
@@ -489,7 +477,7 @@ def phase_neg1_directory_catalog_node(state: AgentState) -> Dict[str, Any]:
                 "completed_at": datetime.now().isoformat(),
                 "error": error_msg
             },
-            "phase_neg1_dir_ids": [],
+            "phase1_dir_ids": [],
             "error_message": error_msg
         }
     
@@ -514,7 +502,7 @@ def phase_neg1_directory_catalog_node(state: AgentState) -> Dict[str, Any]:
     
     # 로그 생성
     logs = [
-        f"📁 [Phase -1] 완료: {result['processed_dirs']}개 디렉토리 처리, "
+        f"📁 [Phase 1] 완료: {result['processed_dirs']}개 디렉토리 처리, "
         f"{result['total_files']}개 파일 탐지"
     ]
     
@@ -528,15 +516,15 @@ def phase_neg1_directory_catalog_node(state: AgentState) -> Dict[str, Any]:
         logs.append(f"   ⚠️ Error: {result['error']}")
     
     # 요약 출력
-    print(f"\n✅ [Phase -1] 완료:")
+    print(f"\n✅ [Phase 1] 완료:")
     print(f"   📊 총 디렉토리: {result['total_dirs']}개")
     print(f"   ✅ 처리 완료: {result['processed_dirs']}개")
     print(f"   📄 총 파일: {result['total_files']}개")
     
     return {
         "logs": logs,
-        "phase_neg1_result": result,
-        "phase_neg1_dir_ids": result.get("dir_ids", [])
+        "phase1_result": result,
+        "phase1_dir_ids": result.get("dir_ids", [])
     }
 
 

@@ -24,7 +24,7 @@ from ..models.llm_responses import (
 )
 from src.database.connection import get_db_manager
 from src.utils.llm_client import get_llm_client
-from src.config import Phase1BConfig, LLMConfig
+from src.config import Phase6Config, LLMConfig
 
 
 # =============================================================================
@@ -216,7 +216,7 @@ def _get_columns_with_stats(db, file_id: str) -> List[Dict]:
         return []
 
 
-def _build_columns_info(columns: List[Dict], config: Phase1BConfig) -> str:
+def _build_columns_info(columns: List[Dict], config: Phase6Config) -> str:
     """
     컬럼 정보 + 통계를 LLM context 문자열로 변환
     
@@ -315,7 +315,7 @@ def _call_llm_for_semantic(
     columns: List[Dict],
     dict_keys_list: str,
     dict_context: str,
-    config: Phase1BConfig
+    config: Phase6Config
 ) -> Optional[DataSemanticResponse]:
     """
     LLM을 호출하여 컬럼 시맨틱 분석 수행
@@ -506,7 +506,7 @@ def _get_data_files_info(db, data_files: List[str]) -> List[Dict]:
 # Main Node Function
 # =============================================================================
 
-def data_semantic_node(state: AgentState) -> AgentState:
+def phase6_data_semantic_node(state: AgentState) -> AgentState:
     """
     Phase 1B: Data Semantic Analysis Node
     
@@ -523,11 +523,11 @@ def data_semantic_node(state: AgentState) -> AgentState:
         - (DB) column_metadata 업데이트: semantic_name, unit, dict_entry_id 등
     """
     print("\n" + "="*60)
-    print("🔬 Phase 1B: Data Semantic Analysis")
+    print("🔬 Phase 6: Data Semantic Analysis")
     print("="*60)
     
     started_at = datetime.now().isoformat()
-    config = Phase1BConfig
+    config = Phase6Config
     
     # 데이터 파일 목록
     data_files = state.get('data_files', [])
@@ -536,7 +536,7 @@ def data_semantic_node(state: AgentState) -> AgentState:
         print("⚠️ No data files to analyze")
         return {
             **state,
-            'phase1b_result': DataSemanticResult(
+            'phase6_result': DataSemanticResult(
                 total_data_files=0,
                 started_at=started_at,
                 completed_at=datetime.now().isoformat()
@@ -655,7 +655,7 @@ def data_semantic_node(state: AgentState) -> AgentState:
     )
     
     print("\n" + "="*60)
-    print("✅ Phase 1B Complete!")
+    print("✅ Phase 6 Complete!")
     print(f"   Files processed: {result.processed_files}")
     print(f"   Columns analyzed: {result.total_columns_analyzed}")
     print(f"   Dictionary matches: {result.columns_matched}")
@@ -667,7 +667,7 @@ def data_semantic_node(state: AgentState) -> AgentState:
     
     return {
         **state,
-        'phase1b_result': result.dict(),
+        'phase6_result': result.dict(),
         'data_semantic_entries': all_entries
     }
 

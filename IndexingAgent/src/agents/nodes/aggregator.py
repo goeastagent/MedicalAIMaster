@@ -1,6 +1,6 @@
 # src/agents/nodes/aggregator.py
 """
-Phase 0.5: Schema Aggregation Node
+Phase 3: Schema Aggregation Node
 
 DB에서 유니크 컬럼명과 대표 통계를 집계하여
 Phase 1의 배치 LLM 호출을 준비합니다.
@@ -17,21 +17,9 @@ from datetime import datetime
 
 from src.agents.state import AgentState
 from src.database.connection import get_db_manager
-from src.config import Phase05Config
+from src.config import Phase3Config
 
 
-# =============================================================================
-# 전역 리소스
-# =============================================================================
-
-_db_manager = None
-
-def _get_db():
-    """DB Manager 싱글톤 반환"""
-    global _db_manager
-    if _db_manager is None:
-        _db_manager = get_db_manager()
-    return _db_manager
 
 
 # =============================================================================
@@ -168,7 +156,7 @@ def aggregate_unique_columns() -> List[Dict[str, Any]]:
     Returns:
         List of unique columns with aggregated stats
     """
-    db = _get_db()
+    db = get_db_manager()
     conn = db.get_connection()
     cursor = conn.cursor()
     
@@ -213,7 +201,7 @@ def aggregate_unique_columns() -> List[Dict[str, Any]]:
             sample_dist = row_dict.get("sample_distribution")
             if sample_dist and isinstance(sample_dist, dict):
                 # 상위 N개 값만 추출
-                max_samples = Phase05Config.MAX_SAMPLE_VALUES
+                max_samples = Phase3Config.MAX_SAMPLE_VALUES
                 top_values = dict(list(sample_dist.items())[:max_samples])
                 if top_values:
                     column_info["sample_values"] = top_values
@@ -245,7 +233,7 @@ def prepare_llm_batches(
         List of batches (각 배치는 컬럼 리스트)
     """
     if batch_size is None:
-        batch_size = Phase05Config.BATCH_SIZE
+        batch_size = Phase3Config.BATCH_SIZE
     
     batches = []
     for i in range(0, len(unique_columns), batch_size):
@@ -259,7 +247,7 @@ def get_aggregation_stats() -> Dict[str, Any]:
     """
     집계 통계 조회 (디버깅/모니터링용)
     """
-    db = _get_db()
+    db = get_db_manager()
     conn = db.get_connection()
     cursor = conn.cursor()
     
@@ -297,7 +285,7 @@ def get_aggregation_stats() -> Dict[str, Any]:
 # LangGraph Node Function
 # =============================================================================
 
-def phase05_aggregation_node(state: AgentState) -> Dict[str, Any]:
+def phase3_aggregation_node(state: AgentState) -> Dict[str, Any]:
     """
     Phase 0.5: Schema Aggregation 노드
     
@@ -313,10 +301,10 @@ def phase05_aggregation_node(state: AgentState) -> Dict[str, Any]:
         - column_batches: 컬럼 LLM 배치 리스트
         - file_batches: 파일 LLM 배치 리스트
     """
-    from src.config import Phase1Config
+    from src.config import Phase5Config
     
     print("\n" + "=" * 60)
-    print("🔄 Phase 0.5: Schema Aggregation")
+    print("🔄 Phase 3: Schema Aggregation")
     print("=" * 60)
     
     # 1. 집계 통계 조회
@@ -337,7 +325,7 @@ def phase05_aggregation_node(state: AgentState) -> Dict[str, Any]:
     print(f"   ✅ Found {len(unique_columns)} unique columns")
     
     # 컬럼 배치 준비
-    column_batch_size = Phase1Config.COLUMN_BATCH_SIZE
+    column_batch_size = Phase5Config.COLUMN_BATCH_SIZE
     column_batches = prepare_llm_batches(unique_columns, column_batch_size)
     print(f"\n📦 Column LLM Batches:")
     print(f"   Batch size: {column_batch_size}")
@@ -368,7 +356,7 @@ def phase05_aggregation_node(state: AgentState) -> Dict[str, Any]:
     print(f"   ✅ Found {len(unique_files)} files to analyze")
     
     # 파일 배치 준비
-    file_batch_size = Phase1Config.FILE_BATCH_SIZE
+    file_batch_size = Phase5Config.FILE_BATCH_SIZE
     file_batches = prepare_file_batches(unique_files, file_batch_size)
     print(f"\n📦 File LLM Batches:")
     print(f"   Batch size: {file_batch_size}")
@@ -398,20 +386,18 @@ def phase05_aggregation_node(state: AgentState) -> Dict[str, Any]:
         "stats": stats
     }
     
-    print(f"\n✅ Phase 0.5 Complete!")
+    print(f"\n✅ Phase 3 Complete!")
     print(f"   → {len(unique_columns)} unique columns → {len(column_batches)} batches")
     print(f"   → {len(unique_files)} files → {len(file_batches)} batches")
-    print(f"   → Ready for Phase 1 LLM analysis!")
+    print(f"   → Ready for Phase 4 LLM analysis!")
     print("=" * 60 + "\n")
     
     return {
-        "phase05_result": result,
+        "phase3_result": result,
         "unique_columns": unique_columns,
         "unique_files": unique_files,
         "column_batches": column_batches,
-        "file_batches": file_batches,
-        # Legacy compatibility
-        "llm_batches": column_batches
+        "file_batches": file_batches
     }
 
 
@@ -449,7 +435,7 @@ def aggregate_unique_files() -> List[Dict[str, Any]]:
     Returns:
         List of file info dicts
     """
-    db = _get_db()
+    db = get_db_manager()
     conn = db.get_connection()
     cursor = conn.cursor()
     
@@ -503,10 +489,10 @@ def prepare_file_batches(
         files: 파일 정보 리스트
         batch_size: 배치당 파일 수 (None이면 config에서 가져옴)
     """
-    from src.config import Phase1Config
+    from src.config import Phase5Config
     
     if batch_size is None:
-        batch_size = Phase1Config.FILE_BATCH_SIZE
+        batch_size = Phase5Config.FILE_BATCH_SIZE
     
     batches = []
     for i in range(0, len(files), batch_size):

@@ -20,7 +20,7 @@ from src.database.schema_dictionary import (
     insert_dictionary_entries_batch,
     DictionarySchemaManager,
 )
-from src.config import Phase1Config, LLMConfig
+from src.config import Phase5Config, LLMConfig
 from src.agents.models.llm_responses import (
     ColumnRoleMapping,
     ColumnRoleMappingResponse,
@@ -29,29 +29,7 @@ from src.agents.models.llm_responses import (
 )
 
 
-# =============================================================================
-# 전역 리소스
-# =============================================================================
-
-_db_manager = None
-_llm_client = None
-
-
-def _get_db():
-    """DB Manager 싱글톤 반환"""
-    global _db_manager
-    if _db_manager is None:
-        _db_manager = get_db_manager()
-    return _db_manager
-
-
-def _get_llm():
-    """LLM Client 싱글톤 반환"""
-    global _llm_client
-    if _llm_client is None:
-        from src.utils.llm_client import get_llm_client
-        _llm_client = get_llm_client()
-    return _llm_client
+from src.utils.llm_client import get_llm_client
 
 
 # =============================================================================
@@ -123,7 +101,7 @@ def _get_metadata_file_details(file_path: str) -> Optional[Dict[str, Any]]:
             "sample_rows": List[Dict]  # 첫 5행
         }
     """
-    db = _get_db()
+    db = get_db_manager()
     conn = db.get_connection()
     cursor = conn.cursor()
     
@@ -273,7 +251,7 @@ def _call_llm_for_column_roles(
     Returns:
         ColumnRoleMapping or None
     """
-    llm = _get_llm()
+    llm = get_llm_client()
     
     file_name = file_info['file_name']
     columns = file_info['columns']
@@ -482,7 +460,7 @@ def _extract_from_raw_data(file_info: Dict[str, Any], column_mapping: ColumnRole
 # LangGraph Node Function
 # =============================================================================
 
-def metadata_semantic_node(state: AgentState) -> Dict[str, Any]:
+def phase5_metadata_semantic_node(state: AgentState) -> Dict[str, Any]:
     """
     Phase 1A: 메타데이터 파일에서 key-desc-unit 추출
     
@@ -500,7 +478,7 @@ def metadata_semantic_node(state: AgentState) -> Dict[str, Any]:
     - data_dictionary_entries: 추출된 모든 엔트리
     """
     print("\n" + "=" * 60)
-    print("📖 Phase 1A: MetaData Semantic Analysis")
+    print("📖 Phase 5: MetaData Semantic Analysis")
     print("=" * 60)
     
     started_at = datetime.now()
@@ -514,14 +492,14 @@ def metadata_semantic_node(state: AgentState) -> Dict[str, Any]:
     if not metadata_files:
         print("   ⚠️ No metadata files to process")
         return {
-            "phase1a_result": {
+            "phase5_result": {
                 "total_metadata_files": 0,
                 "processed_files": 0,
                 "total_entries_extracted": 0,
                 "error": "No metadata files"
             },
             "data_dictionary_entries": [],
-            "logs": ["⚠️ [Phase 1A] No metadata files to process"]
+            "logs": ["⚠️ [Phase 5] No metadata files to process"]
         }
     
     print(f"   📂 Metadata files to process: {len(metadata_files)}")
@@ -594,7 +572,7 @@ def metadata_semantic_node(state: AgentState) -> Dict[str, Any]:
         completed_at=completed_at.isoformat()
     )
     
-    print(f"\n✅ Phase 1A Complete!")
+    print(f"\n✅ Phase 5 Complete!")
     print(f"   📁 Processed files: {processed_files}/{len(metadata_files)}")
     print(f"   📝 Total entries: {len(all_entries)}")
     for fname, count in entries_by_file.items():
@@ -609,10 +587,10 @@ def metadata_semantic_node(state: AgentState) -> Dict[str, Any]:
     print(f"   📊 Data Dictionary Stats: {stats}")
     
     return {
-        "phase1a_result": result.model_dump(),
+        "phase5_result": result.model_dump(),
         "data_dictionary_entries": all_entries,
         "logs": [
-            f"📖 [Phase 1A] Extracted {len(all_entries)} entries from "
+            f"📖 [Phase 5] Extracted {len(all_entries)} entries from "
             f"{processed_files} metadata files"
         ]
     }
@@ -624,7 +602,7 @@ def metadata_semantic_node(state: AgentState) -> Dict[str, Any]:
 
 def run_metadata_semantic_standalone(metadata_files: List[str] = None) -> Dict[str, Any]:
     """
-    Phase 1A 독립 실행 (테스트용)
+    Phase 5 독립 실행 (테스트용)
     
     Args:
         metadata_files: 처리할 metadata 파일 경로 목록
@@ -635,7 +613,7 @@ def run_metadata_semantic_standalone(metadata_files: List[str] = None) -> Dict[s
     """
     if metadata_files is None:
         # DB에서 is_metadata=true인 파일 조회
-        db = _get_db()
+        db = get_db_manager()
         conn = db.get_connection()
         cursor = conn.cursor()
         
@@ -651,5 +629,5 @@ def run_metadata_semantic_standalone(metadata_files: List[str] = None) -> Dict[s
         "metadata_files": metadata_files
     }
     
-    return metadata_semantic_node(state)
+    return phase5_metadata_semantic_node(state)
 

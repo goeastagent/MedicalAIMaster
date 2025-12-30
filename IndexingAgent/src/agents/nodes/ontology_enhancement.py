@@ -30,7 +30,7 @@ from ..models.llm_responses import (
 from src.database.connection import get_db_manager
 from src.database.schema_ontology import OntologySchemaManager
 from src.utils.llm_client import get_llm_client
-from src.config import Phase2CConfig, LLMConfig, Neo4jConfig
+from src.config import Phase10Config, LLMConfig, Neo4jConfig
 
 
 # =============================================================================
@@ -364,7 +364,7 @@ def _enhance_concept_hierarchy(concept_params: Dict[str, List[Dict]]) -> Tuple[L
     Returns:
         (SubCategoryResult 목록, LLM 호출 횟수)
     """
-    if not Phase2CConfig.ENABLE_CONCEPT_HIERARCHY:
+    if not Phase10Config.ENABLE_CONCEPT_HIERARCHY:
         return [], 0
     
     if not concept_params:
@@ -425,14 +425,14 @@ def _infer_semantic_relationships(parameters: List[Dict]) -> Tuple[List[Semantic
     Returns:
         (SemanticEdge 목록, LLM 호출 횟수)
     """
-    if not Phase2CConfig.ENABLE_SEMANTIC_EDGES:
+    if not Phase10Config.ENABLE_SEMANTIC_EDGES:
         return [], 0
     
     if not parameters:
         return [], 0
     
     llm_client = get_llm_client()
-    batches = _build_parameters_context(parameters, Phase2CConfig.PARAMETER_BATCH_SIZE)
+    batches = _build_parameters_context(parameters, Phase10Config.PARAMETER_BATCH_SIZE)
     
     all_edges = []
     llm_calls = 0
@@ -474,14 +474,14 @@ def _map_medical_terms(parameters: List[Dict]) -> Tuple[List[MedicalTermMapping]
     Returns:
         (MedicalTermMapping 목록, LLM 호출 횟수)
     """
-    if not Phase2CConfig.ENABLE_MEDICAL_TERMS:
+    if not Phase10Config.ENABLE_MEDICAL_TERMS:
         return [], 0
     
     if not parameters:
         return [], 0
     
     llm_client = get_llm_client()
-    batches = _build_parameters_context(parameters, Phase2CConfig.MEDICAL_TERM_BATCH_SIZE)
+    batches = _build_parameters_context(parameters, Phase10Config.MEDICAL_TERM_BATCH_SIZE)
     
     all_mappings = []
     llm_calls = 0
@@ -542,7 +542,7 @@ def _find_cross_table_semantics(tables: List[Dict]) -> Tuple[List[CrossTableSema
     Returns:
         (CrossTableSemantic 목록, LLM 호출 횟수)
     """
-    if not Phase2CConfig.ENABLE_CROSS_TABLE:
+    if not Phase10Config.ENABLE_CROSS_TABLE:
         return [], 0
     
     if len(tables) < 2:
@@ -858,7 +858,7 @@ def _sync_to_neo4j(
         "cross_table_edges": 0
     }
     
-    if not Phase2CConfig.NEO4J_ENABLED:
+    if not Phase10Config.NEO4J_ENABLED:
         print("   ℹ️ Neo4j sync is disabled")
         return stats
     
@@ -892,7 +892,7 @@ def _sync_to_neo4j(
 # Main Node
 # =============================================================================
 
-def ontology_enhancement_node(state: AgentState) -> Dict[str, Any]:
+def phase10_ontology_enhancement_node(state: AgentState) -> Dict[str, Any]:
     """
     Phase 2C: Ontology Enhancement
     
@@ -909,7 +909,7 @@ def ontology_enhancement_node(state: AgentState) -> Dict[str, Any]:
         - cross_table_semantics: CrossTableSemantic 목록
     """
     print("\n" + "="*60)
-    print("🌳 Phase 2C: Ontology Enhancement")
+    print("🌳 Phase 10: Ontology Enhancement")
     print("="*60)
     
     started_at = datetime.now().isoformat()
@@ -982,10 +982,10 @@ def ontology_enhancement_node(state: AgentState) -> Dict[str, Any]:
     # =========================================================================
     # Summary
     # =========================================================================
-    high_conf_subcats = sum(1 for s in subcategories if s.confidence >= Phase2CConfig.CONFIDENCE_THRESHOLD)
+    high_conf_subcats = sum(1 for s in subcategories if s.confidence >= Phase10Config.CONFIDENCE_THRESHOLD)
     
     print("\n" + "-"*60)
-    print("📊 Phase 2C Summary:")
+    print("📊 Phase 10 Summary:")
     print(f"   Task 1 - Subcategories: {len(subcategories)} (high conf: {high_conf_subcats})")
     print(f"   Task 2 - Semantic Edges: {len(edges)} (DERIVED: {derived_from}, RELATED: {related_to})")
     print(f"   Task 3 - Medical Terms: {len(mappings)} (SNOMED: {snomed_count}, LOINC: {loinc_count})")
@@ -1017,7 +1017,7 @@ def ontology_enhancement_node(state: AgentState) -> Dict[str, Any]:
     )
     
     return {
-        "phase2c_result": phase2c_result.model_dump(),
+        "phase10_result": phase2c_result.model_dump(),
         "ontology_subcategories": [s.model_dump() for s in subcategories],
         "semantic_edges": [e.model_dump() for e in edges],
         "medical_term_mappings": [m.model_dump() for m in mappings],

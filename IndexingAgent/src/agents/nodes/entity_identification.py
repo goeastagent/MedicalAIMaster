@@ -24,7 +24,7 @@ from ..models.llm_responses import (
 from src.database.connection import get_db_manager
 from src.database.schema_ontology import OntologySchemaManager
 from src.utils.llm_client import get_llm_client
-from src.config import Phase2AConfig, LLMConfig
+from src.config import Phase8Config, LLMConfig
 
 
 # =============================================================================
@@ -222,7 +222,7 @@ def _build_tables_context(files_info: List[Dict[str, Any]]) -> str:
         lines.append(f"Rows: {row_count:,}")
         lines.append("Columns:")
         
-        max_cols = Phase2AConfig.MAX_COLUMNS_PER_TABLE
+        max_cols = Phase8Config.MAX_COLUMNS_PER_TABLE
         display_cols = columns[:max_cols] if max_cols > 0 else columns
         
         for col in display_cols:
@@ -238,7 +238,7 @@ def _build_tables_context(files_info: List[Dict[str, Any]]) -> str:
             line += f" [{concept}, {col_type}]"
             
             # identifier 후보인 경우 unique count 강조
-            if Phase2AConfig.SHOW_UNIQUE_COUNTS and unique_count is not None:
+            if Phase8Config.SHOW_UNIQUE_COUNTS and unique_count is not None:
                 line += f" unique: {unique_count:,}"
             
             lines.append(line)
@@ -278,7 +278,7 @@ def _call_llm_for_entity_identification(
     llm_calls = 0
     results = []
     
-    for attempt in range(Phase2AConfig.MAX_RETRIES):
+    for attempt in range(Phase8Config.MAX_RETRIES):
         try:
             response = llm_client.ask_json(
                 prompt,
@@ -303,9 +303,9 @@ def _call_llm_for_entity_identification(
                 
         except Exception as e:
             print(f"   ❌ LLM call failed (attempt {attempt + 1}): {e}")
-            if attempt < Phase2AConfig.MAX_RETRIES - 1:
+            if attempt < Phase8Config.MAX_RETRIES - 1:
                 import time
-                time.sleep(Phase2AConfig.RETRY_DELAY_SECONDS)
+                time.sleep(Phase8Config.RETRY_DELAY_SECONDS)
     
     return results, llm_calls
 
@@ -358,7 +358,7 @@ def _save_table_entities(
 # Main Node Function
 # =============================================================================
 
-def entity_identification_node(state: AgentState) -> Dict[str, Any]:
+def phase8_entity_identification_node(state: AgentState) -> Dict[str, Any]:
     """
     Phase 2A: Entity Identification Node
     
@@ -374,7 +374,7 @@ def entity_identification_node(state: AgentState) -> Dict[str, Any]:
         - table_entity_results: TableEntityResult 목록
     """
     print("\n" + "="*60)
-    print("📊 Phase 2A: Entity Identification")
+    print("📊 Phase 8: Entity Identification")
     print("="*60)
     
     started_at = datetime.now().isoformat()
@@ -385,7 +385,7 @@ def entity_identification_node(state: AgentState) -> Dict[str, Any]:
     if not data_files:
         print("ℹ️  No data files to analyze")
         return {
-            "phase2a_result": Phase2AResult(
+            "phase8_result": Phase2AResult(
                 started_at=started_at,
                 completed_at=datetime.now().isoformat()
             ).model_dump(),
@@ -409,7 +409,7 @@ def entity_identification_node(state: AgentState) -> Dict[str, Any]:
     if not files_info:
         print("⚠️  No file info loaded from database")
         return {
-            "phase2a_result": Phase2AResult(
+            "phase8_result": Phase2AResult(
                 total_tables=len(data_files),
                 started_at=started_at,
                 completed_at=datetime.now().isoformat()
@@ -426,7 +426,7 @@ def entity_identification_node(state: AgentState) -> Dict[str, Any]:
     total_llm_calls = 0
     
     # 배치 크기에 따라 분할
-    batch_size = Phase2AConfig.TABLE_BATCH_SIZE
+    batch_size = Phase8Config.TABLE_BATCH_SIZE
     for i in range(0, len(files_info), batch_size):
         batch = files_info[i:i + batch_size]
         batch_num = i // batch_size + 1
@@ -448,17 +448,17 @@ def entity_identification_node(state: AgentState) -> Dict[str, Any]:
     # 6. 통계 계산
     entities_identified = sum(1 for r in all_results if r.row_represents != 'unknown')
     identifiers_found = sum(1 for r in all_results if r.entity_identifier is not None)
-    high_conf = sum(1 for r in all_results if r.confidence >= Phase2AConfig.CONFIDENCE_THRESHOLD)
-    low_conf = sum(1 for r in all_results if r.confidence < Phase2AConfig.CONFIDENCE_THRESHOLD)
+    high_conf = sum(1 for r in all_results if r.confidence >= Phase8Config.CONFIDENCE_THRESHOLD)
+    low_conf = sum(1 for r in all_results if r.confidence < Phase8Config.CONFIDENCE_THRESHOLD)
     
     # 7. 결과 출력
     print("\n" + "-"*60)
-    print("📊 Phase 2A Summary:")
+    print("📊 Phase 8 Summary:")
     print(f"   Total tables: {len(files_info)}")
     print(f"   Analyzed: {len(all_results)}")
     print(f"   Entities identified: {entities_identified}")
     print(f"   With unique identifier: {identifiers_found}")
-    print(f"   High confidence (≥{Phase2AConfig.CONFIDENCE_THRESHOLD}): {high_conf}")
+    print(f"   High confidence (≥{Phase8Config.CONFIDENCE_THRESHOLD}): {high_conf}")
     print(f"   Low confidence: {low_conf}")
     print(f"   LLM calls: {total_llm_calls}")
     
@@ -466,7 +466,7 @@ def entity_identification_node(state: AgentState) -> Dict[str, Any]:
     print("\n📋 Entity Results:")
     for result in all_results:
         identifier_str = result.entity_identifier or "(none)"
-        conf_emoji = "🟢" if result.confidence >= Phase2AConfig.CONFIDENCE_THRESHOLD else "🟡"
+        conf_emoji = "🟢" if result.confidence >= Phase8Config.CONFIDENCE_THRESHOLD else "🟡"
         print(f"   {conf_emoji} {result.file_name}")
         print(f"      row_represents: {result.row_represents}")
         print(f"      entity_identifier: {identifier_str}")
@@ -488,7 +488,7 @@ def entity_identification_node(state: AgentState) -> Dict[str, Any]:
     )
     
     return {
-        "phase2a_result": phase2a_result.model_dump(),
+        "phase8_result": phase2a_result.model_dump(),
         "table_entity_results": [r.model_dump() for r in all_results]
     }
 

@@ -2,89 +2,69 @@
 """
 Node modules for LangGraph workflow
 
-Multi-Phase Architecture:
-- Phase -1 (directory_catalog): 디렉토리 레벨 메타데이터 수집 (Rule-based)
-- Phase 0 (catalog): 파일 레벨 메타데이터 추출 및 DB 저장 (Rule-based)
-- Phase 0.5 (aggregator): 유니크 컬럼/파일 집계 및 LLM 배치 준비
-- Phase 0.7 (classification): 파일 분류 (metadata vs data)
-- Phase 1A (metadata_semantic): 메타데이터 파일 분석
-- Phase 1C (directory_pattern): 디렉토리 패턴 분석
-- Phase 1B (data_semantic): 데이터 파일 분석
-- Phase 2A (entity_identification): Entity 식별
-- Phase 2B (relationship_inference): 관계 추론
-- Phase 2C (ontology_enhancement): 온톨로지 확장
+10-Phase Sequential Architecture:
+- Phase 1 (directory_catalog): 디렉토리 레벨 메타데이터 수집 (Rule-based)
+- Phase 2 (file_catalog): 파일 레벨 메타데이터 추출 및 DB 저장 (Rule-based)
+- Phase 3 (schema_aggregation): 유니크 컬럼/파일 집계 및 LLM 배치 준비 (Rule-based)
+- Phase 4 (file_classification): 파일 분류 - metadata vs data (LLM)
+- Phase 5 (metadata_semantic): 메타데이터 파일 분석 및 data_dictionary 추출 (LLM)
+- Phase 6 (data_semantic): 데이터 파일 컬럼 의미 분석 (LLM)
+- Phase 7 (directory_pattern): 디렉토리 파일명 패턴 분석 (LLM)
+- Phase 8 (entity_identification): Entity 식별 - row_represents, entity_identifier (LLM)
+- Phase 9 (relationship_inference): 테이블 간 FK 관계 추론 + Neo4j 3-Level Ontology (LLM)
+- Phase 10 (ontology_enhancement): Concept Hierarchy, Semantic Edges, Medical Terms (LLM)
 """
 
-# Phase -1: Directory Catalog
-from src.agents.nodes.directory_catalog import phase_neg1_directory_catalog_node
+# Phase 1: Directory Catalog
+from src.agents.nodes.directory_catalog import phase1_directory_catalog_node
 
-# Phase 0: Data Catalog
-from src.agents.nodes.catalog import phase0_catalog_node
+# Phase 2: File Catalog
+from src.agents.nodes.catalog import phase2_file_catalog_node
 
-# Phase 0.5 ~ 2C
-from src.agents.nodes.loader import load_data_node
-from src.agents.nodes.analyzer import analyze_semantics_node
-from src.agents.nodes.indexer import index_data_node
-from src.agents.nodes.human_review import human_review_node
-from src.agents.nodes.aggregator import phase05_aggregation_node
-from src.agents.nodes.classification import file_classification_node
-from src.agents.nodes.metadata_semantic import metadata_semantic_node
-from src.agents.nodes.directory_pattern import phase1c_directory_pattern_node
-from src.agents.nodes.data_semantic import data_semantic_node
-from src.agents.nodes.entity_identification import entity_identification_node
-from src.agents.nodes.relationship_inference import relationship_inference_node
-from src.agents.nodes.ontology_enhancement import ontology_enhancement_node
-from src.agents.nodes.semantic import phase1_semantic_node
-from src.agents.nodes.batch import (
-    batch_classifier_node,
-    classification_review_node,
-    process_metadata_batch_node,
-    process_data_batch_node,
-    advance_to_next_file_node,
-)
-from src.agents.nodes.routing import (
-    check_classification_needs_review,
-    check_has_more_files,
-    check_data_needs_review,
-)
+# Phase 3: Schema Aggregation
+from src.agents.nodes.aggregator import phase3_aggregation_node
+
+# Phase 4: File Classification
+from src.agents.nodes.classification import phase4_classification_node
+
+# Phase 5: Metadata Semantic
+from src.agents.nodes.metadata_semantic import phase5_metadata_semantic_node
+
+# Phase 6: Data Semantic
+from src.agents.nodes.data_semantic import phase6_data_semantic_node
+
+# Phase 7: Directory Pattern
+from src.agents.nodes.directory_pattern import phase7_directory_pattern_node
+
+# Phase 8: Entity Identification
+from src.agents.nodes.entity_identification import phase8_entity_identification_node
+
+# Phase 9: Relationship Inference
+from src.agents.nodes.relationship_inference import phase9_relationship_inference_node
+
+# Phase 10: Ontology Enhancement
+from src.agents.nodes.ontology_enhancement import phase10_ontology_enhancement_node
+
 
 __all__ = [
-    # Phase -1: Directory Catalog
-    "phase_neg1_directory_catalog_node",
-    # Phase 0: Data Catalog
-    "phase0_catalog_node",
-    # Phase 0.5: Schema Aggregation
-    "phase05_aggregation_node",
-    # Phase 0.7: File Classification
-    "file_classification_node",
-    # Phase 1A: MetaData Semantic
-    "metadata_semantic_node",
-    # Phase 1C: Directory Pattern Analysis
-    "phase1c_directory_pattern_node",
-    # Phase 1B: Data Semantic Analysis
-    "data_semantic_node",
-    # Phase 2A: Entity Identification
-    "entity_identification_node",
-    # Phase 2B: Relationship Inference + Neo4j
-    "relationship_inference_node",
-    # Phase 2C: Ontology Enhancement
-    "ontology_enhancement_node",
-    # Phase 1 (Legacy): Semantic Analysis
-    "phase1_semantic_node",
-    # Core nodes
-    "load_data_node",
-    "analyze_semantics_node",
-    "index_data_node",
-    "human_review_node",
-    # Batch workflow nodes (legacy)
-    "batch_classifier_node",
-    "classification_review_node",
-    "process_metadata_batch_node",
-    "process_data_batch_node",
-    "advance_to_next_file_node",
-    # Routing functions
-    "check_classification_needs_review",
-    "check_has_more_files",
-    "check_data_needs_review",
+    # Phase 1: Directory Catalog
+    "phase1_directory_catalog_node",
+    # Phase 2: File Catalog
+    "phase2_file_catalog_node",
+    # Phase 3: Schema Aggregation
+    "phase3_aggregation_node",
+    # Phase 4: File Classification
+    "phase4_classification_node",
+    # Phase 5: Metadata Semantic
+    "phase5_metadata_semantic_node",
+    # Phase 6: Data Semantic
+    "phase6_data_semantic_node",
+    # Phase 7: Directory Pattern
+    "phase7_directory_pattern_node",
+    # Phase 8: Entity Identification
+    "phase8_entity_identification_node",
+    # Phase 9: Relationship Inference
+    "phase9_relationship_inference_node",
+    # Phase 10: Ontology Enhancement
+    "phase10_ontology_enhancement_node",
 ]
-

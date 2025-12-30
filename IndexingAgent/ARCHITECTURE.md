@@ -15,7 +15,7 @@ Indexing Agent는 의료 데이터 파일(CSV, Signal 등)을 분석하여:
 
 ---
 
-## 🔄 전체 데이터 흐름 (Data Flow)
+## 🔄 10-Phase Sequential Pipeline
 
 ```
 ┌─────────────────────────────────────────────────────────────────────┐
@@ -24,152 +24,177 @@ Indexing Agent는 의료 데이터 파일(CSV, Signal 등)을 분석하여:
                                     │
                                     ▼
 ┌─────────────────────────────────────────────────────────────────────┐
-│  1️⃣ LOADER NODE                                                      │
-│  ─────────────────                                                   │
-│  • 파일 형식 감지 (CSV? Signal?)                                      │
-│  • Processor 선택                                                    │
-│  • 기초 메타데이터 추출 (컬럼명, 샘플 데이터, Anchor 후보)              │
+│  Phase 1: Directory Catalog (Rule-based)                            │
+│  ───────────────────────────────────────                            │
+│  • 디렉토리 구조 분석                                                 │
+│  • 파일 확장자별 카운트                                               │
+│  • 파일명 샘플 수집 (Phase 7에서 LLM 분석용)                          │
 └─────────────────────────────────────────────────────────────────────┘
                                     │
                                     ▼
 ┌─────────────────────────────────────────────────────────────────────┐
-│  2️⃣ ONTOLOGY BUILDER NODE                                            │
-│  ─────────────────────────                                           │
-│  • 파일 분류: "메타데이터" vs "일반 데이터"                            │
-│  • 메타데이터면 → 용어 사전 파싱 후 온톨로지에 추가                     │
-│  • 일반 데이터면 → 다음 단계로 진행                                    │
-│                                                                      │
-│  🤖 LLM 사용: 파일 유형 판단 (confidence 점수 반환)                    │
-│  👤 Human Review: confidence < 90% 이면 사람에게 질문                  │
+│  Phase 2: File Catalog (Rule-based)                                 │
+│  ─────────────────────────────────                                  │
+│  • 파일별 메타데이터 추출 (컬럼명, 타입, 통계)                         │
+│  • DB 저장 (file_catalog, column_metadata)                          │
 └─────────────────────────────────────────────────────────────────────┘
                                     │
-                    ┌───────────────┴───────────────┐
-                    ▼                               ▼
-            [메타데이터 파일]                  [일반 데이터 파일]
-                    │                               │
-                    ▼                               ▼
-        ┌───────────────────┐           ┌───────────────────────────┐
-        │ 용어 파싱 후       │           │ 3️⃣ ANALYZER NODE           │
-        │ Neo4j에 저장       │           │ ───────────────            │
-        │ (인덱싱 스킵)      │           │ • Anchor 컬럼 확정         │
-        └───────────────────┘           │ • 스키마 분석              │
-                                        │ • 테이블 간 관계 추론       │
-                                        │                           │
-                                        │ 🤖 LLM 사용:               │
-                                        │   - Anchor 매칭           │
-                                        │   - 컬럼 의미 해석         │
-                                        │   - FK 관계 추론           │
-                                        │                           │
-                                        │ 👤 Human Review:           │
-                                        │   - Anchor 불일치 시       │
-                                        │   - 불확실할 때            │
-                                        └───────────────────────────┘
-                                                    │
-                                                    ▼
-                                        ┌───────────────────────────┐
-                                        │ 4️⃣ INDEXER NODE            │
-                                        │ ─────────────              │
-                                        │ • PostgreSQL 테이블 생성   │
-                                        │ • 데이터 적재              │
-                                        │ • FK/인덱스 생성           │
-                                        │ • 온톨로지 관계 저장        │
-                                        └───────────────────────────┘
-                                                    │
-                                                    ▼
+                                    ▼
+┌─────────────────────────────────────────────────────────────────────┐
+│  Phase 3: Schema Aggregation (Rule-based)                           │
+│  ────────────────────────────────────────                           │
+│  • 유니크 컬럼명 집계                                                 │
+│  • 대표 통계 계산                                                     │
+│  • LLM 배치 준비                                                      │
+└─────────────────────────────────────────────────────────────────────┘
+                                    │
+                                    ▼
+┌─────────────────────────────────────────────────────────────────────┐
+│  Phase 4: File Classification (LLM)                                 │
+│  ──────────────────────────────────                                 │
+│  • 파일을 "metadata" vs "data"로 분류                                │
+│  • 🤖 LLM 사용: 파일명, 컬럼명, 샘플 데이터 분석                       │
+└─────────────────────────────────────────────────────────────────────┘
+                                    │
+                                    ▼
+┌─────────────────────────────────────────────────────────────────────┐
+│  Phase 5: Metadata Semantic (LLM)                                   │
+│  ────────────────────────────────                                   │
+│  • metadata 파일에서 data_dictionary 추출                            │
+│  • key, description, unit 파싱                                       │
+│  • 🤖 LLM 사용: 컬럼 역할 추론 (key/desc/unit)                        │
+└─────────────────────────────────────────────────────────────────────┘
+                                    │
+                                    ▼
+┌─────────────────────────────────────────────────────────────────────┐
+│  Phase 6: Data Semantic (LLM)                                       │
+│  ────────────────────────────                                       │
+│  • data 파일 컬럼 의미 분석                                           │
+│  • data_dictionary와 매칭                                            │
+│  • 🤖 LLM 사용: 컬럼 의미, concept_category 추론                      │
+└─────────────────────────────────────────────────────────────────────┘
+                                    │
+                                    ▼
+┌─────────────────────────────────────────────────────────────────────┐
+│  Phase 7: Directory Pattern (LLM)                                   │
+│  ────────────────────────────────                                   │
+│  • 디렉토리별 파일명 패턴 분석                                         │
+│  • ID 값 추출 (예: 00001.vital → caseid=00001)                       │
+│  • 🤖 LLM 사용: 파일명에서 의미있는 필드 추출                          │
+└─────────────────────────────────────────────────────────────────────┘
+                                    │
+                                    ▼
+┌─────────────────────────────────────────────────────────────────────┐
+│  Phase 8: Entity Identification (LLM)                               │
+│  ────────────────────────────────────                               │
+│  • 테이블별 row_represents 식별 (각 행이 무엇을 나타내는가)            │
+│  • entity_identifier 컬럼 식별 (행을 고유하게 식별하는 컬럼)           │
+│  • 🤖 LLM 사용: 테이블의 의미론적 역할 분석                            │
+└─────────────────────────────────────────────────────────────────────┘
+                                    │
+                                    ▼
+┌─────────────────────────────────────────────────────────────────────┐
+│  Phase 9: Relationship Inference (LLM + Neo4j)                      │
+│  ─────────────────────────────────────────────                      │
+│  • 테이블 간 FK 관계 추론                                             │
+│  • Neo4j에 3-Level Ontology 구축                                     │
+│  • 🤖 LLM 사용: FK 관계, cardinality 추론                             │
+└─────────────────────────────────────────────────────────────────────┘
+                                    │
+                                    ▼
+┌─────────────────────────────────────────────────────────────────────┐
+│  Phase 10: Ontology Enhancement (LLM + Neo4j)                       │
+│  ────────────────────────────────────────────                       │
+│  • Concept Hierarchy (SubCategory 세분화)                            │
+│  • Semantic Edges (파라미터 간 의미 관계)                             │
+│  • Medical Term Mapping (SNOMED/LOINC 코드 매핑)                     │
+│  • 🤖 LLM 사용: 의료 도메인 지식 적용                                  │
+└─────────────────────────────────────────────────────────────────────┘
+                                    │
+                                    ▼
 ┌─────────────────────────────────────────────────────────────────────┐
 │                            출력                                      │
 │  ────────────────────────────────────────────────────────────────   │
-│  📊 PostgreSQL: 정형화된 테이블 + FK 관계 + 인덱스                    │
-│  🧠 Neo4j: 온톨로지 (Concepts, Relationships, Hierarchy)             │
+│  📊 PostgreSQL: 테이블 + 메타데이터 + 관계 정보                       │
+│  🧠 Neo4j: 온톨로지 (Entities, Concepts, Relationships, Hierarchy)   │
 └─────────────────────────────────────────────────────────────────────┘
 ```
 
 ---
 
-## 🧩 주요 컴포넌트 설명
+## 📊 Phase별 상세 설명
 
-### 1. Processor (전처리기)
-**역할**: 파일 형식별로 기초 메타데이터 추출 및 LLM에게 Anchor 판단 요청
+### Phase 1-3: Rule-based 메타데이터 수집
 
-| Processor | 대상 파일 | 추출 정보 |
-|-----------|-----------|-----------|
-| TabularProcessor | CSV, Excel | 컬럼명, 데이터 타입, 샘플 값, categorical/continuous 판단 |
-| SignalProcessor | .vital, .edf | 채널 정보, 샘플링 레이트, 시간 범위 |
+| Phase | 이름 | 역할 | 저장 테이블 |
+|-------|------|------|------------|
+| 1 | Directory Catalog | 디렉토리 구조 분석 | directory_catalog |
+| 2 | File Catalog | 파일/컬럼 메타데이터 | file_catalog, column_metadata |
+| 3 | Schema Aggregation | 유니크 컬럼 집계 | (state에만 저장) |
 
-**Anchor 탐지 방식 (LLM 기반)**:
-1. **전처리 (Rule-based)**: 컬럼 정보 추출 (dtype, unique values, samples)
-2. **LLM 호출**: 추출된 정보를 텍스트로 요약하여 LLM에게 전달
-3. **LLM 판단**: "어떤 컬럼이 Patient/Subject ID인가?" 판단
-4. **confidence < 85%**: Human Review 요청
+### Phase 4-10: LLM 기반 의미 분석
 
-> ⚠️ 참고: `base.py`에 명시된 대로 "Rule-based 로직(정규식 등)은 제거되었습니다."
-> Anchor 탐지는 순수하게 LLM이 수행합니다.
-
-### 2. Ontology Manager (온톨로지 관리자)
-**역할**: Neo4j와의 상호작용 담당
-
-**저장하는 정보**:
-- **Definitions (용어 정의)**: 컬럼명 → 설명 매핑
-- **Relationships (관계)**: 테이블 간 FK 관계
-- **Hierarchy (계층)**: 데이터 레벨 (환자 → 케이스 → 측정값)
-- **File Tags (파일 태그)**: 파일별 메타데이터/데이터 분류
-
-### 3. LLM Client (LLM 클라이언트)
-**역할**: OpenAI/Anthropic API 호출
-
-**캐싱 전략**:
-- 동일한 질문은 캐시에서 반환 (비용 절감)
-- 캐시 키: 프롬프트 해시값
-- 저장 위치: `data/cache/llm/`
+| Phase | 이름 | 역할 | 저장 테이블 |
+|-------|------|------|------------|
+| 4 | File Classification | metadata/data 분류 | file_catalog.is_metadata |
+| 5 | Metadata Semantic | data_dictionary 추출 | data_dictionary |
+| 6 | Data Semantic | 컬럼 의미 분석 | column_metadata (semantic 필드) |
+| 7 | Directory Pattern | 파일명 패턴 분석 | directory_catalog, file_catalog |
+| 8 | Entity Identification | row_represents 식별 | table_entities |
+| 9 | Relationship Inference | FK 관계 추론 | table_relationships, Neo4j |
+| 10 | Ontology Enhancement | 온톨로지 확장 | 다수 테이블, Neo4j |
 
 ---
 
 ## 🤖 LLM이 사용되는 곳
 
-### 1. 파일 유형 분류 (Ontology Builder)
+### Phase 4: 파일 분류
 ```
 입력: 파일명, 컬럼 목록, 샘플 데이터
 질문: "이 파일이 메타데이터(코드북/사전)인가요, 실제 데이터인가요?"
 출력: { is_metadata: true/false, confidence: 0.95, reasoning: "..." }
 ```
 
-**판단 기준 (LLM에게 제공)**:
-- 파일명에 "parameter", "code", "dictionary" 등이 있으면 메타데이터 가능성 높음
-- 컬럼이 "name", "description", "unit" 등이면 메타데이터
-- 값이 설명문이면 메타데이터, 숫자/측정값이면 데이터
-
-### 2. Anchor 컬럼 매칭 (Analyzer)
+### Phase 5: 메타데이터 분석
 ```
-입력: 프로젝트의 Master Anchor (예: subjectid), 현재 파일의 컬럼 목록
-질문: "이 파일에서 Master Anchor와 같은 역할을 하는 컬럼이 무엇인가요?"
-출력: { status: "MATCH"/"CONFLICT"/"MISSING", target_column: "...", reasoning: "..." }
+입력: metadata 파일의 컬럼 정보
+질문: "어떤 컬럼이 key, description, unit 역할인가요?"
+출력: { key_column: "...", desc_column: "...", unit_column: "..." }
 ```
 
-**매칭 유형**:
-- **MATCH**: 정확히 같은 컬럼 또는 동의어 (pid ≈ patient_id)
-- **INDIRECT_LINK**: 다른 테이블을 경유하여 연결 가능 (caseid → clinical_data.subjectid)
-- **CONFLICT**: 매칭 불가
-- **MISSING**: 해당 컬럼 없음
-
-### 3. 컬럼 의미 분석 (Analyzer)
+### Phase 6: 데이터 시맨틱 분석
 ```
-입력: 컬럼명, 샘플 값, Anchor 정보
-질문: "이 컬럼들의 의료적 의미와 역할을 분석해주세요"
-출력: [{ column: "...", semantic_type: "...", role: "identifier/feature/timestamp" }, ...]
+입력: data 파일의 컬럼 정보 + data_dictionary 컨텍스트
+질문: "이 컬럼들의 의미와 dictionary entry 매칭 결과는?"
+출력: [{ column: "...", semantic_name: "...", concept_category: "...", dict_match: "..." }, ...]
 ```
 
-### 4. 테이블 관계 추론 (Indexer)
+### Phase 7: 디렉토리 패턴 분석
 ```
-입력: 현재 테이블, 기존 테이블들, 공통 컬럼
-질문: "이 테이블들 간의 FK 관계를 추론해주세요"
-출력: { relationships: [...], hierarchy: [...] }
+입력: 파일명 샘플 (예: ["00001.vital", "00002.vital", ...])
+질문: "파일명에서 어떤 필드를 추출할 수 있나요?"
+출력: { pattern: "{caseid}.vital", columns: ["caseid"] }
 ```
 
-### 5. Human Review 질문 생성
+### Phase 8: Entity 식별
 ```
-입력: 이슈 상황, 컨텍스트
-질문: "사용자에게 물어볼 자연스러운 질문을 한국어로 작성해주세요"
-출력: 자연어 질문 문자열
+입력: 테이블 컬럼 정보
+질문: "이 테이블의 각 행은 무엇을 나타내나요? 행을 고유하게 식별하는 컬럼은?"
+출력: { row_represents: "surgery", entity_identifier: "caseid" }
+```
+
+### Phase 9: 관계 추론
+```
+입력: 두 테이블의 Entity 정보
+질문: "이 테이블들 간의 FK 관계는?"
+출력: { source_column: "caseid", target_column: "caseid", cardinality: "1:N" }
+```
+
+### Phase 10: 온톨로지 강화
+```
+입력: concept_category별 파라미터 목록
+질문: "이 파라미터들을 더 세분화하고, SNOMED/LOINC 코드를 매핑해주세요"
+출력: { subcategories: [...], medical_mappings: [...] }
 ```
 
 ---
@@ -181,29 +206,8 @@ Indexing Agent는 의료 데이터 파일(CSV, Signal 등)을 분석하여:
 | 상황 | 조건 | 질문 예시 |
 |------|------|-----------|
 | 파일 분류 불확실 | confidence < 90% | "이 파일이 메타데이터인가요, 데이터인가요?" |
-| Anchor 불확실 | Processor가 확신 못 함 | "어떤 컬럼이 환자 ID인가요?" |
-| Anchor 충돌 | 기존 Master와 매칭 안 됨 | "subjectid와 동일한 컬럼이 무엇인가요?" |
-
-### 판단 방식: Rule + LLM Hybrid
-
-```
-         ┌─────────────────┐
-         │ Rule-based 체크  │
-         │ (Threshold 비교) │
-         └────────┬────────┘
-                  │
-                  ▼
-         ┌─────────────────┐
-         │ LLM 추가 판단    │ ← USE_LLM_FOR_REVIEW_DECISION=true 일 때만
-         │ (상황 종합 분석) │
-         └────────┬────────┘
-                  │
-                  ▼
-    ┌─────────────┴─────────────┐
-    │ 둘 중 하나라도 "필요" →    │
-    │ Human Review 요청          │
-    └───────────────────────────┘
-```
+| Entity 불확실 | confidence < 80% | "어떤 컬럼이 환자 ID인가요?" |
+| 관계 불확실 | confidence < 80% | "이 테이블들 간의 관계가 맞나요?" |
 
 ### 설정 가능한 파라미터 (`config.py`)
 
@@ -216,62 +220,43 @@ Indexing Agent는 의료 데이터 파일(CSV, Signal 등)을 분석하여:
 
 ---
 
-## 💾 DB 구축 과정 (PostgreSQL)
+## 💾 저장되는 DB 테이블
 
-### 1단계: 테이블 생성
-- 파일명에서 테이블명 생성 (예: `clinical_data.csv` → `clinical_data_table`)
-- pandas가 데이터 타입을 자동 추론하여 컬럼 생성
+### PostgreSQL
 
-### 2단계: 데이터 적재
-- 작은 파일: 한 번에 INSERT
-- 대용량 파일 (>50MB): Chunk 단위로 분할 처리 (100,000행씩)
+| 테이블 | 생성 Phase | 설명 |
+|--------|-----------|------|
+| directory_catalog | 1, 7 | 디렉토리 메타데이터 + 파일명 패턴 |
+| file_catalog | 2, 4 | 파일 메타데이터 + 분류 결과 |
+| column_metadata | 2, 6 | 컬럼 메타데이터 + 시맨틱 정보 |
+| data_dictionary | 5 | 파라미터 정의 (key, desc, unit) |
+| table_entities | 8 | 테이블 Entity 정보 |
+| table_relationships | 9 | FK 관계 |
+| ontology_subcategories | 10 | SubCategory 세분화 |
+| semantic_edges | 10 | 파라미터 간 의미 관계 |
+| medical_term_mappings | 10 | SNOMED/LOINC 매핑 |
+| cross_table_semantics | 10 | 테이블 간 시맨틱 관계 |
 
-### 3단계: FK 제약조건 생성
-```
-온톨로지의 relationships 정보를 기반으로:
+### Neo4j
 
-clinical_data_table.subjectid  ←──┐
-                                   │ FK
-lab_data_table.caseid ────────────►clinical_data_table.caseid
-```
+| 노드 타입 | 생성 Phase | 설명 |
+|----------|-----------|------|
+| RowEntity | 9 | 테이블이 나타내는 Entity |
+| ConceptCategory | 9 | 개념 카테고리 (Vital Signs 등) |
+| SubCategory | 10 | 세분화된 카테고리 |
+| Parameter | 9, 10 | 측정 파라미터 |
+| MedicalTerm | 10 | 표준 의료 용어 |
 
-### 4단계: 인덱스 생성
-- Anchor 컬럼에 인덱스 자동 생성
-- 자주 조회되는 컬럼 (timestamp 등)에 인덱스 추가
-
----
-
-## 🧠 온톨로지 구축 과정 (Neo4j)
-
-### 저장되는 노드 유형
-
-```
-(:Concept {name: "subjectid", definition: "환자 고유 식별자"})
-(:Concept {name: "heart_rate", definition: "심박수 (bpm)"})
-(:Concept {name: "clinical_data_table", level: 1, anchor_column: "subjectid"})
-```
-
-### 저장되는 관계 유형
-
-```
-(clinical_data)-[:HAS_MANY]->(lab_data)
-(lab_data)-[:BELONGS_TO]->(clinical_data)
-(subjectid)-[:IDENTIFIES]->(clinical_data)
-```
-
-### 계층 구조 (Hierarchy)
-
-```
-Level 1: 환자 (subject)
-    └── Level 2: 케이스/방문 (case/visit)
-            └── Level 3: 측정값 (measurement)
-```
-
-### 온톨로지 활용 사례
-
-1. **스키마 자동 이해**: 새 파일이 들어오면 기존 온톨로지를 참조하여 컬럼 의미 파악
-2. **FK 추론**: 공통 컬럼 기반으로 테이블 간 관계 자동 설정
-3. **질의 최적화**: 어떤 테이블을 JOIN해야 하는지 자동 결정
+| 관계 타입 | 생성 Phase | 설명 |
+|----------|-----------|------|
+| LINKS_TO | 9 | 테이블 간 FK 관계 |
+| HAS_CONCEPT | 9 | Entity → Category |
+| HAS_SUBCATEGORY | 10 | Category → SubCategory |
+| CONTAINS | 9 | Category → Parameter |
+| HAS_COLUMN | 9 | Entity → Parameter |
+| DERIVED_FROM | 10 | 파라미터 파생 관계 |
+| RELATED_TO | 10 | 파라미터 상관 관계 |
+| MAPS_TO | 10 | 표준 용어 매핑 |
 
 ---
 
@@ -285,7 +270,7 @@ cd IndexingAgent
 
 ### 2. 인덱싱 실행
 ```bash
-python test_agent_with_interrupt.py
+python test_full_pipeline_results.py
 ```
 
 ### 3. 결과 확인
@@ -296,84 +281,52 @@ python view_ontology.py    # Neo4j 온톨로지 확인
 
 ---
 
-## 📊 전체 시스템 구조
-
-```
-┌────────────────────────────────────────────────────────────────────────────┐
-│                              Indexing Agent                                 │
-├────────────────────────────────────────────────────────────────────────────┤
-│                                                                            │
-│  ┌──────────────┐    ┌──────────────┐    ┌──────────────┐                  │
-│  │   Loader     │───►│  Ontology    │───►│   Analyzer   │                  │
-│  │    Node      │    │   Builder    │    │     Node     │                  │
-│  └──────────────┘    └──────────────┘    └──────────────┘                  │
-│         │                   │                   │                          │
-│         │                   │                   │                          │
-│         ▼                   ▼                   ▼                          │
-│  ┌──────────────┐    ┌──────────────┐    ┌──────────────┐                  │
-│  │  Processors  │    │   LLM        │    │   Indexer    │                  │
-│  │  (Tabular/   │    │   Client     │    │     Node     │                  │
-│  │   Signal)    │    │   (Cached)   │    │              │                  │
-│  └──────────────┘    └──────────────┘    └──────────────┘                  │
-│                             │                   │                          │
-│                             │                   │                          │
-│                             ▼                   ▼                          │
-│                      ┌──────────────┐    ┌──────────────┐                  │
-│                      │  Human       │    │   Ontology   │                  │
-│                      │  Review      │    │   Manager    │                  │
-│                      │  (Optional)  │    │              │                  │
-│                      └──────────────┘    └──────────────┘                  │
-│                                                │                           │
-└────────────────────────────────────────────────┼───────────────────────────┘
-                                                 │
-                         ┌───────────────────────┼───────────────────────┐
-                         │                       │                       │
-                         ▼                       ▼                       ▼
-                  ┌──────────────┐       ┌──────────────┐       ┌──────────────┐
-                  │  PostgreSQL  │       │    Neo4j     │       │  Vector DB   │
-                  │  (Tables,    │       │  (Ontology,  │       │  (Semantic   │
-                  │   FK, Index) │       │   Concepts)  │       │   Search)    │
-                  └──────────────┘       └──────────────┘       └──────────────┘
-```
-
----
-
-## 🎯 설계 원칙
-
-1. **점진적 학습**: 파일을 처리할수록 온톨로지가 풍부해져서 다음 파일 분석이 더 정확해짐
-2. **Human-in-the-Loop**: 불확실할 때는 무작정 진행하지 않고 사람에게 확인
-3. **캐싱 최적화**: 동일한 LLM 질문은 재사용하여 비용 절감
-4. **유연한 설정**: Threshold, LLM 사용 여부 등을 설정으로 조정 가능
-5. **데이터 무결성**: FK 제약조건으로 테이블 간 관계 보장
-
----
-
 ## 📁 파일 구조
 
 ```
 IndexingAgent/
 ├── src/
 │   ├── agents/
-│   │   ├── graph.py          # LangGraph 워크플로우 정의
-│   │   ├── nodes.py          # 각 노드 구현 (Loader, Analyzer, Indexer)
-│   │   └── state.py          # 상태 객체 정의
+│   │   ├── graph.py              # LangGraph 워크플로우 정의
+│   │   ├── state.py              # 상태 객체 정의
+│   │   └── nodes/
+│   │       ├── __init__.py       # 노드 모듈 export
+│   │       ├── directory_catalog.py   # Phase 1
+│   │       ├── catalog.py             # Phase 2
+│   │       ├── aggregator.py          # Phase 3
+│   │       ├── classification.py      # Phase 4
+│   │       ├── metadata_semantic.py   # Phase 5
+│   │       ├── data_semantic.py       # Phase 6
+│   │       ├── directory_pattern.py   # Phase 7
+│   │       ├── entity_identification.py # Phase 8
+│   │       ├── relationship_inference.py # Phase 9
+│   │       └── ontology_enhancement.py   # Phase 10
 │   ├── processors/
-│   │   ├── tabular.py        # CSV 처리기
-│   │   └── signal.py         # Signal 파일 처리기
+│   │   ├── tabular.py            # CSV 처리기
+│   │   └── signal.py             # Signal 파일 처리기
 │   ├── database/
-│   │   ├── connection.py     # PostgreSQL 연결
-│   │   └── neo4j_connection.py # Neo4j 연결
+│   │   ├── connection.py         # PostgreSQL 연결
+│   │   ├── neo4j_connection.py   # Neo4j 연결
+│   │   ├── schema_catalog.py     # file_catalog, column_metadata
+│   │   ├── schema_directory.py   # directory_catalog
+│   │   ├── schema_dictionary.py  # data_dictionary
+│   │   └── schema_ontology.py    # 온톨로지 관련 테이블
 │   ├── utils/
-│   │   ├── llm_client.py     # LLM API 클라이언트
-│   │   ├── llm_cache.py      # LLM 응답 캐시
-│   │   └── ontology_manager.py # 온톨로지 CRUD
-│   └── config.py             # 설정 (Threshold 등)
+│   │   ├── llm_client.py         # LLM API 클라이언트
+│   │   └── llm_cache.py          # LLM 응답 캐시
+│   └── config.py                 # 설정 (Phase별 Config 클래스)
 ├── data/
-│   ├── raw/                  # 원본 데이터 파일
-│   ├── processed/            # 처리된 데이터
-│   └── cache/llm/            # LLM 응답 캐시
-├── test_agent_with_interrupt.py  # 메인 실행 스크립트
-├── view_database.py          # DB 확인 도구
-└── view_ontology.py          # 온톨로지 확인 도구
+│   ├── raw/                      # 원본 데이터 파일
+│   └── cache/llm_disk/           # LLM 응답 캐시
+└── test_full_pipeline_results.py # 전체 파이프라인 실행 + 결과 확인
 ```
 
+---
+
+## 🎯 설계 원칙
+
+1. **10-Phase Sequential Pipeline**: 명확하게 분리된 10단계 처리
+2. **Rule Prepares, LLM Decides**: 규칙 기반 전처리 + LLM 최종 판단
+3. **Human-in-the-Loop**: 불확실할 때는 사람에게 확인
+4. **캐싱 최적화**: 동일한 LLM 질문은 재사용하여 비용 절감
+5. **점진적 학습**: 파일을 처리할수록 온톨로지가 풍부해짐

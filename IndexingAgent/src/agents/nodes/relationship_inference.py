@@ -26,7 +26,7 @@ from ..models.llm_responses import (
 from src.database.connection import get_db_manager
 from src.database.schema_ontology import OntologySchemaManager
 from src.utils.llm_client import get_llm_client
-from src.config import Phase2BConfig, LLMConfig, Neo4jConfig
+from src.config import Phase9Config, LLMConfig, Neo4jConfig
 
 
 # =============================================================================
@@ -290,8 +290,8 @@ def _build_tables_context(tables: List[Dict]) -> str:
         
         # FK 후보 컬럼만 표시
         fk_candidates = [c for c in table['columns'] 
-                        if c['concept_category'] in Phase2BConfig.FK_CANDIDATE_CONCEPTS
-                        or any(p in (c['original_name'] or '') for p in Phase2BConfig.FK_CANDIDATE_PATTERNS)]
+                        if c['concept_category'] in Phase9Config.FK_CANDIDATE_CONCEPTS
+                        or any(p in (c['original_name'] or '') for p in Phase9Config.FK_CANDIDATE_PATTERNS)]
         
         if fk_candidates:
             lines.append("- FK candidate columns:")
@@ -363,7 +363,7 @@ def _call_llm_for_relationships(
     llm_calls = 0
     results = []
     
-    for attempt in range(Phase2BConfig.MAX_RETRIES):
+    for attempt in range(Phase9Config.MAX_RETRIES):
         try:
             response = llm_client.ask_json(prompt, max_tokens=LLMConfig.MAX_TOKENS)
             llm_calls += 1
@@ -388,9 +388,9 @@ def _call_llm_for_relationships(
                 
         except Exception as e:
             print(f"   ❌ LLM call failed (attempt {attempt + 1}): {e}")
-            if attempt < Phase2BConfig.MAX_RETRIES - 1:
+            if attempt < Phase9Config.MAX_RETRIES - 1:
                 import time
-                time.sleep(Phase2BConfig.RETRY_DELAY_SECONDS)
+                time.sleep(Phase9Config.RETRY_DELAY_SECONDS)
     
     return results, llm_calls
 
@@ -857,7 +857,7 @@ def _sync_to_neo4j(
         "edges_filename_value": 0
     }
     
-    if not Phase2BConfig.NEO4J_ENABLED:
+    if not Phase9Config.NEO4J_ENABLED:
         print("   ℹ️ Neo4j sync is disabled")
         return stats
     
@@ -908,7 +908,7 @@ def _sync_to_neo4j(
 # Main Node
 # =============================================================================
 
-def relationship_inference_node(state: AgentState) -> Dict[str, Any]:
+def phase9_relationship_inference_node(state: AgentState) -> Dict[str, Any]:
     """
     Phase 2B: Relationship Inference + Neo4j Sync
     
@@ -927,7 +927,7 @@ def relationship_inference_node(state: AgentState) -> Dict[str, Any]:
         - table_relationships: TableRelationship 목록
     """
     print("\n" + "="*60)
-    print("🔗 Phase 2B: Relationship Inference + Neo4j")
+    print("🔗 Phase 9: Relationship Inference + Neo4j")
     print("="*60)
     
     started_at = datetime.now().isoformat()
@@ -941,9 +941,9 @@ def relationship_inference_node(state: AgentState) -> Dict[str, Any]:
     tables = _load_tables_with_entity_and_columns()
     
     if not tables:
-        print("⚠️ No tables found (run Phase 2A first)")
+        print("⚠️ No tables found (run Phase 8 first)")
         return {
-            "phase2b_result": Phase2BResult(
+            "phase9_result": Phase2BResult(
                 started_at=started_at,
                 completed_at=datetime.now().isoformat()
             ).model_dump(),
@@ -977,19 +977,19 @@ def relationship_inference_node(state: AgentState) -> Dict[str, Any]:
     neo4j_synced = sum(neo4j_stats.values()) > 0
     
     # 7. 결과 통계
-    high_conf = sum(1 for r in relationships if r.confidence >= Phase2BConfig.CONFIDENCE_THRESHOLD)
+    high_conf = sum(1 for r in relationships if r.confidence >= Phase9Config.CONFIDENCE_THRESHOLD)
     
     # 8. 결과 출력
     print("\n" + "-"*60)
-    print("📊 Phase 2B Summary:")
+    print("📊 Phase 9 Summary:")
     print(f"   Relationships found: {len(relationships)}")
-    print(f"   High confidence (≥{Phase2BConfig.CONFIDENCE_THRESHOLD}): {high_conf}")
+    print(f"   High confidence (≥{Phase9Config.CONFIDENCE_THRESHOLD}): {high_conf}")
     print(f"   LLM calls: {llm_calls}")
     
     if relationships:
         print("\n🔗 Relationships:")
         for rel in relationships:
-            conf_emoji = "🟢" if rel.confidence >= Phase2BConfig.CONFIDENCE_THRESHOLD else "🟡"
+            conf_emoji = "🟢" if rel.confidence >= Phase9Config.CONFIDENCE_THRESHOLD else "🟡"
             print(f"   {conf_emoji} {rel.source_table} → {rel.target_table}")
             print(f"      {rel.source_column} → {rel.target_column} ({rel.cardinality})")
             print(f"      confidence: {rel.confidence:.2f}")
@@ -1024,7 +1024,7 @@ def relationship_inference_node(state: AgentState) -> Dict[str, Any]:
     )
     
     return {
-        "phase2b_result": phase2b_result.model_dump(),
+        "phase9_result": phase2b_result.model_dump(),
         "table_relationships": [r.model_dump() for r in relationships]
     }
 

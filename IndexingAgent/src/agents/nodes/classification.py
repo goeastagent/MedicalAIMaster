@@ -15,7 +15,7 @@ from datetime import datetime
 
 from src.agents.state import AgentState
 from src.database.connection import get_db_manager
-from src.config import Phase1Config, LLMConfig
+from src.config import Phase5Config, LLMConfig
 from src.agents.models.llm_responses import (
     FileClassificationItem,
     FileClassificationResponse,
@@ -23,29 +23,7 @@ from src.agents.models.llm_responses import (
 )
 
 
-# =============================================================================
-# 전역 리소스
-# =============================================================================
-
-_db_manager = None
-_llm_client = None
-
-
-def _get_db():
-    """DB Manager 싱글톤 반환"""
-    global _db_manager
-    if _db_manager is None:
-        _db_manager = get_db_manager()
-    return _db_manager
-
-
-def _get_llm():
-    """LLM Client 싱글톤 반환"""
-    global _llm_client
-    if _llm_client is None:
-        from src.utils.llm_client import get_llm_client
-        _llm_client = get_llm_client()
-    return _llm_client
+from src.utils.llm_client import get_llm_client
 
 
 # =============================================================================
@@ -114,7 +92,7 @@ def _get_file_info_for_classification(file_id: str) -> Optional[Dict[str, Any]]:
             ]
         }
     """
-    db = _get_db()
+    db = get_db_manager()
     conn = db.get_connection()
     cursor = conn.cursor()
     
@@ -242,7 +220,7 @@ def _call_llm_for_classification(
     Returns:
         List[FileClassificationItem]
     """
-    llm = _get_llm()
+    llm = get_llm_client()
     
     files_info_text = _build_files_info_text(file_infos)
     prompt = FILE_CLASSIFICATION_PROMPT.format(files_info=files_info_text)
@@ -275,7 +253,7 @@ def _call_llm_for_classification(
 
 def _update_file_is_metadata(file_name: str, is_metadata: bool, confidence: float):
     """file_catalog.is_metadata 업데이트"""
-    db = _get_db()
+    db = get_db_manager()
     conn = db.get_connection()
     cursor = conn.cursor()
     
@@ -299,7 +277,7 @@ def _update_file_is_metadata(file_name: str, is_metadata: bool, confidence: floa
 # LangGraph Node Function
 # =============================================================================
 
-def file_classification_node(state: AgentState) -> Dict[str, Any]:
+def phase4_classification_node(state: AgentState) -> Dict[str, Any]:
     """
     Phase 0.7: 파일을 metadata/data로 분류
     
@@ -316,18 +294,18 @@ def file_classification_node(state: AgentState) -> Dict[str, Any]:
     - data_files: is_metadata=false 파일 경로 목록
     """
     print("\n" + "=" * 60)
-    print("🏷️  Phase 0.7: File Classification (metadata vs data)")
+    print("🏷️  Phase 4: File Classification (metadata vs data)")
     print("=" * 60)
     
     started_at = datetime.now()
     
-    # Phase 0에서 처리된 파일 ID들
-    file_ids = state.get("phase0_file_ids", [])
+    # Phase 2에서 처리된 파일 ID들
+    file_ids = state.get("phase2_file_ids", [])
     
     if not file_ids:
         print("   ⚠️ No files to classify")
         return {
-            "phase07_result": {
+            "phase4_result": {
                 "total_files": 0,
                 "metadata_files": [],
                 "data_files": [],
@@ -335,7 +313,7 @@ def file_classification_node(state: AgentState) -> Dict[str, Any]:
             },
             "metadata_files": [],
             "data_files": [],
-            "logs": ["⚠️ [Phase 0.7] No files to classify"]
+            "logs": ["⚠️ [Phase 4] No files to classify"]
         }
     
     print(f"   📂 Files to classify: {len(file_ids)}")
@@ -357,10 +335,10 @@ def file_classification_node(state: AgentState) -> Dict[str, Any]:
     if not file_infos:
         print("   ❌ No file info collected")
         return {
-            "phase07_result": {"error": "No file info collected"},
+            "phase4_result": {"error": "No file info collected"},
             "metadata_files": [],
             "data_files": [],
-            "logs": ["❌ [Phase 0.7] No file info collected"]
+            "logs": ["❌ [Phase 4] No file info collected"]
         }
     
     # 2. LLM 호출
@@ -370,10 +348,10 @@ def file_classification_node(state: AgentState) -> Dict[str, Any]:
     if not classifications:
         print("   ❌ LLM classification failed")
         return {
-            "phase07_result": {"error": "LLM classification failed"},
+            "phase4_result": {"error": "LLM classification failed"},
             "metadata_files": [],
             "data_files": [],
-            "logs": ["❌ [Phase 0.7] LLM classification failed"]
+            "logs": ["❌ [Phase 4] LLM classification failed"]
         }
     
     # 3. 결과 처리 및 DB 업데이트
@@ -426,7 +404,7 @@ def file_classification_node(state: AgentState) -> Dict[str, Any]:
         completed_at=completed_at.isoformat()
     )
     
-    print(f"\n✅ Phase 0.7 Complete!")
+    print(f"\n✅ Phase 4 Complete!")
     print(f"   📋 Metadata files: {len(metadata_files)}")
     for f in metadata_files:
         print(f"      - {f.split('/')[-1]}")
@@ -437,11 +415,11 @@ def file_classification_node(state: AgentState) -> Dict[str, Any]:
     print("=" * 60 + "\n")
     
     return {
-        "phase07_result": result.model_dump(),
+        "phase4_result": result.model_dump(),
         "metadata_files": metadata_files,
         "data_files": data_files,
         "logs": [
-            f"🏷️ [Phase 0.7] Classified {len(file_infos)} files: "
+            f"🏷️ [Phase 4] Classified {len(file_infos)} files: "
             f"{len(metadata_files)} metadata, {len(data_files)} data"
         ]
     }
@@ -453,7 +431,7 @@ def file_classification_node(state: AgentState) -> Dict[str, Any]:
 
 def run_classification_standalone(file_ids: List[str] = None) -> Dict[str, Any]:
     """
-    Phase 0.7 독립 실행 (테스트용)
+    Phase 4 독립 실행 (테스트용)
     
     Args:
         file_ids: 분류할 파일 ID 목록 (None이면 DB에서 모든 파일 조회)
@@ -463,7 +441,7 @@ def run_classification_standalone(file_ids: List[str] = None) -> Dict[str, Any]:
     """
     if file_ids is None:
         # DB에서 모든 파일 ID 조회
-        db = _get_db()
+        db = get_db_manager()
         conn = db.get_connection()
         cursor = conn.cursor()
         
@@ -472,7 +450,7 @@ def run_classification_standalone(file_ids: List[str] = None) -> Dict[str, Any]:
     
     # State 시뮬레이션
     state = {
-        "phase0_file_ids": file_ids
+        "phase2_file_ids": file_ids
     }
     
-    return file_classification_node(state)
+    return phase4_classification_node(state)

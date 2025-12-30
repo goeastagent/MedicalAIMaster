@@ -23,32 +23,10 @@ from datetime import datetime
 
 from src.agents.state import AgentState
 from src.database.connection import get_db_manager
-from src.config import Phase1CConfig
+from src.config import Phase7Config
 
 
-# =============================================================================
-# 전역 리소스
-# =============================================================================
-
-_db_manager = None
-_llm_client = None
-
-
-def _get_db():
-    """DB Manager 싱글톤 반환"""
-    global _db_manager
-    if _db_manager is None:
-        _db_manager = get_db_manager()
-    return _db_manager
-
-
-def _get_llm():
-    """LLM Client 싱글톤 반환"""
-    global _llm_client
-    if _llm_client is None:
-        from src.utils.llm_client import get_llm_client
-        _llm_client = get_llm_client()
-    return _llm_client
+from src.utils.llm_client import get_llm_client
 
 
 # =============================================================================
@@ -126,12 +104,12 @@ def _get_directories_for_analysis() -> List[Dict]:
     """
     Query directories from directory_catalog (DB)
     
-    Data source: directory_catalog table (populated by Phase -1)
-    - filename_samples: collected during Phase -1 directory scan
-    - file_extensions: counted during Phase -1
-    - dir_type: classified during Phase -1
+    Data source: directory_catalog table (populated by Phase 1)
+    - filename_samples: collected during Phase 1 directory scan
+    - file_extensions: counted during Phase 1
+    - dir_type: classified during Phase 1
     """
-    db = _get_db()
+    db = get_db_manager()
     conn = db.get_connection()
     cursor = conn.cursor()
     
@@ -142,13 +120,13 @@ def _get_directories_for_analysis() -> List[Dict]:
         WHERE file_count >= %s
           AND filename_pattern IS NULL
         ORDER BY file_count DESC
-    """, (Phase1CConfig.MIN_FILES_FOR_PATTERN,))
+    """, (Phase7Config.MIN_FILES_FOR_PATTERN,))
     
     directories = []
     for row in cursor.fetchall():
         samples = row[5] if row[5] else []
         # LLM에 전달할 샘플 수 제한
-        limited_samples = samples[:Phase1CConfig.MAX_SAMPLES_PER_DIR]
+        limited_samples = samples[:Phase7Config.MAX_SAMPLES_PER_DIR]
         
         directories.append({
             "dir_id": str(row[0]),
@@ -165,15 +143,15 @@ def _get_directories_for_analysis() -> List[Dict]:
 
 def _collect_data_dictionary() -> Dict[str, Any]:
     """
-    Collect data dictionary from DB (Phase 1A/1B results)
+    Collect data dictionary from DB (Phase 5/6 results)
     
     Data source: 
-    - file_catalog: primary_entity, entity_identifier_column (from Phase 1A)
-    - column_metadata: semantic_name, description, concept_category (from Phase 1B)
+    - file_catalog: primary_entity, entity_identifier_column (from Phase 5)
+    - column_metadata: semantic_name, description, concept_category (from Phase 6)
     
     NO file reading - all from DB
     """
-    db = _get_db()
+    db = get_db_manager()
     conn = db.get_connection()
     cursor = conn.cursor()
     
@@ -220,11 +198,11 @@ def _collect_data_dictionary() -> Dict[str, Any]:
 
 def _collect_data_dictionary_simple() -> Dict[str, Any]:
     """
-    Data Dictionary 간단 버전 - Phase 1A 결과가 없어도 동작
+    Data Dictionary 간단 버전 - Phase 5 결과가 없어도 동작
     
     column_metadata에서 직접 컬럼 정보 수집
     """
-    db = _get_db()
+    db = get_db_manager()
     conn = db.get_connection()
     cursor = conn.cursor()
     
@@ -320,7 +298,7 @@ def _analyze_batch(
     Input: All from DB (directories from directory_catalog, data_dictionary from column_metadata)
     Output: Pattern analysis results
     """
-    llm = _get_llm()
+    llm = get_llm_client()
     
     # Build directories info for prompt
     dirs_info_parts = []
@@ -364,7 +342,7 @@ def _analyze_batch(
 
 def _save_pattern_results(results: List[Dict]):
     """Save pattern analysis results to directory_catalog"""
-    db = _get_db()
+    db = get_db_manager()
     conn = db.get_connection()
     cursor = conn.cursor()
     
@@ -406,7 +384,7 @@ def _update_filename_values(results: List[Dict]):
     
     Note: regexp_matches is a set-returning function, so we use substring instead
     """
-    db = _get_db()
+    db = get_db_manager()
     conn = db.get_connection()
     cursor = conn.cursor()
     
@@ -487,7 +465,7 @@ def _update_filename_values(results: List[Dict]):
 # LangGraph Node Function
 # =============================================================================
 
-def phase1c_directory_pattern_node(state: AgentState) -> Dict[str, Any]:
+def phase7_directory_pattern_node(state: AgentState) -> Dict[str, Any]:
     """
     [Phase 1C] Directory Pattern Analysis Node
     
@@ -511,7 +489,7 @@ def phase1c_directory_pattern_node(state: AgentState) -> Dict[str, Any]:
         - phase1c_dir_patterns: {dir_id: pattern_info}
     """
     print("\n" + "=" * 60)
-    print("📁 Phase 1C: Directory Pattern Analysis")
+    print("📁 Phase 7: Directory Pattern Analysis")
     print("=" * 60)
     
     started_at = datetime.now()
@@ -523,15 +501,15 @@ def phase1c_directory_pattern_node(state: AgentState) -> Dict[str, Any]:
     if not directories:
         print("   ⚠️ No directories to analyze (all already analyzed or file_count < MIN_FILES)")
         return {
-            "phase1c_result": {
+            "phase7_result": {
                 "status": "skipped",
                 "reason": "no_directories",
                 "total_dirs": 0,
                 "analyzed_dirs": 0,
                 "patterns_found": 0
             },
-            "phase1c_dir_patterns": {},
-            "logs": ["⚠️ [Phase 1C] No directories to analyze"]
+            "phase7_dir_patterns": {},
+            "logs": ["⚠️ [Phase 7] No directories to analyze"]
         }
     
     print(f"   📂 Found {len(directories)} directories to analyze:")
@@ -543,17 +521,17 @@ def phase1c_directory_pattern_node(state: AgentState) -> Dict[str, Any]:
     data_dictionary = _collect_data_dictionary()
     
     if not data_dictionary:
-        # Phase 1A 결과가 없으면 간단 버전 사용
-        print("   ⚠️ No semantic data from Phase 1A, using simple dictionary")
+        # Phase 5 결과가 없으면 간단 버전 사용
+        print("   ⚠️ No semantic data from Phase 5, using simple dictionary")
         data_dictionary = _collect_data_dictionary_simple()
     
     print(f"   📖 Data dictionary: {len(data_dictionary)} tables/entries")
     
     # 3. 배치 처리
-    print(f"\n   🤖 Analyzing patterns with LLM (batch_size={Phase1CConfig.MAX_DIRS_PER_BATCH})...")
+    print(f"\n   🤖 Analyzing patterns with LLM (batch_size={Phase7Config.MAX_DIRS_PER_BATCH})...")
     
     all_results = []
-    batches = _batch_directories(directories, Phase1CConfig.MAX_DIRS_PER_BATCH)
+    batches = _batch_directories(directories, Phase7Config.MAX_DIRS_PER_BATCH)
     
     for i, batch in enumerate(batches):
         print(f"      Batch {i+1}/{len(batches)}: {len(batch)} directories")
@@ -587,7 +565,7 @@ def phase1c_directory_pattern_node(state: AgentState) -> Dict[str, Any]:
     
     dir_patterns = {r["dir_id"]: r for r in all_results}
     
-    print(f"\n✅ Phase 1C Complete!")
+    print(f"\n✅ Phase 7 Complete!")
     print(f"   📁 Directories analyzed: {len(all_results)}/{len(directories)}")
     print(f"   🔍 Patterns found: {patterns_found}")
     for r in all_results:
@@ -597,10 +575,10 @@ def phase1c_directory_pattern_node(state: AgentState) -> Dict[str, Any]:
     print("=" * 60 + "\n")
     
     return {
-        "phase1c_result": result,
-        "phase1c_dir_patterns": dir_patterns,
+        "phase7_result": result,
+        "phase7_dir_patterns": dir_patterns,
         "logs": [
-            f"📁 [Phase 1C] Analyzed {len(all_results)} directories, "
+            f"📁 [Phase 7] Analyzed {len(all_results)} directories, "
             f"found {patterns_found} patterns"
         ]
     }
@@ -610,13 +588,13 @@ def phase1c_directory_pattern_node(state: AgentState) -> Dict[str, Any]:
 # 편의 함수
 # =============================================================================
 
-def run_phase1c_standalone() -> Dict[str, Any]:
+def run_phase7_standalone() -> Dict[str, Any]:
     """
-    Phase 1C 독립 실행 (테스트용)
+    Phase 7 독립 실행 (테스트용)
     
     Returns:
         처리 결과
     """
     state = {}
-    return phase1c_directory_pattern_node(state)
+    return phase7_directory_pattern_node(state)
 

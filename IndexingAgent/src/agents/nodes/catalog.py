@@ -1,6 +1,6 @@
 # src/agents/nodes/catalog.py
 """
-Phase 0: Data Catalog Node
+Phase 2: File Catalog Node
 
 파일을 순회하며 Processor로 메타데이터를 추출하고 DB에 저장합니다.
 LLM 호출 없이 순수하게 규칙 기반으로 데이터 수집만 수행합니다.
@@ -22,19 +22,6 @@ from src.database.schema_catalog import CatalogSchemaManager
 from src.database.schema_directory import get_directory_by_path
 
 
-# =============================================================================
-# 전역 리소스 초기화
-# =============================================================================
-
-# Database Manager (싱글톤)
-_db_manager = None
-
-def _get_db():
-    """DB Manager 싱글톤 반환"""
-    global _db_manager
-    if _db_manager is None:
-        _db_manager = get_db_manager()
-    return _db_manager
 
 
 # 텍스트로 읽을 수 있는 파일 확장자
@@ -75,7 +62,7 @@ def _file_exists_in_catalog(file_path: str) -> Optional[str]:
     Returns:
         file_id (UUID string) if exists, None otherwise
     """
-    db = _get_db()
+    db = get_db_manager()
     conn = db.get_connection()
     cursor = conn.cursor()
     
@@ -94,7 +81,7 @@ def _file_unchanged_in_catalog(file_path: str, modified_time: datetime) -> Optio
     Returns:
         file_id (UUID string) if unchanged, None otherwise
     """
-    db = _get_db()
+    db = get_db_manager()
     conn = db.get_connection()
     
     # 이전 트랜잭션 오류 정리
@@ -176,7 +163,7 @@ def _insert_file_catalog(file_path: str, metadata: Dict[str, Any]) -> str:
     Returns:
         file_id (UUID string)
     """
-    db = _get_db()
+    db = get_db_manager()
     conn = db.get_connection()
     cursor = conn.cursor()
     
@@ -238,7 +225,7 @@ def _insert_column_metadata(
     Returns:
         삽입된 컬럼 수
     """
-    db = _get_db()
+    db = get_db_manager()
     conn = db.get_connection()
     cursor = conn.cursor()
     
@@ -344,7 +331,7 @@ def _insert_column_metadata(
 
 def ensure_schema():
     """스키마가 없으면 생성"""
-    db = _get_db()
+    db = get_db_manager()
     schema_manager = CatalogSchemaManager(db)
     
     # 이전 트랜잭션 오류 상태 정리
@@ -411,7 +398,7 @@ def process_single_file(file_path: str, skip_unchanged: bool = True, verbose: bo
             "skipped": False
         }
     
-    db = _get_db()
+    db = get_db_manager()
     
     try:
         # 1. 메타데이터 추출
@@ -500,7 +487,7 @@ def process_files(
     
     for i, file_path in enumerate(file_paths):
         if verbose and (i + 1) % 100 == 0:
-            print(f"[Phase0] Processing {i + 1}/{total_files}...")
+            print(f"[Phase 2] Processing {i + 1}/{total_files}...")
         
         file_result = process_single_file(file_path, skip_unchanged, verbose)
         results.append(file_result)
@@ -518,7 +505,7 @@ def process_files(
             failed_files += 1
     
     if verbose:
-        print(f"[Phase0] Complete: {processed_files} processed, "
+        print(f"[Phase 2] Complete: {processed_files} processed, "
               f"{skipped_files} skipped, {failed_files} failed")
     
     success_rate = f"{(processed_files + skipped_files) / total_files * 100:.1f}%" if total_files > 0 else "0%"
@@ -567,7 +554,7 @@ def process_directory(
                 file_paths.append(file_path)
     
     if verbose:
-        print(f"[Phase0] Found {len(file_paths)} processable files in {directory}")
+        print(f"[Phase 2] Found {len(file_paths)} processable files in {directory}")
     
     return process_files(file_paths, skip_unchanged, verbose)
 
@@ -606,7 +593,7 @@ def run_phase0(
 
 def get_catalog_stats() -> dict:
     """카탈로그 통계 조회"""
-    db = _get_db()
+    db = get_db_manager()
     schema_manager = CatalogSchemaManager(db)
     return schema_manager.get_stats()
 
@@ -615,9 +602,9 @@ def get_catalog_stats() -> dict:
 # LangGraph Node Function
 # =============================================================================
 
-def phase0_catalog_node(state: AgentState) -> Dict[str, Any]:
+def phase2_file_catalog_node(state: AgentState) -> Dict[str, Any]:
     """
-    [Phase 0] Data Catalog 노드 - LangGraph용
+    [Phase 2] File Catalog 노드 - LangGraph용
     
     모든 입력 파일의 메타데이터를 추출하여 DB에 저장합니다.
     LLM 호출 없이 순수하게 규칙 기반으로 데이터 수집만 수행합니다.
@@ -632,15 +619,15 @@ def phase0_catalog_node(state: AgentState) -> Dict[str, Any]:
         업데이트된 상태 (phase0_result, phase0_file_ids, logs)
     """
     print("\n" + "="*80)
-    print("📦 [PHASE 0] Data Catalog - 메타데이터 추출 시작")
+    print("📦 [PHASE 2] File Catalog - 메타데이터 추출 시작")
     print("="*80)
     
     input_files = state.get("input_files", [])
     
     if not input_files:
         return {
-            "logs": ["❌ [Phase0] Error: 입력 파일이 없습니다."],
-            "phase0_result": {
+            "logs": ["❌ [Phase 2] Error: 입력 파일이 없습니다."],
+            "phase2_result": {
                 "total_files": 0,
                 "processed_files": 0,
                 "skipped_files": 0,
@@ -649,7 +636,7 @@ def phase0_catalog_node(state: AgentState) -> Dict[str, Any]:
                 "file_ids": [],
                 "results": []
             },
-            "phase0_file_ids": [],
+            "phase2_file_ids": [],
             "error_message": "No input files provided"
         }
     
@@ -667,7 +654,7 @@ def phase0_catalog_node(state: AgentState) -> Dict[str, Any]:
     
     # 로그 생성
     logs = [
-        f"📦 [Phase0] 완료: {result['processed_files']}개 처리, {result['skipped_files']}개 스킵"
+        f"📦 [Phase 2] 완료: {result['processed_files']}개 처리, {result['skipped_files']}개 스킵"
     ]
     
     if file_ids:
@@ -681,13 +668,13 @@ def phase0_catalog_node(state: AgentState) -> Dict[str, Any]:
             if not r["success"]:
                 logs.append(f"      - {os.path.basename(r['file_path'])}: {r['error']}")
     
-    print(f"\n✅ [Phase 0] 완료: {result['processed_files']}개 처리, {result['skipped_files']}개 스킵, {result['failed_files']}개 실패")
+    print(f"\n✅ [Phase 2] 완료: {result['processed_files']}개 처리, {result['skipped_files']}개 스킵, {result['failed_files']}개 실패")
     if file_ids:
         short_ids = [fid[:8] for fid in file_ids]
         print(f"   📋 File IDs: {short_ids}")
     
     return {
         "logs": logs,
-        "phase0_result": result,
-        "phase0_file_ids": file_ids  # 모든 파일의 file_id를 state에 저장
+        "phase2_result": result,
+        "phase2_file_ids": file_ids  # 모든 파일의 file_id를 state에 저장
     }

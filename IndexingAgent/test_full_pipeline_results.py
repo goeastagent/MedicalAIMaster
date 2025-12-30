@@ -4,17 +4,17 @@ Full Pipeline Test + Results Viewer
 
 전체 파이프라인 실행 후 모든 DB 테이블 결과를 출력합니다.
 
-실행 Phase:
-- Phase -1: 디렉토리 구조 분석, 파일명 샘플 수집 (rule-based)
-- Phase 0: 파일/컬럼 물리적 정보 수집 (rule-based)
-- Phase 0.5: 스키마 집계 (rule-based)
-- Phase 0.7: 파일을 metadata/data로 분류 (LLM)
-- Phase 1A: metadata 파일에서 data_dictionary 추출 (LLM)
-- Phase 1C: 디렉토리 파일명 패턴 분석 + ID 추출 (LLM)
-- Phase 1B: data 파일 컬럼 의미 분석 + dictionary 매칭 (LLM)
-- Phase 2A: 테이블 Entity 식별 (row_represents, entity_identifier) (LLM)
-- Phase 2B: 테이블 간 FK 관계 추론 + Neo4j 3-Level Ontology (LLM + Rule)
-- Phase 2C: Ontology Enhancement (Concept Hierarchy, Semantic Edges, Medical Terms)
+실행 Phase (10-Phase Sequential Pipeline):
+- Phase 1: 디렉토리 구조 분석, 파일명 샘플 수집 (Rule-based)
+- Phase 2: 파일/컬럼 물리적 정보 수집 (Rule-based)
+- Phase 3: 스키마 집계 (Rule-based)
+- Phase 4: 파일을 metadata/data로 분류 (LLM)
+- Phase 5: metadata 파일에서 data_dictionary 추출 (LLM)
+- Phase 6: data 파일 컬럼 의미 분석 + dictionary 매칭 (LLM)
+- Phase 7: 디렉토리 파일명 패턴 분석 + ID 추출 (LLM)
+- Phase 8: 테이블 Entity 식별 (row_represents, entity_identifier) (LLM)
+- Phase 9: 테이블 간 FK 관계 추론 + Neo4j 3-Level Ontology (LLM + Rule)
+- Phase 10: Ontology Enhancement (Concept Hierarchy, Semantic Edges, Medical Terms)
 
 결과 DB Tables:
 - directory_catalog: 디렉토리 메타데이터 + 파일명 패턴
@@ -160,7 +160,7 @@ def find_data_files() -> list:
 def run_full_pipeline():
     """전체 파이프라인 실행"""
     print("\n" + "="*80)
-    print("🚀 Running Full Pipeline (Phase -1 → 2C)")
+    print("🚀 Running Full Pipeline (Phase 1 → 10)")
     print("="*80)
     
     input_files = find_data_files()
@@ -169,11 +169,11 @@ def run_full_pipeline():
         print("❌ No data files found!")
         return None
     
-    from src.agents.graph import build_phase2c_agent
-    agent = build_phase2c_agent()
+    from src.agents.graph import build_agent
+    agent = build_agent()
     
     initial_state = {
-        # Phase -1: Input Directory
+        # Input Directory
         "input_directory": str(DATA_DIR),
         
         # Dataset Context
@@ -181,61 +181,52 @@ def run_full_pipeline():
         "current_table_name": None,
         "data_catalog": {},
         
-        # Phase -1 Result
-        "phase_neg1_result": None,
-        "phase_neg1_dir_ids": [],
+        # Phase 1 Result (Directory Catalog)
+        "phase1_result": None,
+        "phase1_dir_ids": [],
         
-        # Phase 0 Result
-        "phase0_result": None,
-        "phase0_file_ids": [],
+        # Phase 2 Result (File Catalog)
+        "phase2_result": None,
+        "phase2_file_ids": [],
         
-        # Phase 0.5 Result
-        "phase05_result": None,
+        # Phase 3 Result (Schema Aggregation)
+        "phase3_result": None,
         "unique_columns": [],
         "unique_files": [],
         "column_batches": [],
         "file_batches": [],
         
-        # Phase 0.7 Result
-        "phase07_result": None,
+        # Phase 4 Result (File Classification)
+        "phase4_result": None,
         "metadata_files": [],
         "data_files": [],
         
-        # Phase 1A Result
-        "phase1a_result": None,
+        # Phase 5 Result (Metadata Semantic)
+        "phase5_result": None,
         "data_dictionary_entries": [],
         
-        # Phase 1C Result
-        "phase1c_result": None,
-        "phase1c_dir_patterns": {},
-        
-        # Phase 1B Result
-        "phase1b_result": None,
+        # Phase 6 Result (Data Semantic)
+        "phase6_result": None,
         "data_semantic_entries": [],
         
-        # Phase 2A Result
-        "phase2a_result": None,
+        # Phase 7 Result (Directory Pattern)
+        "phase7_result": None,
+        "phase7_dir_patterns": {},
+        
+        # Phase 8 Result (Entity Identification)
+        "phase8_result": None,
         "table_entity_results": [],
         
-        # Phase 2B Result
-        "phase2b_result": None,
+        # Phase 9 Result (Relationship Inference)
+        "phase9_result": None,
         "table_relationships": [],
         
-        # Phase 2C Result
-        "phase2c_result": None,
+        # Phase 10 Result (Ontology Enhancement)
+        "phase10_result": None,
         "ontology_subcategories": [],
         "semantic_edges": [],
         "medical_term_mappings": [],
         "cross_table_semantics": [],
-        
-        # Legacy Phase 1 (호환용)
-        "phase1_result": None,
-        "column_semantic_mappings": [],
-        "file_semantic_mappings": [],
-        "phase1_review_queue": None,
-        "phase1_current_batch": None,
-        "phase1_human_feedback": None,
-        "phase1_all_batch_states": [],
         
         # Multi-Phase Workflow Context
         "input_files": input_files,
@@ -332,7 +323,7 @@ def print_directory_catalog(limit: int = 10):
     cursor = conn.cursor()
     
     print("\n" + "="*80)
-    print("📂 TABLE: directory_catalog (Phase -1 + Phase 1C)")
+    print("📂 TABLE: directory_catalog (Phase 1 + Phase 7)")
     print("="*80)
     
     try:
@@ -373,7 +364,7 @@ def print_directory_catalog(limit: int = 10):
         pattern_dirs = cursor.fetchall()
         
         if pattern_dirs:
-            print("\n📋 Directories with Patterns (Phase 1C):")
+            print("\n📋 Directories with Patterns (Phase 7):")
             for dir_name, pattern, columns, reasoning in pattern_dirs:
                 print(f"\n   📁 {dir_name}")
                 print(f"      Pattern: {pattern}")
@@ -647,7 +638,7 @@ def print_ontology_subcategories(limit: int = 15):
     cursor = conn.cursor()
     
     print("\n" + "="*80)
-    print("📂 TABLE: ontology_subcategories (Phase 2C)")
+    print("📂 TABLE: ontology_subcategories (Phase 10)")
     print("="*80)
     
     try:
@@ -690,7 +681,7 @@ def print_semantic_edges(limit: int = 20):
     cursor = conn.cursor()
     
     print("\n" + "="*80)
-    print("🔗 TABLE: semantic_edges (Phase 2C)")
+    print("🔗 TABLE: semantic_edges (Phase 10)")
     print("="*80)
     
     try:
@@ -746,7 +737,7 @@ def print_medical_term_mappings(limit: int = 20):
     cursor = conn.cursor()
     
     print("\n" + "="*80)
-    print("🏥 TABLE: medical_term_mappings (Phase 2C)")
+    print("🏥 TABLE: medical_term_mappings (Phase 10)")
     print("="*80)
     
     try:
@@ -809,7 +800,7 @@ def print_cross_table_semantics(limit: int = 10):
     cursor = conn.cursor()
     
     print("\n" + "="*80)
-    print("🔄 TABLE: cross_table_semantics (Phase 2C)")
+    print("🔄 TABLE: cross_table_semantics (Phase 10)")
     print("="*80)
     
     try:
@@ -872,7 +863,7 @@ def print_neo4j_stats():
             for node_type in node_types:
                 result = session.run(f"MATCH (n:{node_type}) RETURN count(n) as cnt")
                 cnt = result.single()["cnt"]
-                phase = " (Phase 2C)" if node_type in ['SubCategory', 'MedicalTerm'] else ""
+                phase = " (Phase 10)" if node_type in ['SubCategory', 'MedicalTerm'] else ""
                 print(f"   {node_type:<18} {cnt:>5}{phase}")
             
             # 관계 카운트
@@ -882,7 +873,7 @@ def print_neo4j_stats():
             for rel_type in rel_types:
                 result = session.run(f"MATCH ()-[r:{rel_type}]->() RETURN count(r) as cnt")
                 cnt = result.single()["cnt"]
-                phase = " (Phase 2C)" if rel_type in ['HAS_SUBCATEGORY', 'DERIVED_FROM', 'RELATED_TO', 'MAPS_TO'] else ""
+                phase = " (Phase 10)" if rel_type in ['HAS_SUBCATEGORY', 'DERIVED_FROM', 'RELATED_TO', 'MAPS_TO'] else ""
                 print(f"   {rel_type:<18} {cnt:>5}{phase}")
             
             # Sample data
@@ -922,7 +913,7 @@ def print_summary_stats():
     stats = {}
     
     tables = [
-        ('directory_catalog', 'Directories (Phase -1)'),
+        ('directory_catalog', 'Directories (Phase 1)'),
         ('file_catalog', 'Files'),
         ('column_metadata', 'Columns'),
         ('data_dictionary', 'Dictionary Entries'),
@@ -954,7 +945,7 @@ def print_summary_stats():
             WHERE filename_pattern IS NOT NULL
         """)
         patterns_count = cursor.fetchone()[0]
-        print(f"\n{'Directories with Patterns (1C)':<35} {patterns_count:>10}")
+        print(f"\n{'Directories with Patterns (Phase 7)':<35} {patterns_count:>10}")
         
         cursor.execute("""
             SELECT COUNT(*) FROM file_catalog 
