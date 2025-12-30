@@ -22,8 +22,8 @@ from collections import defaultdict
 from datetime import datetime
 
 from src.agents.state import AgentState
-from src.database.connection import get_db_manager
-from src.database.schema_directory import (
+from src.database import (
+    get_db_manager,
     DirectorySchemaManager,
     insert_directory,
     get_directory_by_path,
@@ -565,4 +565,31 @@ def get_directory_catalog_stats() -> dict:
     """directory_catalog 통계 조회"""
     schema_manager = DirectorySchemaManager()
     return schema_manager.get_stats()
+
+
+# =============================================================================
+# Class-based Node (for NodeRegistry)
+# =============================================================================
+
+from ..base import BaseNode, DatabaseMixin
+from ..registry import register_node
+
+
+@register_node
+class DirectoryCatalogNode(BaseNode, DatabaseMixin):
+    """
+    Directory Catalog Node (Rule-based)
+    
+    디렉토리 레벨 메타데이터를 수집하여 DB에 저장합니다.
+    LLM 호출 없이 순수하게 규칙 기반으로 데이터 수집만 수행합니다.
+    """
+    
+    name = "directory_catalog"
+    description = "디렉토리 구조 분석 및 메타데이터 수집"
+    order = 100
+    requires_llm = False
+    
+    def execute(self, state: Dict[str, Any]) -> Dict[str, Any]:
+        """기존 함수 위임"""
+        return phase1_directory_catalog_node(state)
 

@@ -1,0 +1,28 @@
+# src/database/repositories/__init__.py
+"""
+Repository 패턴 - 데이터 액세스 로직 캡슐화
+
+각 Repository는 특정 도메인의 DB 조회/저장 로직을 담당합니다:
+- FileRepository: file_catalog 관련 조회
+- ColumnRepository: column_metadata 관련 조회  
+- DictionaryRepository: data_dictionary 관련 조회
+- EntityRepository: table_entities, table_relationships
+- OntologyRepository: Phase 10 온톨로지 테이블들
+"""
+
+from .base import BaseRepository
+from .file_repository import FileRepository
+from .column_repository import ColumnRepository
+from .dictionary_repository import DictionaryRepository
+from .entity_repository import EntityRepository
+from .ontology_repository import OntologyRepository
+
+__all__ = [
+    "BaseRepository",
+    "FileRepository",
+    "ColumnRepository", 
+    "DictionaryRepository",
+    "EntityRepository",
+    "OntologyRepository",
+]
+

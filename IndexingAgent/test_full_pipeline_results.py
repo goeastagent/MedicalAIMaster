@@ -64,10 +64,12 @@ def reset_database():
     print("🗑️  Resetting Database...")
     print("="*80)
     
-    from src.database.schema_catalog import CatalogSchemaManager
-    from src.database.schema_dictionary import DictionarySchemaManager
-    from src.database.schema_ontology import OntologySchemaManager
-    from src.database.schema_directory import DirectorySchemaManager
+    from src.database import (
+        CatalogSchemaManager,
+        DictionarySchemaManager,
+        OntologySchemaManager,
+        DirectorySchemaManager,
+    )
     
     # 1. 삭제: FK 참조하는 테이블 먼저 삭제 (역순)
     try:

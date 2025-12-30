@@ -14,7 +14,7 @@ from typing import Dict, Any, List, Optional
 from datetime import datetime
 
 from src.agents.state import AgentState
-from src.database.connection import get_db_manager
+from src.database import FileRepository
 from src.config import Phase5Config, LLMConfig
 from src.agents.models.llm_responses import (
     FileClassificationItem,
@@ -24,6 +24,17 @@ from src.agents.models.llm_responses import (
 
 
 from src.utils.llm_client import get_llm_client
+
+
+# Repository 인스턴스 (모듈 레벨에서 한 번만 생성)
+_file_repo = None
+
+def _get_file_repo() -> FileRepository:
+    """FileRepository 싱글톤 반환"""
+    global _file_repo
+    if _file_repo is None:
+        _file_repo = FileRepository()
+    return _file_repo
 
 
 # =============================================================================
@@ -68,97 +79,43 @@ Return ONLY valid JSON (no markdown, no explanation):
 
 
 # =============================================================================
-# 파일 정보 수집
+# 파일 정보 수집 (Repository 사용)
 # =============================================================================
 
-def _get_file_info_for_classification(file_id: str) -> Optional[Dict[str, Any]]:
+def _get_files_info_for_classification(file_ids: List[str]) -> List[Dict[str, Any]]:
     """
-    DB에서 파일 정보 조회 (분류용)
+    DB에서 여러 파일 정보 조회 (분류용) - Repository 사용
+    
+    Args:
+        file_ids: 조회할 파일 ID 목록
     
     Returns:
-        {
-            "file_id": str,
-            "file_name": str,
-            "file_path": str,
-            "row_count": int,
-            "column_count": int,
-            "columns": [
-                {
-                    "name": str,
-                    "dtype": str,
-                    "unique_values": List[str],  # 샘플
-                    "n_unique": int
-                }
-            ]
-        }
+        [
+            {
+                "file_id": str,
+                "file_name": str,
+                "file_path": str,
+                "row_count": int,
+                "column_count": int,
+                "columns": [
+                    {
+                        "name": str,
+                        "dtype": str,
+                        "column_type": str,
+                        "unique_values": List[str],
+                        "n_unique": int
+                    }
+                ]
+            }
+        ]
     """
-    db = get_db_manager()
-    conn = db.get_connection()
-    cursor = conn.cursor()
+    file_repo = _get_file_repo()
     
     try:
-        # 파일 기본 정보
-        cursor.execute("""
-            SELECT file_id, file_name, file_path, file_metadata, raw_stats
-            FROM file_catalog
-            WHERE file_id = %s
-        """, (file_id,))
-        
-        row = cursor.fetchone()
-        if not row:
-            return None
-        
-        file_id, file_name, file_path, file_metadata, raw_stats = row
-        
-        # row_count, column_count 추출
-        metadata = file_metadata if isinstance(file_metadata, dict) else {}
-        row_count = metadata.get('row_count', 0)
-        column_count = metadata.get('column_count', 0)
-        
-        # 컬럼 정보 조회
-        cursor.execute("""
-            SELECT original_name, data_type, column_type, value_distribution
-            FROM column_metadata
-            WHERE file_id = %s
-            ORDER BY col_id
-        """, (file_id,))
-        
-        columns = []
-        for col_row in cursor.fetchall():
-            col_name, dtype, col_type, value_dist = col_row
-            
-            # value_distribution에서 unique_values 추출
-            dist = value_dist if isinstance(value_dist, dict) else {}
-            unique_values = dist.get('unique_values', [])
-            samples = dist.get('samples', [])
-            
-            # unique_values가 없으면 samples 사용
-            if not unique_values and samples:
-                unique_values = samples
-            
-            # 최대 10개만
-            unique_values = unique_values[:10] if unique_values else []
-            
-            columns.append({
-                "name": col_name,
-                "dtype": dtype or "unknown",
-                "column_type": col_type or "unknown",
-                "unique_values": unique_values,
-                "n_unique": len(unique_values)
-            })
-        
-        return {
-            "file_id": str(file_id),
-            "file_name": file_name,
-            "file_path": file_path,
-            "row_count": row_count,
-            "column_count": column_count or len(columns),
-            "columns": columns
-        }
-        
+        return file_repo.get_files_with_classification_info(file_ids)
     except Exception as e:
-        print(f"   ❌ Error getting file info: {e}")
-        return None
+        print(f"   ❌ Error getting files info: {e}")
+        return []
 
 
 def _build_files_info_text(file_infos: List[Dict[str, Any]]) -> str:
@@ -248,29 +205,13 @@ def _call_llm_for_classification(
 
 
 # =============================================================================
-# DB 업데이트
+# DB 업데이트 (Repository 사용)
 # =============================================================================
 
 def _update_file_is_metadata(file_name: str, is_metadata: bool, confidence: float):
-    """file_catalog.is_metadata 업데이트"""
-    db = get_db_manager()
-    conn = db.get_connection()
-    cursor = conn.cursor()
-    
-    try:
-        cursor.execute("""
-            UPDATE file_catalog
-            SET is_metadata = %s, llm_confidence = %s, llm_analyzed_at = NOW()
-            WHERE file_name = %s
-        """, (is_metadata, confidence, file_name))
-        
-        conn.commit()
-        return cursor.rowcount
-        
-    except Exception as e:
-        conn.rollback()
-        print(f"   ❌ Error updating is_metadata: {e}")
-        return 0
+    """file_catalog.is_metadata 업데이트 - Repository 사용"""
+    file_repo = _get_file_repo()
+    return file_repo.update_is_metadata(file_name, is_metadata, confidence)
 
 
 # =============================================================================
@@ -318,19 +259,18 @@ def phase4_classification_node(state: AgentState) -> Dict[str, Any]:
     
     print(f"   📂 Files to classify: {len(file_ids)}")
     
-    # 1. 파일 정보 수집
+    # 1. 파일 정보 수집 (Repository 사용 - 일괄 조회)
     print("\n   📊 Collecting file information...")
-    file_infos = []
-    file_id_to_path = {}  # file_id → file_path 매핑
+    file_infos = _get_files_info_for_classification(file_ids)
     
-    for file_id in file_ids:
-        info = _get_file_info_for_classification(file_id)
-        if info:
-            file_infos.append(info)
-            file_id_to_path[info['file_name']] = info['file_path']
-            print(f"      ✅ {info['file_name']} ({info['column_count']} cols, {info['row_count']} rows)")
-        else:
-            print(f"      ❌ Failed to get info for file_id: {file_id[:8]}...")
+    # file_name → file_path 매핑 생성
+    file_id_to_path = {info['file_name']: info['file_path'] for info in file_infos}
+    
+    for info in file_infos:
+        print(f"      ✅ {info['file_name']} ({info['column_count']} cols, {info['row_count']} rows)")
+    
+    if len(file_infos) < len(file_ids):
+        print(f"      ⚠️ Failed to get info for {len(file_ids) - len(file_infos)} files")
     
     if not file_infos:
         print("   ❌ No file info collected")
@@ -440,13 +380,9 @@ def run_classification_standalone(file_ids: List[str] = None) -> Dict[str, Any]:
         분류 결과
     """
     if file_ids is None:
-        # DB에서 모든 파일 ID 조회
-        db = get_db_manager()
-        conn = db.get_connection()
-        cursor = conn.cursor()
-        
-        cursor.execute("SELECT file_id FROM file_catalog ORDER BY file_name")
-        file_ids = [str(row[0]) for row in cursor.fetchall()]
+        # DB에서 모든 파일 ID 조회 (Repository 사용)
+        file_repo = _get_file_repo()
+        file_ids = file_repo.get_all_file_ids()
     
     # State 시뮬레이션
     state = {
@@ -454,3 +390,31 @@ def run_classification_standalone(file_ids: List[str] = None) -> Dict[str, Any]:
     }
     
     return phase4_classification_node(state)
+
+
+# =============================================================================
+# Class-based Node (for NodeRegistry)
+# =============================================================================
+
+from ..base import BaseNode, LLMMixin, DatabaseMixin
+from ..registry import register_node
+
+
+@register_node
+class FileClassificationNode(BaseNode, LLMMixin, DatabaseMixin):
+    """
+    File Classification Node (LLM-based)
+    
+    파일을 metadata/data로 분류합니다.
+    - metadata: 데이터 사전, 파라미터 정의 파일
+    - data: 실제 측정/기록 데이터 파일
+    """
+    
+    name = "file_classification"
+    description = "파일 분류 (metadata vs data)"
+    order = 400
+    requires_llm = True
+    
+    def execute(self, state: Dict[str, Any]) -> Dict[str, Any]:
+        """기존 함수 위임"""
+        return phase4_classification_node(state)

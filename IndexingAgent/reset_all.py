@@ -36,13 +36,13 @@ def reset_postgres(recreate_tables=True):
     print("=" * 60)
     
     try:
-        from database.schema_catalog import CatalogSchemaManager
-        from database.schema_dictionary import DictionarySchemaManager
-        from database.schema_ontology import OntologySchemaManager
-        from database.schema_directory import DirectorySchemaManager
-        
-        # 현재 테이블 목록 조회
-        from database.connection import get_db_manager
+        from src.database import (
+            CatalogSchemaManager,
+            DictionarySchemaManager,
+            OntologySchemaManager,
+            DirectorySchemaManager,
+            get_db_manager,
+        )
         db = get_db_manager()
         conn = db.get_connection()
         cursor = conn.cursor()

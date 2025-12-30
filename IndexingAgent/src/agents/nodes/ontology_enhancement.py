@@ -27,8 +27,7 @@ from ..models.llm_responses import (
     CrossTableResponse,
     Phase10Result,
 )
-from src.database.connection import get_db_manager
-from src.database.schema_ontology import OntologySchemaManager
+from src.database import get_db_manager, OntologySchemaManager, OntologyRepository
 from src.utils.llm_client import get_llm_client
 from src.config import Phase10Config, LLMConfig, Neo4jConfig
 
@@ -140,6 +139,7 @@ Map the following clinical parameters to standard medical terminologies.
 2. Use actual SNOMED-CT concept IDs (numeric)
 3. Use actual LOINC codes (format: XXXXX-X)
 4. Leave null if no appropriate mapping exists
+5. Provide reasoning for each mapping decision
 
 [Output Format]
 Return ONLY valid JSON (no markdown):
@@ -153,17 +153,19 @@ Return ONLY valid JSON (no markdown):
       "loinc_name": "Heart rate",
       "icd10_code": null,
       "icd10_name": null,
-      "confidence": 0.95
+      "confidence": 0.95,
+      "reasoning": "hr is a standard abbreviation for heart rate, directly maps to SNOMED Heart rate concept"
     }},
     {{
-      "parameter_key": "sbp",
-      "snomed_code": "271649006",
-      "snomed_name": "Systolic blood pressure",
-      "loinc_code": "8480-6",
-      "loinc_name": "Systolic blood pressure",
+      "parameter_key": "custom_xyz",
+      "snomed_code": null,
+      "snomed_name": null,
+      "loinc_code": null,
+      "loinc_name": null,
       "icd10_code": null,
       "icd10_name": null,
-      "confidence": 0.95
+      "confidence": 0.1,
+      "reasoning": "No standard terminology mapping found - appears to be a custom/proprietary parameter"
     }}
   ]
 }}
@@ -505,7 +507,8 @@ def _map_medical_terms(parameters: List[Dict]) -> Tuple[List[MedicalTermMapping]
                         loinc_name=mapping.get('loinc_name'),
                         icd10_code=mapping.get('icd10_code'),
                         icd10_name=mapping.get('icd10_name'),
-                        confidence=float(mapping.get('confidence', 0.0))
+                        confidence=float(mapping.get('confidence', 0.0)),
+                        reasoning=mapping.get('reasoning', '')
                     ))
         
         except Exception as e:
@@ -590,62 +593,51 @@ def _save_to_postgres(
     tables: List[Dict]
 ):
     """모든 결과를 PostgreSQL에 저장"""
-    schema_manager = OntologySchemaManager()
+    repo = OntologyRepository()
     
     # Task 1: Subcategories
     if subcategories:
-        subcat_dicts = [
-            {
-                "parent_category": s.parent_category,
-                "subcategory_name": s.subcategory_name,
-                "confidence": s.confidence,
-                "reasoning": s.reasoning
-            }
-            for s in subcategories
-        ]
-        schema_manager.save_subcategories(subcat_dicts)
+        subcat_dicts = [{
+            "parent_category": s.parent_category,
+            "subcategory_name": s.subcategory_name,
+            "confidence": s.confidence,
+            "reasoning": s.reasoning
+        } for s in subcategories]
+        repo.save_subcategories(subcat_dicts)
     
     # Task 2: Semantic Edges
     if edges:
-        edge_dicts = [
-            {
-                "source_parameter": e.source_parameter,
-                "target_parameter": e.target_parameter,
-                "relationship_type": e.relationship_type,
-                "confidence": e.confidence,
-                "reasoning": e.reasoning
-            }
-            for e in edges
-        ]
-        schema_manager.save_semantic_edges(edge_dicts)
+        edge_dicts = [{
+            "source_parameter": e.source_parameter,
+            "target_parameter": e.target_parameter,
+            "relationship_type": e.relationship_type,
+            "confidence": e.confidence,
+            "reasoning": e.reasoning
+        } for e in edges]
+        repo.save_semantic_edges(edge_dicts)
     
     # Task 3: Medical Terms
     if mappings:
-        mapping_dicts = [
-            {
-                "parameter_key": m.parameter_key,
-                "snomed_code": m.snomed_code,
-                "snomed_name": m.snomed_name,
-                "loinc_code": m.loinc_code,
-                "loinc_name": m.loinc_name,
-                "icd10_code": m.icd10_code,
-                "icd10_name": m.icd10_name,
-                "confidence": m.confidence
-            }
-            for m in mappings
-        ]
-        schema_manager.save_medical_term_mappings(mapping_dicts)
+        mapping_dicts = [{
+            "parameter_key": m.parameter_key,
+            "snomed_code": m.snomed_code,
+            "snomed_name": m.snomed_name,
+            "loinc_code": m.loinc_code,
+            "loinc_name": m.loinc_name,
+            "icd10_code": m.icd10_code,
+            "icd10_name": m.icd10_name,
+            "confidence": m.confidence,
+            "reasoning": m.reasoning
+        } for m in mappings]
+        repo.save_medical_term_mappings(mapping_dicts)
     
     # Task 4: Cross-table Semantics
     if cross_semantics:
-        # file_name → file_id 매핑
         name_to_id = {t['file_name']: t['file_id'] for t in tables}
-        
         cross_dicts = []
         for cs in cross_semantics:
             source_id = name_to_id.get(cs.source_table)
             target_id = name_to_id.get(cs.target_table)
-            
             if source_id and target_id:
                 cross_dicts.append({
                     "source_file_id": source_id,
@@ -656,9 +648,8 @@ def _save_to_postgres(
                     "confidence": cs.confidence,
                     "reasoning": cs.reasoning
                 })
-        
         if cross_dicts:
-            schema_manager.save_cross_table_semantics(cross_dicts)
+            repo.save_cross_table_semantics(cross_dicts)
 
 
 # =============================================================================
@@ -1023,4 +1014,34 @@ def phase10_ontology_enhancement_node(state: AgentState) -> Dict[str, Any]:
         "medical_term_mappings": [m.model_dump() for m in mappings],
         "cross_table_semantics": [cs.model_dump() for cs in cross_semantics]
     }
+
+
+# =============================================================================
+# Class-based Node (for NodeRegistry)
+# =============================================================================
+
+from ..base import BaseNode, LLMMixin, DatabaseMixin
+from ..registry import register_node
+
+
+@register_node
+class OntologyEnhancementNode(BaseNode, LLMMixin, DatabaseMixin):
+    """
+    Ontology Enhancement Node (LLM-based)
+    
+    Neo4j 온톨로지를 확장/강화합니다:
+    1. Concept Hierarchy: ConceptCategory를 SubCategory로 세분화
+    2. Semantic Edges: Parameter 간 의미 관계
+    3. Medical Term Mapping: SNOMED-CT, LOINC 매핑
+    4. Cross-table Semantics: 테이블 간 숨겨진 시맨틱 관계
+    """
+    
+    name = "ontology_enhancement"
+    description = "온톨로지 확장 (계층화, 의미관계, 용어매핑)"
+    order = 1000
+    requires_llm = True
+    
+    def execute(self, state: Dict[str, Any]) -> Dict[str, Any]:
+        """기존 함수 위임"""
+        return phase10_ontology_enhancement_node(state)
 

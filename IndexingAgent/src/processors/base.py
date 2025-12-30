@@ -22,17 +22,8 @@ class BaseDataProcessor(ABC):
     
     [Rule Prepares Only]
     - 파일을 읽고 구조화된 데이터만 추출합니다.
-    - LLM 호출은 하지 않습니다 (Analyzer에서 담당).
+    - LLM 호출은 하지 않습니다 (Agent Node에서 담당).
     """
-
-    def __init__(self, llm_client=None):
-        """
-        Args:
-            llm_client: 더 이상 사용되지 않음 (하위 호환성을 위해 유지)
-        """
-        # LLM 클라이언트는 더 이상 사용하지 않음
-        # Analyzer에서 직접 LLM을 호출함
-        pass
 
     @abstractmethod
     def can_handle(self, file_path: str) -> bool:

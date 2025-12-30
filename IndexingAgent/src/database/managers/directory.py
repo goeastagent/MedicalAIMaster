@@ -1,183 +1,63 @@
-# src/database/schema_directory.py
+# src/database/managers/directory.py
 """
-Directory Catalog 스키마
+Directory Catalog Schema Manager
 
-Phase 1에서 디렉토리 레벨 메타데이터를 저장하는 테이블 정의
-- directory_catalog: 디렉토리 단위 메타데이터 (파일 통계, 파일명 패턴 등)
-"""
-
-from typing import Optional, Dict, Any, List
-from .connection import get_db_manager
-
-
-# =============================================================================
-# DDL: 테이블 생성 SQL
-# =============================================================================
-
-CREATE_DIRECTORY_CATALOG_SQL = """
-CREATE TABLE IF NOT EXISTS directory_catalog (
-    -- Primary Key
-    dir_id UUID PRIMARY KEY DEFAULT uuid_generate_v4(),
-    
-    -- 경로 정보
-    dir_path TEXT UNIQUE NOT NULL,           -- 절대 경로 (unique constraint)
-    dir_name VARCHAR(255) NOT NULL,          -- 디렉토리명 (예: "vital_files")
-    parent_dir_id UUID REFERENCES directory_catalog(dir_id) ON DELETE SET NULL,  -- 상위 디렉토리 FK
-    
-    -- 파일 통계 (Phase 1: Rule-based 수집)
-    file_count INTEGER DEFAULT 0,            -- 총 파일 수 (직계 자식만)
-    file_extensions JSONB,                   -- {"vital": 6388, "csv": 3}
-    total_size_bytes BIGINT DEFAULT 0,       -- 총 크기
-    total_size_mb FLOAT DEFAULT 0.0,
-    
-    -- 하위 디렉토리 통계
-    subdir_count INTEGER DEFAULT 0,          -- 직계 하위 디렉토리 수
-    
-    -- 파일명 샘플 (Phase 1: LLM 분석용 수집)
-    filename_samples JSONB,                  -- ["0001.vital", "0002.vital", ..., "6388.vital"]
-    filename_sample_count INTEGER DEFAULT 0, -- 샘플 수
-    
-    -- 패턴 분석 결과 (Phase 7에서 LLM이 채움)
-    filename_pattern TEXT,                   -- "{caseid:integer}.vital"
-    filename_columns JSONB,                  -- [{"name": "caseid", "type": "integer", "links_to": {...}}]
-    pattern_confidence FLOAT,                -- LLM confidence
-    pattern_reasoning TEXT,                  -- LLM reasoning
-    pattern_analyzed_at TIMESTAMP,           -- LLM 분석 시점
-    
-    -- 디렉토리 분류 (Phase 4에서 채워질 수 있음)
-    dir_type VARCHAR(50),                    -- "signal_files", "tabular_files", "metadata", "mixed"
-    
-    -- 메타
-    created_at TIMESTAMP DEFAULT NOW(),
-    updated_at TIMESTAMP DEFAULT NOW()
-);
-
--- 인덱스
-CREATE INDEX IF NOT EXISTS idx_directory_catalog_parent ON directory_catalog(parent_dir_id);
-CREATE INDEX IF NOT EXISTS idx_directory_catalog_dir_type ON directory_catalog(dir_type);
-CREATE INDEX IF NOT EXISTS idx_directory_catalog_path ON directory_catalog(dir_path);
+directory_catalog 테이블 관리 + CRUD 함수
 """
 
-# file_catalog에 FK 제약 추가 (directory_catalog가 먼저 생성된 후)
-ADD_FILE_CATALOG_DIR_FK_SQL = """
-DO $$
-BEGIN
-    IF NOT EXISTS (
-        SELECT 1 FROM pg_constraint 
-        WHERE conname = 'fk_file_catalog_dir'
-    ) THEN
-        ALTER TABLE file_catalog 
-        ADD CONSTRAINT fk_file_catalog_dir 
-        FOREIGN KEY (dir_id) REFERENCES directory_catalog(dir_id) ON DELETE SET NULL;
-    END IF;
-END $$;
-"""
-
-# Updated_at 자동 갱신 트리거
-CREATE_DIRECTORY_UPDATE_TRIGGER_SQL = """
--- directory_catalog 트리거
-DROP TRIGGER IF EXISTS update_directory_catalog_updated_at ON directory_catalog;
-CREATE TRIGGER update_directory_catalog_updated_at
-    BEFORE UPDATE ON directory_catalog
-    FOR EACH ROW
-    EXECUTE FUNCTION update_updated_at_column();
-"""
+from typing import List, Dict, Any, Optional
+from .base import BaseSchemaManager, init_schema, ensure_schema
+from ..schemas.directory import (
+    CREATE_DIRECTORY_CATALOG_SQL,
+    ADD_FILE_CATALOG_DIR_FK_SQL,
+    CREATE_DIRECTORY_UPDATE_TRIGGER_SQL,
+)
+from ..connection import get_db_manager
 
 
-# =============================================================================
-# Schema Manager Class
-# =============================================================================
-
-class DirectorySchemaManager:
+class DirectorySchemaManager(BaseSchemaManager):
     """Directory Catalog 스키마 관리"""
     
-    def __init__(self, db_manager=None):
-        self.db = db_manager or get_db_manager()
+    @property
+    def table_names(self) -> List[str]:
+        """관리하는 테이블 이름 목록"""
+        return ['directory_catalog']
     
-    def create_tables(self) -> bool:
-        """
-        directory_catalog 테이블 생성
-        
-        Returns:
-            True if successful
-        """
-        conn = self.db.get_connection()
-        cursor = conn.cursor()
-        
-        try:
-            # 1. directory_catalog 테이블 생성
-            cursor.execute(CREATE_DIRECTORY_CATALOG_SQL)
-            
-            # 2. file_catalog에 FK 제약 추가 (테이블이 존재하면)
-            cursor.execute("""
-                SELECT EXISTS (
-                    SELECT FROM information_schema.tables 
-                    WHERE table_name = 'file_catalog'
-                )
-            """)
-            if cursor.fetchone()[0]:
-                cursor.execute(ADD_FILE_CATALOG_DIR_FK_SQL)
-            
-            # 3. 트리거 생성 (update_updated_at_column 함수가 있으면)
-            cursor.execute("""
-                SELECT EXISTS (
-                    SELECT FROM pg_proc 
-                    WHERE proname = 'update_updated_at_column'
-                )
-            """)
-            if cursor.fetchone()[0]:
-                cursor.execute(CREATE_DIRECTORY_UPDATE_TRIGGER_SQL)
-            
-            conn.commit()
-            print("[DirectorySchema] Tables created successfully")
-            return True
-            
-        except Exception as e:
-            conn.rollback()
-            print(f"[DirectorySchema] Error creating tables: {e}")
-            raise
+    @property
+    def create_ddl_statements(self) -> List[str]:
+        """테이블 생성 DDL SQL 리스트"""
+        return [CREATE_DIRECTORY_CATALOG_SQL]
     
-    def drop_tables(self, confirm: bool = False) -> bool:
-        """
-        테이블 삭제 (주의: 모든 데이터 삭제됨)
+    def _post_create_hook(self, cursor) -> None:
+        """FK 제약 추가 및 트리거 생성"""
+        # file_catalog에 FK 제약 추가 (테이블이 존재하면)
+        cursor.execute("""
+            SELECT EXISTS (
+                SELECT FROM information_schema.tables 
+                WHERE table_name = 'file_catalog'
+            )
+        """)
+        if cursor.fetchone()[0]:
+            cursor.execute(ADD_FILE_CATALOG_DIR_FK_SQL)
         
-        Args:
-            confirm: True로 설정해야 삭제 실행
-        """
-        if not confirm:
-            print("[DirectorySchema] Set confirm=True to drop tables")
-            return False
-        
-        conn = self.db.get_connection()
-        cursor = conn.cursor()
-        
-        try:
-            # FK 제약 먼저 제거
-            cursor.execute("""
-                ALTER TABLE IF EXISTS file_catalog 
-                DROP CONSTRAINT IF EXISTS fk_file_catalog_dir
-            """)
-            # 테이블 삭제
-            cursor.execute("DROP TABLE IF EXISTS directory_catalog CASCADE")
-            conn.commit()
-            print("[DirectorySchema] Tables dropped successfully")
-            return True
-            
-        except Exception as e:
-            conn.rollback()
-            print(f"[DirectorySchema] Error dropping tables: {e}")
-            raise
+        # 트리거 생성 (update_updated_at_column 함수가 있으면)
+        cursor.execute("""
+            SELECT EXISTS (
+                SELECT FROM pg_proc 
+                WHERE proname = 'update_updated_at_column'
+            )
+        """)
+        if cursor.fetchone()[0]:
+            cursor.execute(CREATE_DIRECTORY_UPDATE_TRIGGER_SQL)
     
-    def reset_tables(self) -> bool:
-        """테이블 초기화 (삭제 후 재생성)"""
-        self.drop_tables(confirm=True)
-        return self.create_tables()
+    def _pre_drop_hook(self, cursor) -> None:
+        """FK 제약 먼저 제거"""
+        cursor.execute("""
+            ALTER TABLE IF EXISTS file_catalog 
+            DROP CONSTRAINT IF EXISTS fk_file_catalog_dir
+        """)
     
-    def table_exists(self, table_name: str = 'directory_catalog') -> bool:
-        """테이블 존재 여부 확인"""
-        return self.db.table_exists(table_name)
-    
-    def get_stats(self) -> dict:
+    def get_stats(self) -> Dict[str, Any]:
         """directory_catalog 통계 조회"""
         conn = self.db.get_connection()
         cursor = conn.cursor()
@@ -305,25 +185,7 @@ def get_directory_by_path(dir_path: str, db_manager=None) -> Optional[Dict[str, 
     if not row:
         return None
     
-    return {
-        'dir_id': str(row[0]),
-        'dir_path': row[1],
-        'dir_name': row[2],
-        'parent_dir_id': str(row[3]) if row[3] else None,
-        'file_count': row[4],
-        'file_extensions': row[5],
-        'total_size_bytes': row[6],
-        'total_size_mb': row[7],
-        'subdir_count': row[8],
-        'filename_samples': row[9],
-        'filename_sample_count': row[10],
-        'filename_pattern': row[11],
-        'filename_columns': row[12],
-        'pattern_confidence': row[13],
-        'dir_type': row[14],
-        'created_at': row[15],
-        'updated_at': row[16]
-    }
+    return _row_to_dict(row)
 
 
 def get_directory_by_id(dir_id: str, db_manager=None) -> Optional[Dict[str, Any]]:
@@ -346,6 +208,11 @@ def get_directory_by_id(dir_id: str, db_manager=None) -> Optional[Dict[str, Any]
     if not row:
         return None
     
+    return _row_to_dict(row)
+
+
+def _row_to_dict(row) -> Dict[str, Any]:
+    """DB row를 dict로 변환"""
     return {
         'dir_id': str(row[0]),
         'dir_path': row[1],
@@ -404,14 +271,14 @@ def update_file_catalog_dir_ids(dir_id: str, file_paths: List[str], db_manager=N
         raise
 
 
-def get_directories_without_pattern() -> List[Dict[str, Any]]:
+def get_directories_without_pattern(db_manager=None) -> List[Dict[str, Any]]:
     """
     패턴 분석이 안 된 디렉토리 목록 조회 (Phase 7용)
     
     Returns:
         [{"dir_id": ..., "dir_path": ..., "filename_samples": [...], ...}, ...]
     """
-    db = get_db_manager()
+    db = db_manager or get_db_manager()
     conn = db.get_connection()
     cursor = conn.cursor()
     
@@ -453,19 +320,10 @@ def init_directory_schema(reset: bool = False) -> DirectorySchemaManager:
     Returns:
         DirectorySchemaManager 인스턴스
     """
-    manager = DirectorySchemaManager()
-    
-    if reset:
-        manager.reset_tables()
-    else:
-        manager.create_tables()
-    
-    return manager
+    return init_schema(DirectorySchemaManager, reset=reset)
 
 
 def ensure_directory_schema():
     """directory_catalog 테이블이 없으면 생성"""
-    manager = DirectorySchemaManager()
-    if not manager.table_exists():
-        manager.create_tables()
+    ensure_schema(DirectorySchemaManager)
 

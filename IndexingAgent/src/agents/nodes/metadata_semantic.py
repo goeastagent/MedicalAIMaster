@@ -14,8 +14,8 @@ from typing import Dict, Any, List, Optional, Tuple
 from datetime import datetime
 
 from src.agents.state import AgentState
-from src.database.connection import get_db_manager
-from src.database.schema_dictionary import (
+from src.database import (
+    get_db_manager,
     ensure_dictionary_schema,
     insert_dictionary_entries_batch,
     DictionarySchemaManager,
@@ -630,4 +630,30 @@ def run_metadata_semantic_standalone(metadata_files: List[str] = None) -> Dict[s
     }
     
     return phase5_metadata_semantic_node(state)
+
+
+# =============================================================================
+# Class-based Node (for NodeRegistry)
+# =============================================================================
+
+from ..base import BaseNode, LLMMixin, DatabaseMixin
+from ..registry import register_node
+
+
+@register_node
+class MetadataSemanticNode(BaseNode, LLMMixin, DatabaseMixin):
+    """
+    Metadata Semantic Analysis Node (LLM-based)
+    
+    metadata 파일에서 key-desc-unit을 추출하여 data_dictionary에 저장합니다.
+    """
+    
+    name = "metadata_semantic"
+    description = "메타데이터 파일 분석 및 data_dictionary 추출"
+    order = 500
+    requires_llm = True
+    
+    def execute(self, state: Dict[str, Any]) -> Dict[str, Any]:
+        """기존 함수 위임"""
+        return phase5_metadata_semantic_node(state)
 

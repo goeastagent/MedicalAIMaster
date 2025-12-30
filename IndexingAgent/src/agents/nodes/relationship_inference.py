@@ -23,8 +23,7 @@ from ..models.llm_responses import (
     RelationshipInferenceResponse,
     Phase9Result,
 )
-from src.database.connection import get_db_manager
-from src.database.schema_ontology import OntologySchemaManager
+from src.database import get_db_manager, OntologySchemaManager, EntityRepository
 from src.utils.llm_client import get_llm_client
 from src.config import Phase9Config, LLMConfig, Neo4jConfig
 
@@ -436,8 +435,7 @@ def _save_relationships_to_postgres(
         })
     
     if rel_dicts:
-        schema_manager = OntologySchemaManager()
-        schema_manager.save_table_relationships(rel_dicts)
+        EntityRepository().save_relationships(rel_dicts)
     
     return len(rel_dicts)
 
@@ -1027,4 +1025,30 @@ def phase9_relationship_inference_node(state: AgentState) -> Dict[str, Any]:
         "phase9_result": phase9_result.model_dump(),
         "table_relationships": [r.model_dump() for r in relationships]
     }
+
+
+# =============================================================================
+# Class-based Node (for NodeRegistry)
+# =============================================================================
+
+from ..base import BaseNode, LLMMixin, DatabaseMixin
+from ..registry import register_node
+
+
+@register_node
+class RelationshipInferenceNode(BaseNode, LLMMixin, DatabaseMixin):
+    """
+    Relationship Inference + Neo4j Node (LLM-based)
+    
+    테이블 간 FK 관계를 추론하고 Neo4j에 3-Level Ontology를 구축합니다.
+    """
+    
+    name = "relationship_inference"
+    description = "테이블 간 FK 관계 추론 + Neo4j 온톨로지"
+    order = 900
+    requires_llm = True
+    
+    def execute(self, state: Dict[str, Any]) -> Dict[str, Any]:
+        """기존 함수 위임"""
+        return phase9_relationship_inference_node(state)
 

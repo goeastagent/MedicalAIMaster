@@ -1,58 +1,60 @@
 """
-10-Phase Sequential Indexing Pipeline
-======================================
+Dynamic Indexing Pipeline Builder
+=================================
 
-Full Pipeline Flow:
+NodeRegistry를 사용하여 동적으로 파이프라인을 구성합니다.
+
+Pipeline Flow (order 기반):
     START
       │
       ▼
 ┌─────────────────────────────┐
-│ Phase 1: Directory Catalog  │ ← 디렉토리 구조 분석, 파일명 샘플 수집 (Rule-based)
+│ directory_catalog (100)     │ ← 디렉토리 구조 분석, 파일명 샘플 수집 (Rule-based)
 └───────────────┬─────────────┘
                 │
                 ▼
 ┌─────────────────────────────┐
-│ Phase 2: File Catalog       │ ← 파일별 메타데이터 추출, DB 저장 (Rule-based)
+│ file_catalog (200)          │ ← 파일별 메타데이터 추출, DB 저장 (Rule-based)
 └───────────────┬─────────────┘
                 │
                 ▼
 ┌─────────────────────────────┐
-│ Phase 3: Schema Aggregation │ ← 유니크 컬럼/파일 집계, LLM 배치 준비 (Rule-based)
+│ schema_aggregation (300)    │ ← 유니크 컬럼/파일 집계, LLM 배치 준비 (Rule-based)
 └───────────────┬─────────────┘
                 │
                 ▼
 ┌─────────────────────────────┐
-│ Phase 4: File Classification│ ← metadata vs data 파일 분류 (LLM)
+│ file_classification (400)   │ ← metadata vs data 파일 분류 (LLM)
 └───────────────┬─────────────┘
                 │
                 ▼
 ┌─────────────────────────────┐
-│ Phase 5: Metadata Semantic  │ ← metadata 파일에서 data_dictionary 추출 (LLM)
+│ metadata_semantic (500)     │ ← metadata 파일에서 data_dictionary 추출 (LLM)
 └───────────────┬─────────────┘
                 │
                 ▼
 ┌─────────────────────────────┐
-│ Phase 6: Data Semantic      │ ← data 파일 컬럼 의미 분석 + dictionary 매칭 (LLM)
+│ data_semantic (600)         │ ← data 파일 컬럼 의미 분석 + dictionary 매칭 (LLM)
 └───────────────┬─────────────┘
                 │
                 ▼
 ┌─────────────────────────────┐
-│ Phase 7: Directory Pattern  │ ← 디렉토리 파일명 패턴 분석 + ID 추출 (LLM)
+│ directory_pattern (700)     │ ← 디렉토리 파일명 패턴 분석 + ID 추출 (LLM)
 └───────────────┬─────────────┘
                 │
                 ▼
 ┌─────────────────────────────┐
-│ Phase 8: Entity Identify    │ ← 테이블별 row_represents, entity_identifier (LLM)
+│ entity_identification (800) │ ← 테이블별 row_represents, entity_identifier (LLM)
 └───────────────┬─────────────┘
                 │
                 ▼
 ┌─────────────────────────────┐
-│ Phase 9: Relationship Infer │ ← 테이블 간 FK 관계 추론 + Neo4j 3-Level Ontology (LLM)
+│ relationship_inference (900)│ ← 테이블 간 FK 관계 추론 + Neo4j 3-Level Ontology (LLM)
 └───────────────┬─────────────┘
                 │
                 ▼
 ┌─────────────────────────────┐
-│ Phase 10: Ontology Enhance  │ ← Concept Hierarchy, Semantic Edges, Medical Terms (LLM)
+│ ontology_enhancement (1000) │ ← Concept Hierarchy, Semantic Edges, Medical Terms (LLM)
 └───────────────┬─────────────┘
                 │
                 ▼
@@ -78,211 +80,81 @@ Usage:
     result = workflow.invoke(initial_state, config)
 """
 
+from typing import List, Optional
 from langgraph.graph import StateGraph, END
 from src.agents.state import AgentState
-from src.agents.nodes import (
-    # Phase 1: Directory Catalog
-    phase1_directory_catalog_node,
-    # Phase 2: File Catalog
-    phase2_file_catalog_node,
-    # Phase 3: Schema Aggregation
-    phase3_aggregation_node,
-    # Phase 4: File Classification
-    phase4_classification_node,
-    # Phase 5: Metadata Semantic
-    phase5_metadata_semantic_node,
-    # Phase 6: Data Semantic
-    phase6_data_semantic_node,
-    # Phase 7: Directory Pattern
-    phase7_directory_pattern_node,
-    # Phase 8: Entity Identification
-    phase8_entity_identification_node,
-    # Phase 9: Relationship Inference
-    phase9_relationship_inference_node,
-    # Phase 10: Ontology Enhancement
-    phase10_ontology_enhancement_node,
-)
+
+# 노드 클래스 임포트 (이 시점에 @register_node가 자동으로 등록)
+# 직접 사용하지 않지만 import로 registry에 등록됨
+import src.agents.nodes  # noqa: F401
+
+from src.agents.registry import get_registry
 
 
-def build_agent(checkpointer=None):
+def build_agent(
+    checkpointer=None,
+    include_nodes: Optional[List[str]] = None,
+    exclude_nodes: Optional[List[str]] = None
+):
     """
-    10-Phase Sequential Indexing Pipeline 빌드
+    동적 인덱싱 파이프라인 빌드
     
-    완전한 데이터 인덱싱 파이프라인:
-    - Phase 1-3: Rule-based 메타데이터 수집
-    - Phase 4-10: LLM 기반 의미 분석 및 온톨로지 구축
+    NodeRegistry를 사용하여 order 순서대로 노드를 연결합니다.
+    노드를 선택적으로 포함/제외할 수 있습니다.
     
     Args:
         checkpointer: (선택) 상태 저장용 checkpointer (예: MemorySaver())
                      Human-in-the-Loop에서 interrupt/resume을 위해 필요
-    
-    Returns:
-        컴파일된 LangGraph 워크플로우
-    """
-    workflow = StateGraph(AgentState)
-    
-    # ==========================================================================
-    # Phase 1: Directory Catalog (Rule-based)
-    # 디렉토리 구조 분석, 파일명 샘플 수집
-    # ==========================================================================
-    workflow.add_node("phase1_directory_catalog", phase1_directory_catalog_node)
-    
-    # ==========================================================================
-    # Phase 2: File Catalog (Rule-based)
-    # 파일별 메타데이터 추출, DB 저장
-    # ==========================================================================
-    workflow.add_node("phase2_file_catalog", phase2_file_catalog_node)
-    
-    # ==========================================================================
-    # Phase 3: Schema Aggregation (Rule-based)
-    # 유니크 컬럼/파일 집계, LLM 배치 준비
-    # ==========================================================================
-    workflow.add_node("phase3_aggregation", phase3_aggregation_node)
-    
-    # ==========================================================================
-    # Phase 4: File Classification (LLM)
-    # metadata vs data 파일 분류
-    # ==========================================================================
-    workflow.add_node("phase4_classification", phase4_classification_node)
-    
-    # ==========================================================================
-    # Phase 5: Metadata Semantic (LLM)
-    # metadata 파일에서 data_dictionary 추출
-    # ==========================================================================
-    workflow.add_node("phase5_metadata_semantic", phase5_metadata_semantic_node)
-    
-    # ==========================================================================
-    # Phase 6: Data Semantic (LLM)
-    # data 파일 컬럼 의미 분석 + dictionary 매칭
-    # ==========================================================================
-    workflow.add_node("phase6_data_semantic", phase6_data_semantic_node)
-    
-    # ==========================================================================
-    # Phase 7: Directory Pattern (LLM)
-    # 디렉토리 파일명 패턴 분석 + ID 추출
-    # ==========================================================================
-    workflow.add_node("phase7_directory_pattern", phase7_directory_pattern_node)
-    
-    # ==========================================================================
-    # Phase 8: Entity Identification (LLM)
-    # 테이블별 row_represents, entity_identifier 식별
-    # ==========================================================================
-    workflow.add_node("phase8_entity_identification", phase8_entity_identification_node)
-    
-    # ==========================================================================
-    # Phase 9: Relationship Inference (LLM)
-    # 테이블 간 FK 관계 추론 + Neo4j 3-Level Ontology
-    # ==========================================================================
-    workflow.add_node("phase9_relationship_inference", phase9_relationship_inference_node)
-    
-    # ==========================================================================
-    # Phase 10: Ontology Enhancement (LLM)
-    # Concept Hierarchy, Semantic Edges, Medical Terms
-    # ==========================================================================
-    workflow.add_node("phase10_ontology_enhancement", phase10_ontology_enhancement_node)
-    
-    # ==========================================================================
-    # Edges: Sequential Flow (Phase 1 → 2 → 3 → ... → 10 → END)
-    # ==========================================================================
-    
-    # Entry Point
-    workflow.set_entry_point("phase1_directory_catalog")
-    
-    # Phase 1 → Phase 2
-    workflow.add_edge("phase1_directory_catalog", "phase2_file_catalog")
-    
-    # Phase 2 → Phase 3
-    workflow.add_edge("phase2_file_catalog", "phase3_aggregation")
-    
-    # Phase 3 → Phase 4
-    workflow.add_edge("phase3_aggregation", "phase4_classification")
-    
-    # Phase 4 → Phase 5
-    workflow.add_edge("phase4_classification", "phase5_metadata_semantic")
-    
-    # Phase 5 → Phase 6
-    workflow.add_edge("phase5_metadata_semantic", "phase6_data_semantic")
-    
-    # Phase 6 → Phase 7
-    workflow.add_edge("phase6_data_semantic", "phase7_directory_pattern")
-    
-    # Phase 7 → Phase 8
-    workflow.add_edge("phase7_directory_pattern", "phase8_entity_identification")
-    
-    # Phase 8 → Phase 9
-    workflow.add_edge("phase8_entity_identification", "phase9_relationship_inference")
-    
-    # Phase 9 → Phase 10
-    workflow.add_edge("phase9_relationship_inference", "phase10_ontology_enhancement")
-    
-    # Phase 10 → END
-    workflow.add_edge("phase10_ontology_enhancement", END)
-    
-    # ==========================================================================
-    # Compile with Checkpointer
-    # ==========================================================================
-    compile_config = {}
-    if checkpointer:
-        compile_config["checkpointer"] = checkpointer
-    
-    return workflow.compile(**compile_config)
-
-
-# =============================================================================
-# Convenience Functions
-# =============================================================================
-
-def build_partial_agent(end_phase: int = 10, checkpointer=None):
-    """
-    부분 파이프라인 빌드 (특정 Phase까지만 실행)
-    
-    Args:
-        end_phase: 마지막으로 실행할 Phase 번호 (1-10)
-        checkpointer: (선택) 상태 저장용 checkpointer
+        include_nodes: (선택) 포함할 노드 이름 목록. None이면 모든 활성 노드 포함.
+        exclude_nodes: (선택) 제외할 노드 이름 목록.
     
     Returns:
         컴파일된 LangGraph 워크플로우
     
-    Example:
-        # Phase 1-4까지만 실행 (파일 분류까지)
-        workflow = build_partial_agent(end_phase=4)
+    Examples:
+        # 전체 파이프라인
+        workflow = build_agent()
+        
+        # 특정 노드만 포함
+        workflow = build_agent(include_nodes=["directory_catalog", "file_catalog"])
+        
+        # 특정 노드 제외
+        workflow = build_agent(exclude_nodes=["ontology_enhancement"])
     """
-    if end_phase < 1 or end_phase > 10:
-        raise ValueError("end_phase must be between 1 and 10")
+    registry = get_registry()
     
-    # Phase 노드 매핑
-    phase_nodes = {
-        1: ("phase1_directory_catalog", phase1_directory_catalog_node),
-        2: ("phase2_file_catalog", phase2_file_catalog_node),
-        3: ("phase3_aggregation", phase3_aggregation_node),
-        4: ("phase4_classification", phase4_classification_node),
-        5: ("phase5_metadata_semantic", phase5_metadata_semantic_node),
-        6: ("phase6_data_semantic", phase6_data_semantic_node),
-        7: ("phase7_directory_pattern", phase7_directory_pattern_node),
-        8: ("phase8_entity_identification", phase8_entity_identification_node),
-        9: ("phase9_relationship_inference", phase9_relationship_inference_node),
-        10: ("phase10_ontology_enhancement", phase10_ontology_enhancement_node),
-    }
+    # 활성화된 노드를 order 순으로 가져오기
+    nodes = registry.get_ordered_nodes(include=include_nodes, exclude=exclude_nodes)
+    
+    if not nodes:
+        raise ValueError("No nodes to build pipeline. Check include/exclude filters.")
+    
+    print(f"\n{'='*60}")
+    print("🔧 Building Dynamic Pipeline")
+    print(f"{'='*60}")
+    print(f"📋 Nodes ({len(nodes)}):")
+    for node in nodes:
+        llm_badge = "🤖" if node.requires_llm else "📏"
+        print(f"   [{node.order:04d}] {node.name} {llm_badge} - {node.description}")
+    print(f"{'='*60}\n")
     
     workflow = StateGraph(AgentState)
     
-    # 노드 추가 (1부터 end_phase까지)
-    for phase_num in range(1, end_phase + 1):
-        node_name, node_func = phase_nodes[phase_num]
-        workflow.add_node(node_name, node_func)
+    # 노드 추가
+    for node in nodes:
+        workflow.add_node(node.name, node)
     
-    # Entry Point
-    workflow.set_entry_point("phase1_directory_catalog")
+    # Entry point (첫 번째 노드)
+    workflow.set_entry_point(nodes[0].name)
     
-    # 엣지 추가 (순차적 연결)
-    for phase_num in range(1, end_phase):
-        current_node = phase_nodes[phase_num][0]
-        next_node = phase_nodes[phase_num + 1][0]
-        workflow.add_edge(current_node, next_node)
+    # 순차적 엣지 추가
+    for i in range(len(nodes) - 1):
+        current_node = nodes[i]
+        next_node = nodes[i + 1]
+        workflow.add_edge(current_node.name, next_node.name)
     
-    # 마지막 Phase → END
-    last_node = phase_nodes[end_phase][0]
-    workflow.add_edge(last_node, END)
+    # 마지막 노드 → END
+    workflow.add_edge(nodes[-1].name, END)
     
     # Compile
     compile_config = {}
@@ -292,5 +164,72 @@ def build_partial_agent(end_phase: int = 10, checkpointer=None):
     return workflow.compile(**compile_config)
 
 
-# Alias for backward compatibility
-build_full_pipeline_agent = build_agent
+def build_partial_agent(
+    until_node: str = None,
+    until_order: int = None,
+    checkpointer=None
+):
+    """
+    부분 파이프라인 빌드 (특정 노드까지만 실행)
+    
+    Args:
+        until_node: 마지막으로 실행할 노드 이름 (예: "file_classification")
+        until_order: 마지막으로 실행할 order (예: 400)
+        checkpointer: (선택) 상태 저장용 checkpointer
+    
+    Returns:
+        컴파일된 LangGraph 워크플로우
+    
+    Examples:
+        # file_classification까지만 실행
+        workflow = build_partial_agent(until_node="file_classification")
+        
+        # order 600까지 실행 (data_semantic 포함)
+        workflow = build_partial_agent(until_order=600)
+    """
+    registry = get_registry()
+    all_nodes = registry.get_ordered_nodes()
+    
+    if until_node:
+        include_nodes = []
+        for node in all_nodes:
+            include_nodes.append(node.name)
+            if node.name == until_node:
+                break
+    elif until_order:
+        include_nodes = [node.name for node in all_nodes if node.order <= until_order]
+    else:
+        raise ValueError("Either until_node or until_order must be provided")
+    
+    return build_agent(checkpointer=checkpointer, include_nodes=include_nodes)
+
+
+def build_custom_agent(node_names: List[str], checkpointer=None):
+    """
+    커스텀 파이프라인 빌드 (지정된 노드만 포함)
+    
+    Args:
+        node_names: 포함할 노드 이름 목록 (순서는 order에 따라 자동 정렬)
+        checkpointer: (선택) 상태 저장용 checkpointer
+    
+    Returns:
+        컴파일된 LangGraph 워크플로우
+    
+    Example:
+        workflow = build_custom_agent([
+            "directory_catalog",
+            "file_catalog",
+            "entity_identification"
+        ])
+    """
+    return build_agent(checkpointer=checkpointer, include_nodes=node_names)
+
+
+def list_available_nodes() -> List[dict]:
+    """사용 가능한 모든 노드 목록 반환"""
+    return get_registry().list_nodes()
+
+
+def print_pipeline_info():
+    """파이프라인 구성 정보 출력"""
+    get_registry().print_pipeline()

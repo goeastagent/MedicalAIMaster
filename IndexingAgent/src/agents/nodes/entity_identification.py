@@ -21,8 +21,7 @@ from ..models.llm_responses import (
     EntityIdentificationResponse,
     Phase8Result,
 )
-from src.database.connection import get_db_manager
-from src.database.schema_ontology import OntologySchemaManager
+from src.database import get_db_manager, OntologySchemaManager, EntityRepository
 from src.utils.llm_client import get_llm_client
 from src.config import Phase8Config, LLMConfig
 
@@ -348,8 +347,7 @@ def _save_table_entities(
         })
     
     if entities_to_save:
-        schema_manager = OntologySchemaManager()
-        schema_manager.save_table_entities(entities_to_save)
+        EntityRepository().save_table_entities(entities_to_save)
     
     return len(entities_to_save)
 
@@ -491,4 +489,31 @@ def phase8_entity_identification_node(state: AgentState) -> Dict[str, Any]:
         "phase8_result": phase8_result.model_dump(),
         "table_entity_results": [r.model_dump() for r in all_results]
     }
+
+
+# =============================================================================
+# Class-based Node (for NodeRegistry)
+# =============================================================================
+
+from ..base import BaseNode, LLMMixin, DatabaseMixin
+from ..registry import register_node
+
+
+@register_node
+class EntityIdentificationNode(BaseNode, LLMMixin, DatabaseMixin):
+    """
+    Entity Identification Node (LLM-based)
+    
+    데이터 파일(is_metadata=false)의 행이 무엇을 나타내는지(row_represents)와
+    고유 식별자 컬럼(entity_identifier)을 식별합니다.
+    """
+    
+    name = "entity_identification"
+    description = "Entity 식별 (row_represents, entity_identifier)"
+    order = 800
+    requires_llm = True
+    
+    def execute(self, state: Dict[str, Any]) -> Dict[str, Any]:
+        """기존 함수 위임"""
+        return phase8_entity_identification_node(state)
 

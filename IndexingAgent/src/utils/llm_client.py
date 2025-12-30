@@ -2,7 +2,7 @@
 """
 LLM Client with tenacity retry logic
 
-Supports OpenAI, Anthropic, and Google Generative AI.
+Supports OpenAI and Anthropic (Claude).
 """
 
 import json
@@ -34,12 +34,6 @@ except ImportError:
     AnthropicRateLimitError = Exception
     AnthropicAPIError = Exception
 
-try:
-    import google.generativeai as genai
-    from google.api_core.exceptions import ResourceExhausted as GoogleRateLimitError
-except ImportError:
-    genai = None
-    GoogleRateLimitError = Exception
 
 # config 파일 임포트
 from src import config
@@ -62,7 +56,6 @@ RETRYABLE_EXCEPTIONS = (
     OpenAIAPIError,
     AnthropicRateLimitError,
     AnthropicAPIError,
-    GoogleRateLimitError,
     ConnectionError,
     TimeoutError,
 )
@@ -219,47 +212,6 @@ class ClaudeClient(AbstractLLMClient):
         return message.content[0].text
 
 
-class GeminiClient(AbstractLLMClient):
-    """Google (Gemini) client with retry"""
-    
-    def __init__(self):
-        if not genai:
-            raise ImportError("Google GenAI library not installed. pip install google-generativeai")
-        if not config.LLMConfig.GOOGLE_API_KEY:
-            raise ValueError("GOOGLE_API_KEY is not set in config.")
-
-        genai.configure(api_key=config.LLMConfig.GOOGLE_API_KEY)
-        self.model = genai.GenerativeModel(config.LLMConfig.GEMINI_MODEL)
-
-    @create_retry_decorator()
-    def ask_text(self, prompt: str, max_tokens: int = None) -> str:
-        response = self.model.generate_content(
-            prompt,
-            generation_config=genai.types.GenerationConfig(
-                temperature=config.LLMConfig.TEMPERATURE,
-                max_output_tokens=max_tokens or config.LLMConfig.MAX_TOKENS
-            )
-        )
-        return response.text
-    
-    @create_retry_decorator()
-    def ask_json(self, prompt: str, max_tokens: int = None) -> Dict[str, Any]:
-        """Gemini Pro 1.5는 response_mime_type을 지원함"""
-        try:
-            response = self.model.generate_content(
-                prompt,
-                generation_config=genai.types.GenerationConfig(
-                    response_mime_type="application/json",
-                    temperature=config.LLMConfig.TEMPERATURE,
-                    max_output_tokens=max_tokens or config.LLMConfig.MAX_TOKENS
-                )
-            )
-            return json.loads(response.text)
-        except Exception:
-            # 구버전 모델 등을 위한 fallback
-            return super().ask_json(prompt)
-
-
 # Singleton instance cache
 _llm_client_instance = None
 
@@ -279,10 +231,8 @@ def get_llm_client() -> AbstractLLMClient:
         _llm_client_instance = OpenAIClient()
     elif provider in ("anthropic", "claude"):
         _llm_client_instance = ClaudeClient()
-    elif provider in ("google", "gemini"):
-        _llm_client_instance = GeminiClient()
     else:
-        raise ValueError(f"Unsupported LLM Provider: {provider}")
+        raise ValueError(f"Unsupported LLM Provider: {provider}. Supported: openai, anthropic")
     
     return _llm_client_instance
 

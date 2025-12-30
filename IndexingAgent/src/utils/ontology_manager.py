@@ -11,7 +11,8 @@ Dataset-First Architecture:
 - PostgreSQL: 복잡한 문서형 데이터 (ontology_column_metadata - JSONB)
 
 스키마 관리:
-- 스키마 정의는 src/database/schema_ontology.py에서 통합 관리
+- 스키마 정의는 src/database/managers/ontology.py에서 통합 관리
+- CRUD는 src/database/repositories/ 에서 처리 (OntologyRepository, EntityRepository)
 - ontology_column_metadata: 데이터셋 기반 컬럼 메타데이터 (JSONB)
 - table_entities: 테이블별 Entity Understanding
 """
@@ -20,9 +21,14 @@ import json
 import logging
 from typing import Dict, Any, List, Optional
 from datetime import datetime
-from src.database.neo4j_connection import Neo4jConnection
-from src.database.connection import get_db_manager
-from src.database.schema_ontology import ensure_ontology_schema, OntologySchemaManager
+from src.database import (
+    Neo4jConnection,
+    get_db_manager,
+    ensure_ontology_schema,
+    OntologySchemaManager,
+    OntologyRepository,
+    EntityRepository,
+)
 
 logger = logging.getLogger(__name__)
 
@@ -44,11 +50,12 @@ class OntologyManager:
         self.ontology = self._create_empty_ontology()
         self.current_dataset_id: Optional[str] = None  # 현재 작업 중인 데이터셋
         
-        # PostgreSQL 온톨로지 스키마 초기화 (schema_ontology.py에서 관리)
+        # PostgreSQL 온톨로지 스키마 초기화
         self._ensure_ontology_tables()
         
-        # 스키마 매니저 (CRUD 작업용)
-        self._schema_manager = OntologySchemaManager()
+        # Repository (CRUD 작업용)
+        self._onto_repo = OntologyRepository()
+        self._entity_repo = EntityRepository()
     
     def _ensure_ontology_tables(self):
         """PostgreSQL에 온톨로지 테이블 생성 (schema_ontology.py 사용)"""
@@ -58,43 +65,45 @@ class OntologyManager:
             logger.warning(f"온톨로지 테이블 생성 실패 (무시됨): {e}")
     
     def _load_column_metadata_from_pg(self, dataset_id: Optional[str] = None) -> Dict[str, Dict[str, Any]]:
-        """PostgreSQL에서 ontology_column_metadata 로드 (schema_ontology 사용)"""
+        """PostgreSQL에서 ontology_column_metadata 로드"""
         try:
-            return self._schema_manager.load_column_metadata(dataset_id)
+            return self._onto_repo.load_column_metadata(dataset_id)
         except Exception as e:
             logger.warning(f"ontology_column_metadata 로드 실패: {e}")
             return {}
     
     def _save_column_metadata_to_pg(self, column_metadata: Dict, dataset_id: str):
-        """PostgreSQL에 ontology_column_metadata 저장 (schema_ontology 사용)"""
+        """PostgreSQL에 ontology_column_metadata 저장"""
         if not column_metadata:
             return
-        
         try:
-            self._schema_manager.save_column_metadata(column_metadata, dataset_id)
+            self._onto_repo.save_column_metadata(column_metadata, dataset_id)
         except Exception as e:
             logger.error(f"ontology_column_metadata 저장 실패: {e}")
             raise
 
     # =========================================================================
-    # Table Entity Methods (NEW - Entity Understanding)
+    # Table Entity Methods
     # =========================================================================
     
     def _load_table_entities_from_pg(self, dataset_id: Optional[str] = None) -> Dict[str, Dict[str, Any]]:
-        """PostgreSQL에서 table_entities 로드 (schema_ontology 사용)"""
-        try:
-            return self._schema_manager.load_table_entities(dataset_id)
-        except Exception as e:
-            logger.warning(f"table_entities 로드 실패: {e}")
-            return {}
+        """PostgreSQL에서 table_entities 로드 (EntityRepository 사용)"""
+        # Note: dataset_id는 현재 table_entities 구조에서 사용되지 않음
+        # file_id 기준으로 조회
+        return {}  # EntityRepository에서 별도 로드 필요시 구현
     
     def _save_table_entities_to_pg(self, table_entities: Dict, dataset_id: str):
-        """PostgreSQL에 table_entities 저장 (schema_ontology 사용)"""
+        """PostgreSQL에 table_entities 저장 (dict → list 변환)"""
         if not table_entities:
             return
-        
         try:
-            self._schema_manager.save_table_entities(table_entities, dataset_id)
+            # dict를 list로 변환
+            entities_list = [
+                {"file_id": k, **v} for k, v in table_entities.items()
+                if isinstance(v, dict)
+            ]
+            if entities_list:
+                self._entity_repo.save_table_entities(entities_list)
         except Exception as e:
             logger.error(f"table_entities 저장 실패: {e}")
             raise

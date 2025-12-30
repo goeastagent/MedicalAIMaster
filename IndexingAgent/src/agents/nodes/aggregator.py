@@ -548,3 +548,30 @@ def run_aggregation(verbose: bool = True) -> Dict[str, Any]:
     
     return result
 
+
+# =============================================================================
+# Class-based Node (for NodeRegistry)
+# =============================================================================
+
+from ..base import BaseNode, DatabaseMixin
+from ..registry import register_node
+
+
+@register_node
+class SchemaAggregationNode(BaseNode, DatabaseMixin):
+    """
+    Schema Aggregation Node (Rule-based)
+    
+    DB에서 유니크 컬럼명과 대표 통계를 집계하여
+    LLM 배치 호출을 준비합니다.
+    """
+    
+    name = "schema_aggregation"
+    description = "유니크 컬럼/파일 집계 및 LLM 배치 준비"
+    order = 300
+    requires_llm = False
+    
+    def execute(self, state: Dict[str, Any]) -> Dict[str, Any]:
+        """기존 함수 위임"""
+        return phase3_aggregation_node(state)
+

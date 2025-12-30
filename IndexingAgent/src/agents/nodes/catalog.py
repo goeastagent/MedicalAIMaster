@@ -17,9 +17,11 @@ from datetime import datetime
 
 from src.agents.state import AgentState
 from src.agents.nodes.common import processors
-from src.database.connection import get_db_manager
-from src.database.schema_catalog import CatalogSchemaManager
-from src.database.schema_directory import get_directory_by_path
+from src.database import (
+    get_db_manager,
+    CatalogSchemaManager,
+    get_directory_by_path,
+)
 
 
 
@@ -678,3 +680,30 @@ def phase2_file_catalog_node(state: AgentState) -> Dict[str, Any]:
         "phase2_result": result,
         "phase2_file_ids": file_ids  # 모든 파일의 file_id를 state에 저장
     }
+
+
+# =============================================================================
+# Class-based Node (for NodeRegistry)
+# =============================================================================
+
+from ..base import BaseNode, DatabaseMixin
+from ..registry import register_node
+
+
+@register_node
+class FileCatalogNode(BaseNode, DatabaseMixin):
+    """
+    File Catalog Node (Rule-based)
+    
+    파일을 순회하며 Processor로 메타데이터를 추출하고 DB에 저장합니다.
+    LLM 호출 없이 순수하게 규칙 기반으로 데이터 수집만 수행합니다.
+    """
+    
+    name = "file_catalog"
+    description = "파일 메타데이터 추출 및 DB 저장"
+    order = 200
+    requires_llm = False
+    
+    def execute(self, state: Dict[str, Any]) -> Dict[str, Any]:
+        """기존 함수 위임"""
+        return phase2_file_catalog_node(state)

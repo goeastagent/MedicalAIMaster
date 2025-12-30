@@ -1,0 +1,65 @@
+# src/database/schemas/__init__.py
+"""
+DDL (Data Definition Language) 스키마 정의
+
+각 파일은 테이블 생성 SQL 상수만 포함합니다:
+- catalog.py: file_catalog, column_metadata
+- dictionary.py: data_dictionary
+- directory.py: directory_catalog
+- ontology_core.py: table_entities, table_relationships (Phase 8/9)
+- ontology_phase10.py: ontology_subcategories, semantic_edges, medical_term_mappings, cross_table_semantics
+"""
+
+from .catalog import (
+    CREATE_UUID_EXTENSION_SQL,
+    CREATE_FILE_CATALOG_SQL,
+    CREATE_COLUMN_METADATA_SQL,
+    CREATE_UPDATE_TRIGGER_SQL,
+)
+
+from .dictionary import (
+    CREATE_DATA_DICTIONARY_SQL,
+)
+
+from .directory import (
+    CREATE_DIRECTORY_CATALOG_SQL,
+    ADD_FILE_CATALOG_DIR_FK_SQL,
+    CREATE_DIRECTORY_UPDATE_TRIGGER_SQL,
+)
+
+from .ontology_core import (
+    CREATE_ONTOLOGY_COLUMN_METADATA_SQL,
+    CREATE_TABLE_ENTITIES_SQL,
+    CREATE_TABLE_RELATIONSHIPS_SQL,
+)
+
+from .ontology_phase10 import (
+    CREATE_ONTOLOGY_SUBCATEGORIES_SQL,
+    CREATE_SEMANTIC_EDGES_SQL,
+    CREATE_MEDICAL_TERM_MAPPINGS_SQL,
+    CREATE_CROSS_TABLE_SEMANTICS_SQL,
+)
+
+__all__ = [
+    # Catalog
+    'CREATE_UUID_EXTENSION_SQL',
+    'CREATE_FILE_CATALOG_SQL',
+    'CREATE_COLUMN_METADATA_SQL',
+    'CREATE_UPDATE_TRIGGER_SQL',
+    # Dictionary
+    'CREATE_DATA_DICTIONARY_SQL',
+    # Directory
+    'CREATE_DIRECTORY_CATALOG_SQL',
+    'ADD_FILE_CATALOG_DIR_FK_SQL',
+    'CREATE_DIRECTORY_UPDATE_TRIGGER_SQL',
+    # Ontology Core
+    'CREATE_ONTOLOGY_COLUMN_METADATA_SQL',
+    'CREATE_TABLE_ENTITIES_SQL',
+    'CREATE_TABLE_RELATIONSHIPS_SQL',
+    # Ontology Phase 10
+    'CREATE_ONTOLOGY_SUBCATEGORIES_SQL',
+    'CREATE_SEMANTIC_EDGES_SQL',
+    'CREATE_MEDICAL_TERM_MAPPINGS_SQL',
+    'CREATE_CROSS_TABLE_SEMANTICS_SQL',
+]
+

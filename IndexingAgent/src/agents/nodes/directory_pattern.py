@@ -598,3 +598,30 @@ def run_phase7_standalone() -> Dict[str, Any]:
     state = {}
     return phase7_directory_pattern_node(state)
 
+
+# =============================================================================
+# Class-based Node (for NodeRegistry)
+# =============================================================================
+
+from ..base import BaseNode, LLMMixin, DatabaseMixin
+from ..registry import register_node
+
+
+@register_node
+class DirectoryPatternNode(BaseNode, LLMMixin, DatabaseMixin):
+    """
+    Directory Pattern Analysis Node (LLM-based)
+    
+    디렉토리 내 파일명 패턴을 LLM으로 분석하고,
+    파일명에서 ID/값을 추출하여 다른 테이블과의 관계를 연결합니다.
+    """
+    
+    name = "directory_pattern"
+    description = "디렉토리 파일명 패턴 분석"
+    order = 700
+    requires_llm = True
+    
+    def execute(self, state: Dict[str, Any]) -> Dict[str, Any]:
+        """기존 함수 위임"""
+        return phase7_directory_pattern_node(state)
+

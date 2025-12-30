@@ -22,9 +22,28 @@ from ..models.llm_responses import (
     DataSemanticResponse,
     DataSemanticResult,
 )
-from src.database.connection import get_db_manager
+from src.database import (
+    FileRepository,
+    ColumnRepository,
+    DictionaryRepository,
+)
 from src.utils.llm_client import get_llm_client
 from src.config import Phase6Config, LLMConfig
+
+
+# Repository 싱글톤
+_file_repo = None
+_col_repo = None
+_dict_repo = None
+
+def _get_repositories():
+    """Repository 인스턴스들 반환"""
+    global _file_repo, _col_repo, _dict_repo
+    if _file_repo is None:
+        _file_repo = FileRepository()
+        _col_repo = ColumnRepository()
+        _dict_repo = DictionaryRepository()
+    return _file_repo, _col_repo, _dict_repo
 
 
 # =============================================================================
@@ -96,48 +115,36 @@ Set dict_entry_key to null for all columns.
 
 
 # =============================================================================
-# Helper Functions
+# Helper Functions (Repository 사용)
 # =============================================================================
 
-def _load_data_dictionary(db) -> List[Dict[str, Any]]:
+def _load_dictionary_with_context() -> Tuple[List[Dict], str, str, Dict[str, str]]:
     """
-    data_dictionary 테이블에서 모든 엔트리 로드
+    data_dictionary 로드 + LLM context 생성 (Repository 사용)
     
     Returns:
-        List of dict with keys: dict_id, parameter_key, parameter_desc, parameter_unit, extra_info
+        (dictionary_entries, dict_keys_list, dict_context, key_to_id_map)
     """
-    conn = db.get_connection()
-    cursor = conn.cursor()
+    _, _, dict_repo = _get_repositories()
     
-    try:
-        cursor.execute("""
-            SELECT dict_id, parameter_key, parameter_desc, parameter_unit, extra_info
-            FROM data_dictionary
-            ORDER BY parameter_key
-        """)
-        rows = cursor.fetchall()
-        
-        entries = []
-        for row in rows:
-            dict_id, key, desc, unit, extra = row
-            entries.append({
-                'dict_id': str(dict_id),
-                'parameter_key': key,
-                'parameter_desc': desc,
-                'parameter_unit': unit,
-                'extra_info': extra if isinstance(extra, dict) else {}
-            })
-        
-        return entries
-        
-    except Exception as e:
-        print(f"   ⚠️ Error loading data_dictionary: {e}")
-        return []
+    dictionary = dict_repo.get_all_entries()
+    dict_keys_list, dict_context, key_to_id_map = dict_repo.build_llm_context()
+    
+    return dictionary, dict_keys_list, dict_context, key_to_id_map
+
+
+# Legacy 함수 유지 (하위 호환성)
+def _load_data_dictionary(db) -> List[Dict[str, Any]]:
+    """
+    data_dictionary 테이블에서 모든 엔트리 로드 (Legacy - Repository 사용)
+    """
+    _, _, dict_repo = _get_repositories()
+    return dict_repo.get_all_entries()
 
 
 def _build_dict_context(dictionary: List[Dict]) -> Tuple[str, str, Dict[str, str]]:
     """
-    data_dictionary를 LLM context 문자열로 변환
+    data_dictionary를 LLM context 문자열로 변환 (Legacy 호환)
     
     Returns:
         (dict_keys_list, dict_context, key_to_id_map)
@@ -178,39 +185,15 @@ def _build_dict_context(dictionary: List[Dict]) -> Tuple[str, str, Dict[str, str
 
 def _get_columns_with_stats(db, file_id: str) -> List[Dict]:
     """
-    특정 파일의 컬럼 정보와 통계를 조회
+    특정 파일의 컬럼 정보와 통계를 조회 (Repository 사용)
     
     Returns:
         List of column info dicts
     """
-    conn = db.get_connection()
-    cursor = conn.cursor()
+    _, col_repo, _ = _get_repositories()
     
     try:
-        cursor.execute("""
-            SELECT col_id, original_name, column_type, data_type, 
-                   column_info, value_distribution
-            FROM column_metadata
-            WHERE file_id = %s
-            ORDER BY col_id
-        """, (file_id,))
-        
-        rows = cursor.fetchall()
-        columns = []
-        
-        for row in rows:
-            col_id, name, col_type, dtype, col_info, val_dist = row
-            columns.append({
-                'col_id': col_id,
-                'original_name': name,
-                'column_type': col_type or 'unknown',
-                'data_type': dtype or 'unknown',
-                'column_info': col_info if isinstance(col_info, dict) else {},
-                'value_distribution': val_dist if isinstance(val_dist, dict) else {}
-            })
-        
-        return columns
-        
+        return col_repo.get_columns_with_stats(file_id)
     except Exception as e:
         print(f"   ⚠️ Error loading columns: {e}")
         return []
@@ -283,30 +266,7 @@ def _build_columns_info(columns: List[Dict], config: Phase6Config) -> str:
     return "\n".join(lines)
 
 
-def _resolve_dict_entry_id(
-    llm_key: Optional[str],
-    key_to_id_map: Dict[str, str]
-) -> Tuple[Optional[str], str]:
-    """
-    LLM이 반환한 key를 dict_id와 status로 변환
-    
-    Args:
-        llm_key: LLM이 반환한 dict_entry_key (None 가능)
-        key_to_id_map: {parameter_key: dict_id} 매핑
-    
-    Returns:
-        (dict_id or None, status)
-        status: 'matched', 'not_found', 'null_from_llm'
-    """
-    if llm_key is None:
-        return (None, 'null_from_llm')
-    
-    if llm_key in key_to_id_map:
-        return (key_to_id_map[llm_key], 'matched')
-    
-    # LLM이 key를 반환했지만 dictionary에 없음
-    print(f"   ⚠️ Key '{llm_key}' not found in dictionary")
-    return (None, 'not_found')
+# NOTE: _resolve_dict_entry_id 함수는 DictionaryRepository.resolve_dict_entry_id()로 이동됨
 
 
 def _call_llm_for_semantic(
@@ -386,16 +346,16 @@ def _call_llm_for_semantic(
 
 
 def _update_column_metadata_batch(
-    db,
+    db,  # unused, 하위 호환성
     file_id: str,
     results: List[ColumnSemanticResult],
     key_to_id_map: Dict[str, str]
 ) -> Dict[str, int]:
     """
-    column_metadata 테이블을 배치 업데이트
+    column_metadata 테이블을 배치 업데이트 (Repository 사용)
     
     Args:
-        db: DB 매니저
+        db: DB 매니저 (unused, 하위 호환성)
         file_id: 파일 ID
         results: LLM 분석 결과 리스트
         key_to_id_map: {parameter_key: dict_id} 매핑
@@ -403,63 +363,38 @@ def _update_column_metadata_batch(
     Returns:
         통계 dict: {matched: n, not_found: n, null_from_llm: n}
     """
-    conn = db.get_connection()
-    cursor = conn.cursor()
+    _, col_repo, dict_repo = _get_repositories()
     
-    stats = {'matched': 0, 'not_found': 0, 'null_from_llm': 0}
-    now = datetime.now()
+    # LLM 결과를 업데이트용 dict 리스트로 변환
+    updates = []
+    for result in results:
+        # dict_entry_id 해석
+        dict_id, status = dict_repo.resolve_dict_entry_id(
+            result.dict_entry_key,
+            key_to_id_map
+        )
+        
+        updates.append({
+            'original_name': result.original_name,
+            'semantic_name': result.semantic_name,
+            'unit': result.unit,
+            'description': result.description,
+            'concept_category': result.concept_category,
+            'dict_entry_id': dict_id,
+            'dict_match_status': status,
+            'match_confidence': result.match_confidence
+        })
     
-    try:
-        for result in results:
-            # dict_entry_id 해석
-            dict_id, status = _resolve_dict_entry_id(
-                result.dict_entry_key,
-                key_to_id_map
-            )
-            stats[status] = stats.get(status, 0) + 1
-            
-            # UPDATE 쿼리
-            cursor.execute("""
-                UPDATE column_metadata
-                SET semantic_name = %s,
-                    unit = %s,
-                    description = %s,
-                    concept_category = %s,
-                    dict_entry_id = %s,
-                    dict_match_status = %s,
-                    match_confidence = %s,
-                    llm_confidence = %s,
-                    llm_analyzed_at = %s
-                WHERE file_id = %s AND original_name = %s
-            """, (
-                result.semantic_name,
-                result.unit,
-                result.description,
-                result.concept_category,
-                dict_id,
-                status,
-                result.match_confidence,
-                result.match_confidence,  # llm_confidence도 동일하게
-                now,
-                file_id,
-                result.original_name
-            ))
-        
-        conn.commit()
-        return stats
-        
-    except Exception as e:
-        conn.rollback()
-        print(f"   ❌ Error updating column_metadata: {e}")
-        raise
+    # Repository를 통해 일괄 업데이트
+    return col_repo.batch_update_semantic_info(file_id, updates)
 
 
 def _get_data_files_info(db, data_files: List[str]) -> List[Dict]:
     """
-    데이터 파일들의 정보 조회
+    데이터 파일들의 정보 조회 (Repository 사용)
     
     Args:
-        db: DB 매니저
+        db: DB 매니저 (unused, 하위 호환성)
         data_files: 파일 경로 목록
     
     Returns:
@@ -468,31 +403,20 @@ def _get_data_files_info(db, data_files: List[str]) -> List[Dict]:
     if not data_files:
         return []
     
-    conn = db.get_connection()
-    cursor = conn.cursor()
+    file_repo, _, _ = _get_repositories()
     
     try:
-        # 파일 경로로 조회
-        placeholders = ','.join(['%s'] * len(data_files))
-        cursor.execute(f"""
-            SELECT file_id, file_path, file_name, processor_type, raw_stats
-            FROM file_catalog
-            WHERE file_path IN ({placeholders})
-            ORDER BY file_name
-        """, tuple(data_files))
+        files_data = file_repo.get_files_by_paths(data_files)
         
-        rows = cursor.fetchall()
         files = []
-        
-        for row in rows:
-            file_id, path, name, proc_type, raw_stats = row
-            stats = raw_stats if isinstance(raw_stats, dict) else {}
+        for f in files_data:
+            raw_stats = f.get('raw_stats', {})
             files.append({
-                'file_id': str(file_id),
-                'file_path': path,
-                'file_name': name,
-                'file_type': proc_type or 'tabular',
-                'row_count': stats.get('row_count', 'unknown')
+                'file_id': f['file_id'],
+                'file_path': f['file_path'],
+                'file_name': f['file_name'],
+                'file_type': f.get('processor_type') or 'tabular',
+                'row_count': raw_stats.get('row_count', 'unknown')
             })
         
         return files
@@ -546,20 +470,16 @@ def phase6_data_semantic_node(state: AgentState) -> AgentState:
     
     print(f"📁 Data files to analyze: {len(data_files)}")
     
-    # DB 및 LLM 클라이언트 초기화
-    db = get_db_manager()
+    # LLM 클라이언트 초기화
     llm_client = get_llm_client()
     
-    # 1. data_dictionary 로드
+    # 1. data_dictionary 로드 (Repository 사용)
     print("\n📖 Loading data dictionary...")
-    dictionary = _load_data_dictionary(db)
+    dictionary, dict_keys_list, dict_context, key_to_id_map = _load_dictionary_with_context()
     print(f"   Found {len(dictionary)} parameter definitions")
     
-    # Dictionary context 구성
-    dict_keys_list, dict_context, key_to_id_map = _build_dict_context(dictionary)
-    
-    # 2. 파일 정보 조회
-    files_info = _get_data_files_info(db, data_files)
+    # 2. 파일 정보 조회 (Repository 사용)
+    files_info = _get_data_files_info(None, data_files)  # db 파라미터는 더 이상 사용 안 함
     print(f"   Loaded info for {len(files_info)} files")
     
     # 결과 추적
@@ -579,8 +499,8 @@ def phase6_data_semantic_node(state: AgentState) -> AgentState:
         
         print(f"\n📄 Processing: {file_name}")
         
-        # 컬럼 정보 로드
-        columns = _get_columns_with_stats(db, file_id)
+        # 컬럼 정보 로드 (Repository 사용)
+        columns = _get_columns_with_stats(None, file_id)  # db 파라미터는 더 이상 사용 안 함
         n_cols = len(columns)
         print(f"   Columns: {n_cols}")
         
@@ -618,7 +538,7 @@ def phase6_data_semantic_node(state: AgentState) -> AgentState:
             if response and response.columns:
                 # DB 업데이트
                 stats = _update_column_metadata_batch(
-                    db, file_id, response.columns, key_to_id_map
+                    None, file_id, response.columns, key_to_id_map  # db 파라미터는 더 이상 사용 안 함
                 )
                 
                 total_matched += stats.get('matched', 0)
@@ -670,4 +590,31 @@ def phase6_data_semantic_node(state: AgentState) -> AgentState:
         'phase6_result': result.dict(),
         'data_semantic_entries': all_entries
     }
+
+
+# =============================================================================
+# Class-based Node (for NodeRegistry)
+# =============================================================================
+
+from ..base import BaseNode, LLMMixin, DatabaseMixin
+from ..registry import register_node
+
+
+@register_node
+class DataSemanticNode(BaseNode, LLMMixin, DatabaseMixin):
+    """
+    Data Semantic Analysis Node (LLM-based)
+    
+    데이터 파일(is_metadata=false)의 컬럼을 의미론적으로 분석하고
+    data_dictionary와 연결합니다.
+    """
+    
+    name = "data_semantic"
+    description = "데이터 파일 컬럼 의미 분석"
+    order = 600
+    requires_llm = True
+    
+    def execute(self, state: Dict[str, Any]) -> Dict[str, Any]:
+        """기존 함수 위임"""
+        return phase6_data_semantic_node(state)
 

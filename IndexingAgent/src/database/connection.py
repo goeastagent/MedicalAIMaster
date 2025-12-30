@@ -2,15 +2,41 @@
 """
 PostgreSQL 데이터베이스 연결 관리자
 
+Singleton 패턴으로 구현되어 애플리케이션 전체에서 하나의 연결만 사용합니다.
 복합 PK, FK Cascade 등 완전한 기능 지원
 """
 
 import os
+import logging
 from typing import Optional
+
+logger = logging.getLogger(__name__)
 
 
 class DatabaseManager:
-    """PostgreSQL 데이터베이스 연결 및 관리"""
+    """
+    PostgreSQL 데이터베이스 연결 및 관리 (Singleton)
+    
+    Usage:
+        # 방법 1: 클래스 직접 사용 (항상 같은 인스턴스 반환)
+        db = DatabaseManager()
+        
+        # 방법 2: 헬퍼 함수 사용
+        db = get_db_manager()
+        
+        # 연결 사용
+        conn = db.get_connection()
+        cursor = conn.cursor()
+        cursor.execute("SELECT * FROM table")
+    """
+    
+    _instance = None
+    _initialized = False
+    
+    def __new__(cls):
+        if cls._instance is None:
+            cls._instance = super(DatabaseManager, cls).__new__(cls)
+        return cls._instance
     
     def __init__(self):
         """
@@ -23,6 +49,10 @@ class DatabaseManager:
         - POSTGRES_USER (기본값: postgres)
         - POSTGRES_PASSWORD (기본값: 빈 문자열)
         """
+        # 이미 초기화된 경우 스킵
+        if DatabaseManager._initialized:
+            return
+        
         self.db_host = os.getenv("POSTGRES_HOST", "localhost")
         self.db_port = os.getenv("POSTGRES_PORT", "5432")
         self.db_name = os.getenv("POSTGRES_DB", "medical_data")
@@ -30,6 +60,7 @@ class DatabaseManager:
         self.db_password = os.getenv("POSTGRES_PASSWORD", "")
         
         self.connection = None
+        DatabaseManager._initialized = True
     
     def connect(self):
         """PostgreSQL 연결"""
@@ -52,9 +83,11 @@ class DatabaseManager:
             # autocommit 비활성화 (트랜잭션 제어)
             self.connection.autocommit = False
             
+            logger.info(f"✅ PostgreSQL Connected: {self.db_user}@{self.db_host}:{self.db_port}/{self.db_name}")
             return self.connection
             
         except Exception as e:
+            logger.error(f"❌ PostgreSQL 연결 실패: {e}")
             raise ConnectionError(
                 f"PostgreSQL 연결 실패: {e}\n"
                 f"연결 정보: {self.db_user}@{self.db_host}:{self.db_port}/{self.db_name}\n"
@@ -89,6 +122,7 @@ class DatabaseManager:
         if self.connection:
             self.connection.close()
             self.connection = None
+            logger.info("PostgreSQL connection closed")
     
     def execute(self, query: str, params: tuple = None):
         """쿼리 실행"""
@@ -102,6 +136,11 @@ class DatabaseManager:
         """커밋"""
         if self.connection:
             self.connection.commit()
+    
+    def rollback(self):
+        """롤백"""
+        if self.connection:
+            self.connection.rollback()
     
     def table_exists(self, table_name: str) -> bool:
         """테이블 존재 여부 확인"""
@@ -130,15 +169,26 @@ class DatabaseManager:
         """, (table_name,))
         
         return cursor.fetchall()
+    
+    @classmethod
+    def reset_instance(cls):
+        """
+        싱글톤 인스턴스 리셋 (테스트용)
+        
+        주의: 기존 연결이 닫히지 않으므로, 리셋 전에 close()를 호출해야 합니다.
+        """
+        if cls._instance and cls._instance.connection:
+            cls._instance.close()
+        cls._instance = None
+        cls._initialized = False
+        logger.debug("DatabaseManager instance reset")
 
-
-# 전역 싱글톤
-_global_db_manager = None
 
 def get_db_manager() -> DatabaseManager:
-    """전역 DB 매니저 반환"""
-    global _global_db_manager
-    if _global_db_manager is None:
-        _global_db_manager = DatabaseManager()
-    return _global_db_manager
-
+    """
+    전역 DB 매니저 반환 (Singleton)
+    
+    Returns:
+        DatabaseManager 인스턴스
+    """
+    return DatabaseManager()

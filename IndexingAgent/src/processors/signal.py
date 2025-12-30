@@ -1,6 +1,6 @@
 import os
 import numpy as np
-from datetime import datetime
+from datetime import datetime, timezone
 from typing import Dict, Any, List, Optional
 
 # Base Class 임포트
@@ -72,8 +72,8 @@ class SignalProcessor(BaseDataProcessor):
         """Unix timestamp를 ISO 형식 문자열로 변환"""
         try:
             if unix_timestamp and unix_timestamp > 0:
-                dt = datetime.utcfromtimestamp(unix_timestamp)
-                return dt.isoformat() + "Z"
+                dt = datetime.fromtimestamp(unix_timestamp, tz=timezone.utc)
+                return dt.isoformat().replace("+00:00", "Z")
         except (ValueError, OSError):
             pass
         return None
