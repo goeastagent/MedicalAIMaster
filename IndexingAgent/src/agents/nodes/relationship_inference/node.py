@@ -1,4 +1,4 @@
-# src/agents/nodes/relationship_inference.py
+# src/agents/nodes/relationship_inference/node.py
 """
 Relationship Inference + Neo4j Node
 
@@ -18,64 +18,18 @@ import time
 from datetime import datetime
 from typing import Dict, List, Any, Optional, Tuple, Set
 
-from ..state import AgentState
-from ..models.llm_responses import (
+from ...state import AgentState
+from ...models.llm_responses import (
     TableRelationship,
     RelationshipInferenceResponse,
     RelationshipInferenceResult,
 )
-from ..base import BaseNode, LLMMixin, DatabaseMixin
-from ..registry import register_node
+from ...base import BaseNode, LLMMixin, DatabaseMixin
+from ...registry import register_node
 from src.database import OntologySchemaManager, EntityRepository
 from src.config import RelationshipInferenceConfig, LLMConfig, Neo4jConfig
+from .prompts import RelationshipInferencePrompt
 
-
-# =============================================================================
-# LLM Prompt
-# =============================================================================
-
-RELATIONSHIP_INFERENCE_PROMPT = """You are a Medical Data Expert analyzing table relationships.
-
-[Task]
-Identify foreign key relationships between tables based on shared columns and entity information.
-
-[Tables with Entity Information]
-{tables_context}
-
-[Shared Columns (potential FK candidates)]
-{shared_columns}
-
-[Rules]
-1. If column A is unique in Table1 but repeating in Table2 → Table1:Table2 = 1:N
-2. If column A is unique in both tables → might be 1:1
-3. Focus on identifier columns (caseid, subjectid, patient_id, etc.)
-4. Consider the row_represents: surgery→lab_result suggests 1:N (one surgery has many lab results)
-
-[Output Format]
-Return ONLY valid JSON (no markdown, no explanation):
-{{
-  "relationships": [
-    {{
-      "source_table": "clinical_data.csv",
-      "target_table": "lab_data.csv",
-      "source_column": "caseid",
-      "target_column": "caseid",
-      "relationship_type": "foreign_key",
-      "cardinality": "1:N",
-      "confidence": 0.95,
-      "reasoning": "caseid is unique in clinical_data (6388) but repeats in lab_data, surgery→lab_result is 1:N"
-    }}
-  ]
-}}
-
-If no relationships are found, return:
-{{"relationships": []}}
-"""
-
-
-# =============================================================================
-# Class-based Node
-# =============================================================================
 
 @register_node
 class RelationshipInferenceNode(BaseNode, LLMMixin, DatabaseMixin):
@@ -102,6 +56,9 @@ class RelationshipInferenceNode(BaseNode, LLMMixin, DatabaseMixin):
     description = "테이블 간 FK 관계 추론 + Neo4j 온톨로지"
     order = 900
     requires_llm = True
+    
+    # 프롬프트 클래스 연결
+    prompt_class = RelationshipInferencePrompt
     
     # =============================================================================
     # Data Loading
@@ -354,7 +311,8 @@ class RelationshipInferenceNode(BaseNode, LLMMixin, DatabaseMixin):
         tables_context = self._build_tables_context(tables)
         shared_context = self._build_shared_columns_context(shared)
         
-        prompt = RELATIONSHIP_INFERENCE_PROMPT.format(
+        # PromptTemplate을 사용하여 프롬프트 빌드
+        prompt = self.prompt_class.build(
             tables_context=tables_context,
             shared_columns=shared_context
         )
@@ -953,3 +911,4 @@ class RelationshipInferenceNode(BaseNode, LLMMixin, DatabaseMixin):
         """
         node = cls()
         return node({})
+

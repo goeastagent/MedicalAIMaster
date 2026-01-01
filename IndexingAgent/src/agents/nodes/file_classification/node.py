@@ -1,4 +1,4 @@
-# src/agents/nodes/classification.py
+# src/agents/nodes/file_classification/node.py
 """
 File Classification Node
 
@@ -21,8 +21,9 @@ from src.agents.models.llm_responses import (
 )
 from src.utils.llm_client import get_llm_client
 
-from ..base import BaseNode, LLMMixin, DatabaseMixin
-from ..registry import register_node
+from ...base import BaseNode, LLMMixin, DatabaseMixin
+from ...registry import register_node
+from .prompts import FileClassificationPrompt
 
 
 @register_node
@@ -40,45 +41,8 @@ class FileClassificationNode(BaseNode, LLMMixin, DatabaseMixin):
     order = 400
     requires_llm = True
     
-    # =========================================================================
-    # Prompt Template
-    # =========================================================================
-    
-    CLASSIFICATION_PROMPT = """You are a Medical Data Expert specializing in healthcare informatics.
-
-[Task]
-Classify each file as "metadata" or "data":
-
-**metadata** files:
-- Data dictionaries, codebooks, parameter definitions, lookup tables
-- Typically contain columns like: Parameter, Description, Unit, Code, Category
-- Values are mostly text descriptions, definitions, or codes
-- Purpose: Define or describe what data means
-- Examples: clinical_parameters.csv, lab_parameters.csv, track_names.csv
-
-**data** files:
-- Actual measurements, patient records, lab results, vital signs
-- Typically contain columns like: patient_id, timestamp, measured values
-- Values are mostly numbers, IDs, dates, measurements
-- Purpose: Store actual recorded data
-- Examples: clinical_data.csv, lab_data.csv, vitals.csv
-
-[Files to Classify]
-{files_info}
-
-[Output Format]
-Return ONLY valid JSON (no markdown, no explanation):
-{{
-  "classifications": [
-    {{
-      "file_name": "example.csv",
-      "is_metadata": true,
-      "confidence": 0.95,
-      "reasoning": "Contains Parameter, Description, Unit columns typical of a data dictionary"
-    }}
-  ]
-}}
-"""
+    # 프롬프트 클래스 연결
+    prompt_class = FileClassificationPrompt
     
     def __init__(self):
         super().__init__()
@@ -240,8 +204,9 @@ Return ONLY valid JSON (no markdown, no explanation):
         """LLM을 호출하여 파일 분류"""
         llm = get_llm_client()
         
+        # 프롬프트 빌드 (PromptTemplate 사용)
         files_info_text = self._build_files_info_text(file_infos)
-        prompt = self.CLASSIFICATION_PROMPT.format(files_info=files_info_text)
+        prompt = self.prompt_class.build(files_info=files_info_text)
         
         try:
             data = llm.ask_json(prompt, max_tokens=LLMConfig.MAX_TOKENS)
@@ -250,13 +215,12 @@ Return ONLY valid JSON (no markdown, no explanation):
                 print(f"   ❌ LLM returned error: {data.get('error')}")
                 return []
             
-            classifications = []
-            for item in data.get('classifications', []):
-                try:
-                    classification = FileClassificationItem(**item)
-                    classifications.append(classification)
-                except Exception as e:
-                    print(f"   ⚠️ Failed to parse classification for {item.get('file_name', '?')}: {e}")
+            # PromptTemplate의 parse_response 사용
+            classifications = self.prompt_class.parse_response(data)
+            
+            if classifications is None:
+                print("   ⚠️ Failed to parse LLM response")
+                return []
             
             return classifications
             
@@ -350,3 +314,4 @@ Return ONLY valid JSON (no markdown, no explanation):
         
         state = {"catalog_file_ids": file_ids}
         return node.execute(state)
+

@@ -51,8 +51,16 @@ class LLMAnalysisBase(BaseModel):
     - confidence: 분석 확신도 (0.0 ~ 1.0)
     - reasoning: 판단 근거
     """
-    confidence: float = Field(default=0.0, ge=0.0, le=1.0)
-    reasoning: str = ""
+    confidence: float = Field(
+        default=0.0, 
+        ge=0.0, 
+        le=1.0,
+        description="Confidence score (0.0=uncertain, 1.0=certain)"
+    )
+    reasoning: str = Field(
+        default="",
+        description="Explanation of the analysis reasoning"
+    )
 
 
 class PhaseResultBase(BaseModel):

@@ -1,4 +1,4 @@
-# src/agents/nodes/data_semantic.py
+# src/agents/nodes/data_semantic/node.py
 """
 Data Semantic Analysis Node
 
@@ -16,93 +16,22 @@ import json
 from datetime import datetime
 from typing import Dict, List, Any, Optional, Tuple
 
-from ..state import AgentState
-from ..models.llm_responses import (
+from ...state import AgentState
+from ...models.llm_responses import (
     ColumnSemanticResult,
     DataSemanticResponse,
     DataSemanticResult,
 )
-from ..base import BaseNode, LLMMixin, DatabaseMixin
-from ..registry import register_node
+from ...base import BaseNode, LLMMixin, DatabaseMixin
+from ...registry import register_node
 from src.database import (
     FileRepository,
     ColumnRepository,
     DictionaryRepository,
 )
 from src.config import DataSemanticConfig, LLMConfig
+from .prompts import ColumnSemanticPrompt
 
-
-# =============================================================================
-# LLM Prompt Templates
-# =============================================================================
-
-COLUMN_SEMANTIC_PROMPT = """You are a Medical Data Expert analyzing clinical data columns.
-
-[Task]
-Analyze each column and provide semantic information.
-Use the Parameter Dictionary and column statistics to make accurate judgments.
-
-{dict_section}
-
-[File: {file_name}]
-Type: {file_type}
-Rows: {row_count}
-
-[Columns to Analyze with Statistics]
-{columns_info}
-
-[CRITICAL RULES for dict_entry_key]
-1. MUST be EXACTLY one of the keys from "EXACT Parameter Keys" above (if provided)
-2. Copy the key exactly as shown (including "/" and special characters)
-3. If no matching key exists → set to null
-4. If uncertain (confidence < 0.7) → set to null
-5. Use column statistics (min/max/values) to help identify the correct match
-
-[Output Format]
-Return ONLY valid JSON (no markdown, no explanation):
-{{
-  "columns": [
-    {{
-      "original_name": "age",
-      "semantic_name": "Age",
-      "unit": "years",
-      "description": "Patient age at time of surgery",
-      "concept_category": "Demographics",
-      "dict_entry_key": "age",
-      "match_confidence": 0.99,
-      "reasoning": "Exact name match, values 20-90 consistent with age"
-    }},
-    {{
-      "original_name": "unknown_col",
-      "semantic_name": "Unknown Parameter",
-      "unit": null,
-      "description": "Unable to determine meaning",
-      "concept_category": "Other",
-      "dict_entry_key": null,
-      "match_confidence": 0.0,
-      "reasoning": "No matching parameter found in dictionary"
-    }}
-  ]
-}}
-"""
-
-DICT_SECTION_TEMPLATE = """[EXACT Parameter Keys - Use these values ONLY]
-{dict_keys_list}
-
-[Parameter Definitions]
-{dict_context}
-"""
-
-DICT_SECTION_EMPTY = """[Note]
-No parameter dictionary is available for this dataset.
-Infer semantic meaning from column names and statistics using your medical knowledge.
-Set dict_entry_key to null for all columns.
-"""
-
-
-# =============================================================================
-# Class-based Node
-# =============================================================================
 
 @register_node
 class DataSemanticNode(BaseNode, LLMMixin, DatabaseMixin):
@@ -127,6 +56,9 @@ class DataSemanticNode(BaseNode, LLMMixin, DatabaseMixin):
     description = "데이터 파일 컬럼 의미 분석"
     order = 600
     requires_llm = True
+    
+    # 프롬프트 클래스 연결
+    prompt_class = ColumnSemanticPrompt
     
     def __init__(self):
         super().__init__()
@@ -256,20 +188,14 @@ class DataSemanticNode(BaseNode, LLMMixin, DatabaseMixin):
         Returns:
             DataSemanticResponse or None
         """
-        # Dictionary section 구성
-        if dict_keys_list:
-            dict_section = DICT_SECTION_TEMPLATE.format(
-                dict_keys_list=dict_keys_list,
-                dict_context=dict_context
-            )
-        else:
-            dict_section = DICT_SECTION_EMPTY
+        # Dictionary section 구성 (프롬프트 헬퍼 사용)
+        dict_section = self.prompt_class.build_dict_section(dict_keys_list, dict_context)
         
         # Columns info 구성
         columns_info = self._build_columns_info(columns)
         
-        # Prompt 구성
-        prompt = COLUMN_SEMANTIC_PROMPT.format(
+        # PromptTemplate 사용하여 프롬프트 빌드
+        prompt = self.prompt_class.build(
             dict_section=dict_section,
             file_name=file_info.get('file_name', 'unknown'),
             file_type=file_info.get('file_type', 'tabular'),
@@ -286,16 +212,20 @@ class DataSemanticNode(BaseNode, LLMMixin, DatabaseMixin):
             if not response:
                 return None
             
-            # Pydantic 모델로 변환
-            columns_data = response.get('columns', [])
-            column_results = []
-            for col_data in columns_data:
-                try:
-                    col_result = ColumnSemanticResult(**col_data)
-                    column_results.append(col_result)
-                except Exception as e:
-                    self.log(f"⚠️ Error parsing column result: {e}", indent=1)
-                    continue
+            # PromptTemplate의 parse_response 사용
+            column_results = self.prompt_class.parse_response(response)
+            
+            if column_results is None:
+                # fallback: 수동 파싱
+                columns_data = response.get('columns', [])
+                column_results = []
+                for col_data in columns_data:
+                    try:
+                        col_result = ColumnSemanticResult(**col_data)
+                        column_results.append(col_result)
+                    except Exception as e:
+                        self.log(f"⚠️ Error parsing column result: {e}", indent=1)
+                        continue
             
             return DataSemanticResponse(
                 columns=column_results,
@@ -544,3 +474,4 @@ class DataSemanticNode(BaseNode, LLMMixin, DatabaseMixin):
             'data_files': data_files
         }
         return node(initial_state)
+

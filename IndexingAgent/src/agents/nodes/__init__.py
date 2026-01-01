@@ -19,13 +19,13 @@ Node modules for LangGraph workflow
 from src.agents.nodes.directory_catalog import DirectoryCatalogNode
 from src.agents.nodes.catalog import FileCatalogNode
 from src.agents.nodes.aggregator import SchemaAggregationNode
-from src.agents.nodes.classification import FileClassificationNode
-from src.agents.nodes.metadata_semantic import MetadataSemanticNode
-from src.agents.nodes.data_semantic import DataSemanticNode
-from src.agents.nodes.directory_pattern import DirectoryPatternNode
-from src.agents.nodes.entity_identification import EntityIdentificationNode
-from src.agents.nodes.relationship_inference import RelationshipInferenceNode
-from src.agents.nodes.ontology_enhancement import OntologyEnhancementNode
+from src.agents.nodes.file_classification import FileClassificationNode  # folder
+from src.agents.nodes.metadata_semantic import MetadataSemanticNode  # folder
+from src.agents.nodes.data_semantic import DataSemanticNode  # folder
+from src.agents.nodes.directory_pattern import DirectoryPatternNode  # folder
+from src.agents.nodes.entity_identification import EntityIdentificationNode  # folder
+from src.agents.nodes.relationship_inference import RelationshipInferenceNode  # folder
+from src.agents.nodes.ontology_enhancement import OntologyEnhancementNode  # folder
 
 
 __all__ = [

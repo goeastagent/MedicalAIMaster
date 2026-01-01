@@ -34,8 +34,14 @@ from .base import (
 
 class FileClassificationItem(LLMAnalysisBase):
     """[file_classification] 개별 파일 분류 결과"""
-    file_name: str = ""                   # 파일명
-    is_metadata: bool = False             # True=메타데이터, False=데이터
+    file_name: str = Field(
+        default="",
+        description="Target file name to classify"
+    )
+    is_metadata: bool = Field(
+        default=False,
+        description="True=metadata/dictionary file, False=actual data file"
+    )
     # confidence, reasoning은 LLMAnalysisBase에서 상속
 
 
@@ -59,10 +65,22 @@ class FileClassificationResult(PhaseResultBase):
 
 class ColumnRoleMapping(LLMAnalysisBase):
     """[metadata_semantic] 컬럼 역할 매핑 결과"""
-    key_column: str = ""                  # 파라미터 이름/코드 컬럼
-    desc_column: Optional[str] = None     # 설명 컬럼
-    unit_column: Optional[str] = None     # 단위 컬럼
-    extra_columns: Dict[str, str] = {}    # 추가 컬럼들 {역할: 컬럼명}
+    key_column: str = Field(
+        default="",
+        description="Column containing parameter name/code"
+    )
+    desc_column: Optional[str] = Field(
+        default=None,
+        description="Column containing parameter description (null if not found)"
+    )
+    unit_column: Optional[str] = Field(
+        default=None,
+        description="Column containing measurement unit (null if not found)"
+    )
+    extra_columns: Dict[str, str] = Field(
+        default_factory=dict,
+        description="Additional column mappings {role: column_name}"
+    )
     # confidence, reasoning은 LLMAnalysisBase에서 상속
 
 
@@ -108,14 +126,40 @@ class ColumnSemanticResult(BaseModel):
     Note: match_confidence는 dictionary 매칭 확신도로, 
           일반적인 confidence와 다른 의미이므로 LLMAnalysisBase를 상속하지 않음
     """
-    original_name: str = ""                   # 원본 컬럼명 (매칭용 키)
-    semantic_name: str = ""                   # 표준화된 이름 (예: "Heart Rate")
-    unit: Optional[str] = None                # 측정 단위 (예: "bpm", "mmHg")
-    description: Optional[str] = None         # 상세 설명
-    concept_category: Optional[str] = None    # 개념 카테고리 (예: "Vital Signs")
-    dict_entry_key: Optional[str] = None      # data_dictionary의 정확한 parameter_key (없으면 null)
-    match_confidence: float = Field(default=0.0, ge=0.0, le=1.0)  # dictionary 매칭 확신도
-    reasoning: Optional[str] = None           # 판단 근거
+    original_name: str = Field(
+        default="",
+        description="Original column name (used as matching key)"
+    )
+    semantic_name: str = Field(
+        default="",
+        description="Standardized semantic name (e.g., Heart Rate)"
+    )
+    unit: Optional[str] = Field(
+        default=None,
+        description="Measurement unit (e.g., bpm, mmHg, kg)"
+    )
+    description: Optional[str] = Field(
+        default=None,
+        description="Detailed description of the column"
+    )
+    concept_category: Optional[str] = Field(
+        default=None,
+        description="Concept category (e.g., Vital Signs, Laboratory)"
+    )
+    dict_entry_key: Optional[str] = Field(
+        default=None,
+        description="Exact parameter_key from data_dictionary (null if no match)"
+    )
+    match_confidence: float = Field(
+        default=0.0, 
+        ge=0.0, 
+        le=1.0,
+        description="Dictionary matching confidence score (0.0~1.0)"
+    )
+    reasoning: Optional[str] = Field(
+        default=None,
+        description="Reasoning for the matching decision"
+    )
 
 
 class DataSemanticResponse(BaseModel):
@@ -149,9 +193,18 @@ class TableEntityResult(LLMAnalysisBase):
     - row_represents: 각 행이 무엇을 나타내는지
     - entity_identifier: 행을 고유하게 식별하는 컬럼
     """
-    file_name: str = ""                         # 매칭용 키
-    row_represents: str = ""                    # "surgery", "patient", "lab_result"
-    entity_identifier: Optional[str] = None     # "caseid" or null (복합키인 경우)
+    file_name: str = Field(
+        default="",
+        description="Target table/file name to analyze"
+    )
+    row_represents: str = Field(
+        default="",
+        description="Entity type each row represents (e.g., surgery, patient, lab_result)"
+    )
+    entity_identifier: Optional[str] = Field(
+        default=None,
+        description="Column name that uniquely identifies each row (null if composite key)"
+    )
     # confidence, reasoning은 LLMAnalysisBase에서 상속
 
 
@@ -185,12 +238,30 @@ class TableRelationship(LLMAnalysisBase):
     
     LLM이 분석한 FK 관계 정보
     """
-    source_table: str = ""                      # source 테이블 파일명
-    target_table: str = ""                      # target 테이블 파일명
-    source_column: str = ""                     # source의 FK 컬럼
-    target_column: str = ""                     # target의 PK 컬럼
-    relationship_type: str = "foreign_key"      # "foreign_key", "shared_identifier"
-    cardinality: str = "1:N"                    # "1:1", "1:N", "N:1"
+    source_table: str = Field(
+        default="",
+        description="Source table file name"
+    )
+    target_table: str = Field(
+        default="",
+        description="Target table file name"
+    )
+    source_column: str = Field(
+        default="",
+        description="Foreign key column in source table"
+    )
+    target_column: str = Field(
+        default="",
+        description="Primary key column in target table"
+    )
+    relationship_type: str = Field(
+        default="foreign_key",
+        description="Relationship type: foreign_key or shared_identifier"
+    )
+    cardinality: str = Field(
+        default="1:N",
+        description="Relationship cardinality: 1:1, 1:N, or N:1"
+    )
     # confidence, reasoning은 LLMAnalysisBase에서 상속
 
 
@@ -230,9 +301,18 @@ class SubCategoryResult(LLMAnalysisBase):
     
     ConceptCategory를 세분화한 결과
     """
-    parent_category: str = ""                   # "Vitals"
-    subcategory_name: str = ""                  # "Cardiovascular"
-    parameters: List[str] = []                  # ["hr", "sbp", "dbp"]
+    parent_category: str = Field(
+        default="",
+        description="Parent ConceptCategory name (e.g., Vitals)"
+    )
+    subcategory_name: str = Field(
+        default="",
+        description="Refined subcategory name (e.g., Cardiovascular)"
+    )
+    parameters: List[str] = Field(
+        default_factory=list,
+        description="List of parameter keys belonging to this subcategory"
+    )
     # confidence, reasoning은 LLMAnalysisBase에서 상속
 
 
@@ -247,9 +327,18 @@ class SemanticEdge(LLMAnalysisBase):
     
     Parameter 간 의미적 관계
     """
-    source_parameter: str = ""                  # "bmi"
-    target_parameter: str = ""                  # "height"
-    relationship_type: str = ""                 # "DERIVED_FROM", "RELATED_TO", "OPPOSITE_OF"
+    source_parameter: str = Field(
+        default="",
+        description="Source parameter key"
+    )
+    target_parameter: str = Field(
+        default="",
+        description="Target parameter key"
+    )
+    relationship_type: str = Field(
+        default="",
+        description="Relationship type: DERIVED_FROM, RELATED_TO, or OPPOSITE_OF"
+    )
     # confidence, reasoning은 LLMAnalysisBase에서 상속
 
 
@@ -264,13 +353,34 @@ class MedicalTermMapping(LLMAnalysisBase):
     
     표준 의학 용어 시스템(SNOMED-CT, LOINC, ICD-10)으로 매핑
     """
-    parameter_key: str = ""                     # "hr"
-    snomed_code: Optional[str] = None           # "364075005"
-    snomed_name: Optional[str] = None           # "Heart rate"
-    loinc_code: Optional[str] = None            # "8867-4"
-    loinc_name: Optional[str] = None            # "Heart rate"
-    icd10_code: Optional[str] = None            # 해당되는 경우
-    icd10_name: Optional[str] = None
+    parameter_key: str = Field(
+        default="",
+        description="Parameter key to map"
+    )
+    snomed_code: Optional[str] = Field(
+        default=None,
+        description="SNOMED-CT code (e.g., 364075005)"
+    )
+    snomed_name: Optional[str] = Field(
+        default=None,
+        description="SNOMED-CT standard term name"
+    )
+    loinc_code: Optional[str] = Field(
+        default=None,
+        description="LOINC code (e.g., 8867-4)"
+    )
+    loinc_name: Optional[str] = Field(
+        default=None,
+        description="LOINC standard term name"
+    )
+    icd10_code: Optional[str] = Field(
+        default=None,
+        description="ICD-10 code (if applicable)"
+    )
+    icd10_name: Optional[str] = Field(
+        default=None,
+        description="ICD-10 term name"
+    )
     # confidence, reasoning은 LLMAnalysisBase에서 상속
 
 
@@ -285,11 +395,26 @@ class CrossTableSemantic(LLMAnalysisBase):
     
     다른 테이블에 있지만 의미적으로 연관된 컬럼
     """
-    source_table: str = ""                      # "clinical_data.csv"
-    source_column: str = ""                     # "preop_hb"
-    target_table: str = ""                      # "lab_data.csv"
-    target_column: str = ""                     # "value" (where name='Hb')
-    relationship_type: str = "SEMANTICALLY_SIMILAR"  # "SEMANTICALLY_SIMILAR", "SAME_CONCEPT"
+    source_table: str = Field(
+        default="",
+        description="Source table file name"
+    )
+    source_column: str = Field(
+        default="",
+        description="Column name in source table"
+    )
+    target_table: str = Field(
+        default="",
+        description="Target table file name"
+    )
+    target_column: str = Field(
+        default="",
+        description="Column name in target table"
+    )
+    relationship_type: str = Field(
+        default="SEMANTICALLY_SIMILAR",
+        description="Relationship type: SEMANTICALLY_SIMILAR or SAME_CONCEPT"
+    )
     # confidence, reasoning은 LLMAnalysisBase에서 상속
 
 

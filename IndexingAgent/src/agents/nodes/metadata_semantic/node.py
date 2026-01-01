@@ -1,4 +1,4 @@
-# src/agents/nodes/metadata_semantic.py
+# src/agents/nodes/metadata_semantic/node.py
 """
 MetaData Semantic Analysis Node
 
@@ -28,8 +28,9 @@ from src.agents.models.llm_responses import (
 )
 from src.utils.llm_client import get_llm_client
 
-from ..base import BaseNode, LLMMixin, DatabaseMixin
-from ..registry import register_node
+from ...base import BaseNode, LLMMixin, DatabaseMixin
+from ...registry import register_node
+from .prompts import ColumnRoleMappingPrompt
 
 
 @register_node
@@ -45,48 +46,8 @@ class MetadataSemanticNode(BaseNode, LLMMixin, DatabaseMixin):
     order = 500
     requires_llm = True
     
-    # =========================================================================
-    # Prompt Template
-    # =========================================================================
-    
-    COLUMN_ROLE_PROMPT = """You are a Medical Data Expert analyzing a metadata/dictionary file.
-
-[Task]
-Analyze this file and identify which column serves which role:
-
-- **key_column**: The column containing parameter names/codes (e.g., "age", "hr", "sbp")
-  This is the main identifier column that other data files will reference.
-  
-- **desc_column**: The column containing descriptions or definitions
-  Human-readable explanations of what each parameter means.
-  
-- **unit_column**: The column containing measurement units (e.g., "years", "bpm", "mmHg")
-  May be empty or null for some parameters.
-  
-- **extra_columns**: Other useful columns mapped to their semantic role
-  Examples: {{"category": "Category", "reference_value": "Reference value", "data_source": "Data Source"}}
-
-[File Info]
-File: {file_name}
-Columns: {column_names}
-
-[Columns with Sample Values]
-{columns_info}
-
-[Sample Rows (first 5)]
-{sample_rows}
-
-[Output Format]
-Return ONLY valid JSON (no markdown, no explanation):
-{{
-  "key_column": "Parameter",
-  "desc_column": "Description",
-  "unit_column": "Unit",
-  "extra_columns": {{"category": "Category", "reference": "Reference value"}},
-  "confidence": 0.95,
-  "reasoning": "Parameter column contains unique identifiers, Description has explanations, Unit has measurement units"
-}}
-"""
+    # 프롬프트 클래스 연결
+    prompt_class = ColumnRoleMappingPrompt
     
     # =========================================================================
     # Main Execution
@@ -304,7 +265,8 @@ Return ONLY valid JSON (no markdown, no explanation):
         columns_info_text = self._build_columns_info_text(columns)
         sample_rows_text = self._build_sample_rows_text(sample_rows, columns)
         
-        prompt = self.COLUMN_ROLE_PROMPT.format(
+        # PromptTemplate 사용
+        prompt = self.prompt_class.build(
             file_name=file_name,
             column_names=", ".join(column_names),
             columns_info=columns_info_text,
@@ -318,14 +280,21 @@ Return ONLY valid JSON (no markdown, no explanation):
                 print(f"   ❌ LLM returned error: {data.get('error')}")
                 return None
             
-            return ColumnRoleMapping(
-                key_column=data.get('key_column', ''),
-                desc_column=data.get('desc_column'),
-                unit_column=data.get('unit_column'),
-                extra_columns=data.get('extra_columns', {}),
-                confidence=data.get('confidence', 0.8),
-                reasoning=data.get('reasoning', '')
-            )
+            # PromptTemplate의 parse_response 사용
+            result = self.prompt_class.parse_response(data)
+            
+            if result is None:
+                # fallback: 수동 파싱
+                return ColumnRoleMapping(
+                    key_column=data.get('key_column', ''),
+                    desc_column=data.get('desc_column'),
+                    unit_column=data.get('unit_column'),
+                    extra_columns=data.get('extra_columns', {}),
+                    confidence=data.get('confidence', 0.8),
+                    reasoning=data.get('reasoning', '')
+                )
+            
+            return result
             
         except Exception as e:
             print(f"   ❌ LLM call error: {e}")
@@ -569,3 +538,4 @@ Return ONLY valid JSON (no markdown, no explanation):
         
         state = {"metadata_files": metadata_files}
         return node.execute(state)
+

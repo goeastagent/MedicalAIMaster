@@ -1,4 +1,4 @@
-# src/agents/nodes/entity_identification.py
+# src/agents/nodes/entity_identification/node.py
 """
 Entity Identification Node
 
@@ -16,70 +16,18 @@ import time
 from datetime import datetime
 from typing import Dict, List, Any, Optional, Tuple
 
-from ..state import AgentState
-from ..models.llm_responses import (
+from ...state import AgentState
+from ...models.llm_responses import (
     TableEntityResult,
     EntityIdentificationResponse,
     EntityIdentificationResult,
 )
-from ..base import BaseNode, LLMMixin, DatabaseMixin
-from ..registry import register_node
+from ...base import BaseNode, LLMMixin, DatabaseMixin
+from ...registry import register_node
 from src.database import OntologySchemaManager, EntityRepository
 from src.config import EntityIdentificationConfig, LLMConfig
+from .prompts import EntityIdentificationPrompt
 
-
-# =============================================================================
-# LLM Prompt Template
-# =============================================================================
-
-ENTITY_IDENTIFICATION_PROMPT = """You are a Medical Data Expert analyzing clinical database tables.
-
-[Task]
-For each data table, identify:
-1. **row_represents**: What does each ROW in this table represent? 
-   - Examples: "surgery", "patient", "lab_result", "vital_sign_record", "medication_order"
-   - Use a SINGULAR noun (not plural)
-   
-2. **entity_identifier**: Which column UNIQUELY identifies each row?
-   - Look at unique counts - if unique count equals row count, that's a good candidate
-   - If multiple columns together form a unique key, set to null
-   - If no single column uniquely identifies rows, set to null
-
-[Tables to Analyze]
-{tables_context}
-
-[CRITICAL RULES]
-1. row_represents should be a SINGULAR, descriptive noun in lowercase
-2. entity_identifier should be a column with unique values per row (unique_count ≈ row_count)
-3. If a table has time-series data (same ID with multiple timestamps), the ID column is NOT a unique identifier
-4. For signal/waveform data, consider if there's a case/subject identifier
-
-[Output Format]
-Return ONLY valid JSON (no markdown, no explanation):
-{{
-  "tables": [
-    {{
-      "file_name": "clinical_data.csv",
-      "row_represents": "surgery",
-      "entity_identifier": "caseid",
-      "confidence": 0.95,
-      "reasoning": "caseid has 6388 unique values matching row count, each row is one surgery record"
-    }},
-    {{
-      "file_name": "lab_results.csv",
-      "row_represents": "lab_result",
-      "entity_identifier": null,
-      "confidence": 0.85,
-      "reasoning": "Multiple lab results per caseid over time, no single column uniquely identifies a row"
-    }}
-  ]
-}}
-"""
-
-
-# =============================================================================
-# Class-based Node
-# =============================================================================
 
 @register_node
 class EntityIdentificationNode(BaseNode, LLMMixin, DatabaseMixin):
@@ -102,6 +50,9 @@ class EntityIdentificationNode(BaseNode, LLMMixin, DatabaseMixin):
     description = "Entity 식별 (row_represents, entity_identifier)"
     order = 800
     requires_llm = True
+    
+    # 프롬프트 클래스 연결
+    prompt_class = EntityIdentificationPrompt
     
     def _load_data_files_with_columns(self, data_files: List[str]) -> List[Dict[str, Any]]:
         """
@@ -282,7 +233,9 @@ class EntityIdentificationNode(BaseNode, LLMMixin, DatabaseMixin):
             return [], 0
         
         tables_context = self._build_tables_context(files_info)
-        prompt = ENTITY_IDENTIFICATION_PROMPT.format(tables_context=tables_context)
+        
+        # PromptTemplate을 사용하여 프롬프트 빌드
+        prompt = self.prompt_class.build(tables_context=tables_context)
         
         self.log(f"📤 Sending {len(files_info)} tables to LLM...", indent=1)
         
@@ -494,3 +447,4 @@ class EntityIdentificationNode(BaseNode, LLMMixin, DatabaseMixin):
             'data_files': data_files
         }
         return node(initial_state)
+

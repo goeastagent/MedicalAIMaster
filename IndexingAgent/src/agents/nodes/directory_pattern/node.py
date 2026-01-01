@@ -1,4 +1,4 @@
-# src/agents/nodes/directory_pattern.py
+# src/agents/nodes/directory_pattern/node.py
 """
 Directory Pattern Analysis Node
 
@@ -22,82 +22,12 @@ import json
 from typing import Dict, Any, List, Optional
 from datetime import datetime
 
-from ..state import AgentState
-from ..base import BaseNode, LLMMixin, DatabaseMixin
-from ..registry import register_node
+from ...state import AgentState
+from ...base import BaseNode, LLMMixin, DatabaseMixin
+from ...registry import register_node
 from src.config import DirectoryPatternConfig
+from .prompts import DirectoryPatternPrompt
 
-
-# =============================================================================
-# LLM 프롬프트 (영어)
-# =============================================================================
-
-SYSTEM_PROMPT = """You are a medical dataset filename pattern analysis expert.
-
-## Task
-Given directory filename samples and a data dictionary, analyze:
-1. Identify filename patterns for each directory
-2. Determine which columns from the data dictionary match values extractable from filenames
-
-## Output Format (JSON)
-{
-    "directories": [
-        {
-            "dir_id": "uuid-string",
-            "has_pattern": true,
-            "pattern": "{caseid:integer}.vital",
-            "pattern_regex": "^(\\\\d+)\\\\.vital$",
-            "columns": [
-                {
-                    "name": "caseid",
-                    "type": "integer",
-                    "position": 1,
-                    "matched_column": "caseid",
-                    "match_confidence": 0.95,
-                    "match_reasoning": "Numeric value in filename matches caseid format in clinical_data"
-                }
-            ],
-            "confidence": 0.95,
-            "reasoning": "All 6388 files follow {number}.vital pattern"
-        },
-        {
-            "dir_id": "uuid-string-2",
-            "has_pattern": false,
-            "pattern": null,
-            "pattern_regex": null,
-            "columns": [],
-            "confidence": 0.9,
-            "reasoning": "Various CSV files with no consistent naming pattern"
-        }
-    ]
-}
-
-## Rules
-1. pattern_regex must be a valid PostgreSQL regex (use \\\\ for backslash in JSON)
-2. position is 1-indexed capture group number
-3. type should be "integer" or "text"
-4. Only set has_pattern=true if a clear, consistent pattern exists
-5. matched_column should reference exact column name from data dictionary
-6. If no matching column found in data dictionary, set matched_column to null
-"""
-
-USER_PROMPT_TEMPLATE = """
-## Data Dictionary
-The following tables and columns are available in this dataset:
-
-{data_dictionary}
-
-## Directories to Analyze
-
-{directories_info}
-
-Analyze the filename patterns for each directory and match extractable values to data dictionary columns.
-"""
-
-
-# =============================================================================
-# Class-based Node
-# =============================================================================
 
 @register_node
 class DirectoryPatternNode(BaseNode, LLMMixin, DatabaseMixin):
@@ -120,6 +50,9 @@ class DirectoryPatternNode(BaseNode, LLMMixin, DatabaseMixin):
     description = "디렉토리 파일명 패턴 분석"
     order = 700
     requires_llm = True
+    
+    # 프롬프트 클래스 연결
+    prompt_class = DirectoryPatternPrompt
     
     def _get_directories_for_analysis(self) -> List[Dict]:
         """
@@ -306,12 +239,12 @@ class DirectoryPatternNode(BaseNode, LLMMixin, DatabaseMixin):
         Output: Pattern analysis results
         """
         # Build directories info for prompt
+        # Note: dir_id는 LLM에 보내지 않음 (외부에서 관리)
         dirs_info_parts = []
         for i, d in enumerate(directories):
             samples_str = "\n".join([f"  - {s}" for s in d['filename_samples']])
             dirs_info_parts.append(
                 f"### Directory {i+1}: {d['dir_name']}\n"
-                f"- dir_id: {d['dir_id']}\n"
                 f"- File count: {d['file_count']}\n"
                 f"- Extensions: {json.dumps(d['file_extensions'])}\n"
                 f"- Type: {d['dir_type']}\n"
@@ -320,21 +253,32 @@ class DirectoryPatternNode(BaseNode, LLMMixin, DatabaseMixin):
         
         dirs_info = "\n\n".join(dirs_info_parts)
         
-        user_prompt = USER_PROMPT_TEMPLATE.format(
+        # PromptTemplate 사용하여 프롬프트 빌드
+        prompt = self.prompt_class.build(
             data_dictionary=json.dumps(data_dictionary, indent=2, ensure_ascii=False),
             directories_info=dirs_info
         )
         
-        full_prompt = f"{SYSTEM_PROMPT}\n\n{user_prompt}"
+        # dir_name → dir_id 매핑 생성 (LLM 외부에서 관리)
+        name_to_id = {d['dir_name']: d['dir_id'] for d in directories}
         
         try:
-            result = self.call_llm_json(full_prompt)
+            result = self.call_llm_json(prompt)
             
             if result.get("error"):
                 self.log(f"❌ LLM returned error: {result.get('error')}", indent=1)
                 return []
             
-            return result.get("directories", [])
+            # LLM 결과에 dir_id 추가 (dir_name으로 매핑)
+            llm_results = result.get("directories", [])
+            for r in llm_results:
+                dir_name = r.get("dir_name")
+                if dir_name and dir_name in name_to_id:
+                    r["dir_id"] = name_to_id[dir_name]
+                else:
+                    self.log(f"⚠️ Unknown dir_name from LLM: {dir_name}", indent=1)
+            
+            return llm_results
             
         except Exception as e:
             self.log(f"❌ LLM call error: {e}", indent=1)
@@ -571,3 +515,4 @@ class DirectoryPatternNode(BaseNode, LLMMixin, DatabaseMixin):
         """
         node = cls()
         return node({})
+

@@ -416,39 +416,39 @@ SELECT source_column, target_column, relationship_type FROM cross_table_semantic
 
 ### PostgreSQL 테이블 (10개)
 
-| 테이블 | 생성 Phase | 주요 용도 |
+| 테이블 | 생성 노드 | 주요 용도 |
 |--------|-----------|----------|
-| `directory_catalog` | Phase 1 → Phase 2 | 디렉토리 메타데이터 + 파일명 패턴 |
-| `file_catalog` | Phase 1 → Phase 2 | 파일 메타데이터 + 분류 + 파일명 값 |
-| `column_metadata` | Phase 1 → Phase 2 | 컬럼 메타데이터 + 시맨틱 정보 |
-| `data_dictionary` | Phase 2 | 파라미터 정의 사전 (key-desc-unit) |
-| `table_entities` | Phase 3 | 테이블 Entity 정의 |
-| `table_relationships` | Phase 3 | 테이블 간 FK 관계 |
-| `ontology_subcategories` | Phase 4 | 카테고리 세분화 |
-| `semantic_edges` | Phase 4 | 파라미터 간 의미 관계 |
-| `medical_term_mappings` | Phase 4 | 의료 표준 용어 매핑 |
-| `cross_table_semantics` | Phase 4 | 테이블 간 시맨틱 관계 |
+| `directory_catalog` | directory_catalog → directory_pattern | 디렉토리 메타데이터 + 파일명 패턴 |
+| `file_catalog` | file_catalog → file_classification | 파일 메타데이터 + 분류 + 파일명 값 |
+| `column_metadata` | file_catalog → data_semantic | 컬럼 메타데이터 + 시맨틱 정보 |
+| `data_dictionary` | metadata_semantic | 파라미터 정의 사전 (key-desc-unit) |
+| `table_entities` | entity_identification | 테이블 Entity 정의 |
+| `table_relationships` | relationship_inference | 테이블 간 FK 관계 |
+| `ontology_subcategories` | ontology_enhancement | 카테고리 세분화 |
+| `semantic_edges` | ontology_enhancement | 파라미터 간 의미 관계 |
+| `medical_term_mappings` | ontology_enhancement | 의료 표준 용어 매핑 |
+| `cross_table_semantics` | ontology_enhancement | 테이블 간 시맨틱 관계 |
 
 ### Neo4j 노드 & 관계
 
-| 노드 타입 | 생성 Phase | 설명 |
+| 노드 타입 | 생성 노드 | 설명 |
 |----------|-----------|------|
-| `RowEntity` | Phase 3 | 테이블이 나타내는 Entity (surgery, patient 등) |
-| `ConceptCategory` | Phase 3 | 개념 카테고리 (Vitals, Demographics 등) |
-| `Parameter` | Phase 3 | 측정 파라미터 (hr, sbp 등) |
-| `SubCategory` | Phase 4 | 세분화된 카테고리 (Cardiovascular 등) |
-| `MedicalTerm` | Phase 4 | 표준 의료 용어 (SNOMED/LOINC) |
+| `RowEntity` | relationship_inference | 테이블이 나타내는 Entity (surgery, patient 등) |
+| `ConceptCategory` | relationship_inference | 개념 카테고리 (Vitals, Demographics 등) |
+| `Parameter` | relationship_inference | 측정 파라미터 (hr, sbp 등) |
+| `SubCategory` | ontology_enhancement | 세분화된 카테고리 (Cardiovascular 등) |
+| `MedicalTerm` | ontology_enhancement | 표준 의료 용어 (SNOMED/LOINC) |
 
-| 관계 타입 | 생성 Phase | 설명 |
+| 관계 타입 | 생성 노드 | 설명 |
 |----------|-----------|------|
-| `LINKS_TO` | Phase 3 | 테이블 간 FK 관계 |
-| `HAS_CONCEPT` | Phase 3 | Entity → Category |
-| `CONTAINS` | Phase 3 | Category → Parameter |
-| `HAS_COLUMN` | Phase 3 | Entity → Parameter |
-| `HAS_SUBCATEGORY` | Phase 4 | Category → SubCategory |
-| `DERIVED_FROM` | Phase 4 | 파라미터 파생 관계 |
-| `RELATED_TO` | Phase 4 | 파라미터 상관 관계 |
-| `MAPS_TO` | Phase 4 | 표준 용어 매핑 |
+| `LINKS_TO` | relationship_inference | 테이블 간 FK 관계 |
+| `HAS_CONCEPT` | relationship_inference | Entity → Category |
+| `CONTAINS` | relationship_inference | Category → Parameter |
+| `HAS_COLUMN` | relationship_inference | Entity → Parameter |
+| `HAS_SUBCATEGORY` | ontology_enhancement | Category → SubCategory |
+| `DERIVED_FROM` | ontology_enhancement | 파라미터 파생 관계 |
+| `RELATED_TO` | ontology_enhancement | 파라미터 상관 관계 |
+| `MAPS_TO` | ontology_enhancement | 표준 용어 매핑 |
 
 ---
 
@@ -503,18 +503,53 @@ IndexingAgent/
 │   │   ├── state.py                     # 상태 객체 정의
 │   │   ├── registry.py                  # NodeRegistry (동적 노드 관리)
 │   │   ├── base/                        # BaseNode, Mixin 클래스
+│   │   │   ├── __init__.py
+│   │   │   ├── node.py                  # BaseNode 추상 클래스
+│   │   │   └── mixins.py                # LLMMixin, DatabaseMixin
 │   │   ├── models/                      # Pydantic 모델 (LLM 응답 스키마)
+│   │   │   ├── base.py                  # 공통 베이스 모델
+│   │   │   └── llm_responses.py         # LLM 응답 모델들
+│   │   ├── prompts/                     # 프롬프트 관리
+│   │   │   ├── __init__.py
+│   │   │   ├── base.py                  # PromptTemplate, MultiPromptTemplate
+│   │   │   └── generator.py             # OutputFormatGenerator
 │   │   └── nodes/
-│   │       ├── directory_catalog.py     # [100] 📏 디렉토리 스캔
-│   │       ├── catalog.py               # [200] 📏 파일/컬럼 메타데이터
-│   │       ├── aggregator.py            # [300] 📏 스키마 집계
-│   │       ├── classification.py        # [400] 🤖 파일 분류
-│   │       ├── metadata_semantic.py     # [500] 🤖 메타데이터 의미 분석
-│   │       ├── data_semantic.py         # [600] 🤖 데이터 의미 분석
-│   │       ├── directory_pattern.py     # [700] 🤖 파일명 패턴 분석
-│   │       ├── entity_identification.py # [800] 🤖 Entity 식별
-│   │       ├── relationship_inference.py# [900] 🤖 관계 추론 + Neo4j
-│   │       └── ontology_enhancement.py  # [1000] 🤖 온톨로지 강화
+│   │       │
+│   │       │   # 📏 Rule-based 노드 (단일 파일)
+│   │       ├── directory_catalog.py     # [100] 디렉토리 스캔
+│   │       ├── catalog.py               # [200] 파일/컬럼 메타데이터
+│   │       ├── aggregator.py            # [300] 스키마 집계
+│   │       │
+│   │       │   # 🤖 LLM 노드 (폴더 구조: node.py + prompts.py)
+│   │       ├── file_classification/     # [400] 파일 분류
+│   │       │   ├── __init__.py
+│   │       │   ├── node.py
+│   │       │   └── prompts.py
+│   │       ├── metadata_semantic/       # [500] 메타데이터 의미 분석
+│   │       │   ├── __init__.py
+│   │       │   ├── node.py
+│   │       │   └── prompts.py
+│   │       ├── data_semantic/           # [600] 데이터 의미 분석
+│   │       │   ├── __init__.py
+│   │       │   ├── node.py
+│   │       │   └── prompts.py
+│   │       ├── directory_pattern/       # [700] 파일명 패턴 분석
+│   │       │   ├── __init__.py
+│   │       │   ├── node.py
+│   │       │   └── prompts.py
+│   │       ├── entity_identification/   # [800] Entity 식별
+│   │       │   ├── __init__.py
+│   │       │   ├── node.py
+│   │       │   └── prompts.py
+│   │       ├── relationship_inference/  # [900] 관계 추론 + Neo4j
+│   │       │   ├── __init__.py
+│   │       │   ├── node.py
+│   │       │   └── prompts.py
+│   │       └── ontology_enhancement/    # [1000] 온톨로지 강화 (Multi-prompt)
+│   │           ├── __init__.py
+│   │           ├── node.py
+│   │           └── prompts.py           # 4가지 Task 프롬프트
+│   │
 │   ├── database/
 │   │   ├── connection.py                # PostgreSQL 연결
 │   │   ├── neo4j_connection.py          # Neo4j 연결
@@ -524,12 +559,31 @@ IndexingAgent/
 │   │   │   ├── dictionary.py            # data_dictionary
 │   │   │   ├── ontology_core.py         # table_entities, table_relationships
 │   │   │   └── ontology_enhancement.py  # subcategories, edges, mappings
-│   │   └── repositories/                # CRUD 로직
+│   │   ├── repositories/                # CRUD 로직
+│   │   └── managers/                    # 스키마 매니저
+│   │
+│   ├── utils/
+│   │   └── llm_client.py                # LLM 클라이언트 (OpenAI)
+│   │
 │   └── config.py                        # 설정 (Node별 Config)
+│
 ├── data/
 │   └── raw/                             # 원본 데이터 파일
+│
 └── test_full_pipeline_results.py        # 전체 파이프라인 실행
 ```
+
+### 노드 구조 규칙
+
+| 노드 타입 | 구조 | 설명 |
+|----------|------|------|
+| 📏 Rule-based | 단일 파일 (`node.py`) | LLM 미사용, 규칙 기반 로직 |
+| 🤖 LLM-based | 폴더 (`node.py` + `prompts.py`) | LLM 프롬프트 분리 관리 |
+
+**LLM 노드 폴더 구조:**
+- `__init__.py`: 노드와 프롬프트 클래스 export
+- `node.py`: 노드 로직 (BaseNode 상속, execute 구현)
+- `prompts.py`: PromptTemplate 상속, 프롬프트 정의
 
 ---
 
