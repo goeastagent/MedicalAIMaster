@@ -116,8 +116,9 @@ Indexing Agent는 의료 데이터 파일(CSV, Signal 등)을 분석하여:
 ┃                                         │ Neo4j: 3-Level Ontology                    │  ┃
 ┃                                         │  • (RowEntity)-[:LINKS_TO]->(RowEntity)    │  ┃
 ┃                                         │  • (RowEntity)-[:HAS_CONCEPT]->(Category)  │  ┃
-┃                                         │  • (Category)-[:CONTAINS]->(Parameter)    │  ┃
+┃                                         │  • (Category)-[:CONTAINS]->(Parameter)     │  ┃
 ┃                                         │  • (RowEntity)-[:HAS_COLUMN]->(Parameter)  │  ┃
+┃                                         │  • (RowEntity)-[:FILENAME_VALUE]->(Param)  │  ┃
 ┃                                         └────────────────────────────────────────────┘  ┃
 ┃                                                                                         ┃
 ┗━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━┛
@@ -169,7 +170,7 @@ Indexing Agent는 의료 데이터 파일(CSV, Signal 등)을 분석하여:
 ┃   │ table_relationships        │                │        ┌────────┼────────┐         │  ┃
 ┃   │ ontology_subcategories     │                │        ▼        ▼        ▼         │  ┃
 ┃   │ semantic_edges             │                │   ┌─────────┐┌───────┐┌────────┐   │  ┃
-┃   │ medical_term_mappings      │                │   │RowEntity││ Category ││ SubCat │   │  ┃
+┃   │ medical_term_mappings      │                │   │RowEntity││Category ││ SubCat │   │  ┃
 ┃   │ cross_table_semantics      │                │   │(lab)    ││(Vitals)  ││(Cardio)│   │  ┃
 ┃   └────────────────────────────┘                │   └─────────┘└────┬────┘└────────┘   │  ┃
 ┃                                                 │                   │ CONTAINS        │  ┃
@@ -301,6 +302,7 @@ JOIN file_catalog t ON tr.target_file_id = t.file_id;
 (:RowEntity {name: "surgery"})-[:HAS_CONCEPT]->(:ConceptCategory {name: "Vitals"})
 (:ConceptCategory {name: "Vitals"})-[:CONTAINS]->(:Parameter {name: "hr"})
 (:RowEntity {name: "surgery"})-[:HAS_COLUMN]->(:Parameter {name: "caseid"})
+(:RowEntity)-[:FILENAME_VALUE]->(:Parameter)  -- 파일명에서 추출된 값
 ```
 
 **Neo4j 시각화:**
@@ -385,31 +387,6 @@ SELECT source_column, target_column, relationship_type FROM cross_table_semantic
 })
 ```
 
-**Neo4j Extended 시각화:**
-
-```
-                         ┌─────────────────┐
-                         │ConceptCategory  │
-                         │   "Vitals"      │
-                         └────────┬────────┘
-                                  │
-            ┌─────────────────────┼─────────────────────┐
-            │ HAS_SUBCATEGORY     │ CONTAINS            │ HAS_SUBCATEGORY
-            ▼                     ▼                     ▼
-    ┌───────────────┐    ┌─────────────┐      ┌───────────────┐
-    │  SubCategory  │    │  Parameter  │      │  SubCategory  │
-    │"Cardiovascular"│    │    "hr"     │      │ "Respiratory" │
-    └───────────────┘    └──────┬──────┘      └───────────────┘
-                                │
-                    ┌───────────┼───────────┐
-                    │ MAPS_TO   │ RELATED_TO│
-                    ▼           ▼           ▼
-            ┌─────────────┐ ┌─────────┐ ┌─────────┐
-            │MedicalTerm  │ │Parameter│ │Parameter│
-            │SNOMED/LOINC │ │  "rr"   │ │ "spo2"  │
-            └─────────────┘ └─────────┘ └─────────┘
-```
-
 ---
 
 ## 📊 전체 DB 스키마 요약
@@ -445,6 +422,7 @@ SELECT source_column, target_column, relationship_type FROM cross_table_semantic
 | `HAS_CONCEPT` | relationship_inference | Entity → Category |
 | `CONTAINS` | relationship_inference | Category → Parameter |
 | `HAS_COLUMN` | relationship_inference | Entity → Parameter |
+| `FILENAME_VALUE` | relationship_inference | Entity → Parameter (파일명 추출) |
 | `HAS_SUBCATEGORY` | ontology_enhancement | Category → SubCategory |
 | `DERIVED_FROM` | ontology_enhancement | 파라미터 파생 관계 |
 | `RELATED_TO` | ontology_enhancement | 파라미터 상관 관계 |
@@ -488,7 +466,7 @@ python test_full_pipeline_results.py
 ### 3. 결과 확인
 ```bash
 python view_database.py    # PostgreSQL 테이블 확인
-python view_ontology.py    # Neo4j 온톨로지 확인
+python view_llm_logs.py    # LLM 호출 로그 확인
 ```
 
 ---
@@ -500,15 +478,17 @@ IndexingAgent/
 ├── src/
 │   ├── agents/
 │   │   ├── graph.py                     # LangGraph 워크플로우 정의
-│   │   ├── state.py                     # 상태 객체 정의
+│   │   ├── state.py                     # AgentState (TypedDict)
 │   │   ├── registry.py                  # NodeRegistry (동적 노드 관리)
 │   │   ├── base/                        # BaseNode, Mixin 클래스
 │   │   │   ├── __init__.py
 │   │   │   ├── node.py                  # BaseNode 추상 클래스
 │   │   │   └── mixins.py                # LLMMixin, DatabaseMixin
 │   │   ├── models/                      # Pydantic 모델 (LLM 응답 스키마)
+│   │   │   ├── __init__.py
 │   │   │   ├── base.py                  # 공통 베이스 모델
-│   │   │   └── llm_responses.py         # LLM 응답 모델들
+│   │   │   ├── llm_responses.py         # LLM 응답 모델들
+│   │   │   └── state_schemas.py         # State 스키마
 │   │   ├── prompts/                     # 프롬프트 관리
 │   │   │   ├── __init__.py
 │   │   │   ├── base.py                  # PromptTemplate, MultiPromptTemplate
@@ -519,6 +499,7 @@ IndexingAgent/
 │   │       ├── directory_catalog.py     # [100] 디렉토리 스캔
 │   │       ├── catalog.py               # [200] 파일/컬럼 메타데이터
 │   │       ├── aggregator.py            # [300] 스키마 집계
+│   │       ├── common.py                # 공통 유틸리티
 │   │       │
 │   │       │   # 🤖 LLM 노드 (폴더 구조: node.py + prompts.py)
 │   │       ├── file_classification/     # [400] 파일 분류
@@ -551,6 +532,7 @@ IndexingAgent/
 │   │           └── prompts.py           # 4가지 Task 프롬프트
 │   │
 │   ├── database/
+│   │   ├── __init__.py
 │   │   ├── connection.py                # PostgreSQL 연결
 │   │   ├── neo4j_connection.py          # Neo4j 연결
 │   │   ├── schemas/                     # DDL 정의
@@ -560,17 +542,42 @@ IndexingAgent/
 │   │   │   ├── ontology_core.py         # table_entities, table_relationships
 │   │   │   └── ontology_enhancement.py  # subcategories, edges, mappings
 │   │   ├── repositories/                # CRUD 로직
+│   │   │   ├── base.py
+│   │   │   ├── column_repository.py
+│   │   │   ├── dictionary_repository.py
+│   │   │   ├── entity_repository.py
+│   │   │   ├── file_repository.py
+│   │   │   └── ontology_repository.py
 │   │   └── managers/                    # 스키마 매니저
+│   │       ├── base.py
+│   │       ├── catalog.py
+│   │       ├── dictionary.py
+│   │       ├── directory.py
+│   │       └── ontology.py
+│   │
+│   ├── processors/                      # 파일 처리기
+│   │   ├── base.py                      # BaseDataProcessor
+│   │   ├── tabular.py                   # CSV, Excel, Parquet
+│   │   └── signal.py                    # .vital, .edf 등
 │   │
 │   ├── utils/
-│   │   └── llm_client.py                # LLM 클라이언트 (OpenAI)
+│   │   └── llm_client.py                # LLM 클라이언트 (OpenAI/Anthropic)
 │   │
 │   └── config.py                        # 설정 (Node별 Config)
 │
 ├── data/
-│   └── raw/                             # 원본 데이터 파일
+│   ├── raw/                             # 원본 데이터 파일 (gitignore)
+│   ├── postgres_data/                   # PostgreSQL 데이터 (gitignore)
+│   ├── postgres.log                     # PostgreSQL 로그 (gitignore)
+│   └── neo4j.log                        # Neo4j 로그 (gitignore)
 │
-└── test_full_pipeline_results.py        # 전체 파이프라인 실행
+├── test_debug_pipeline.py               # 디버깅/테스트 스크립트
+├── test_full_pipeline_results.py        # 전체 파이프라인 실행
+├── view_database.py                     # DB 조회 도구
+├── view_llm_logs.py                     # LLM 로그 조회 도구
+├── reset_all.py                         # DB 초기화
+├── run_postgres_neo4j.sh                # 서비스 시작 스크립트
+└── requirements.txt                     # Python 의존성
 ```
 
 ### 노드 구조 규칙
@@ -587,6 +594,47 @@ IndexingAgent/
 
 ---
 
+## ⚙️ 설정 (config.py)
+
+### Node별 설정 클래스
+
+| Config Class | Node | 주요 설정 |
+|-------------|------|----------|
+| `DirectoryCatalogConfig` | directory_catalog | FILENAME_SAMPLE_SIZE, SAMPLE_STRATEGY |
+| `SchemaAggregationConfig` | schema_aggregation | BATCH_SIZE |
+| `MetadataSemanticConfig` | metadata_semantic | COLUMN_BATCH_SIZE, CONCEPT_CATEGORIES |
+| `DataSemanticConfig` | data_semantic | COLUMN_BATCH_SIZE, CONFIDENCE_THRESHOLD |
+| `DirectoryPatternConfig` | directory_pattern | MAX_DIRS_PER_BATCH, MIN_FILES_FOR_PATTERN |
+| `EntityIdentificationConfig` | entity_identification | TABLE_BATCH_SIZE, MAX_COLUMNS_PER_TABLE |
+| `RelationshipInferenceConfig` | relationship_inference | FK_CANDIDATE_CONCEPTS, NEO4J_ENABLED |
+| `OntologyEnhancementConfig` | ontology_enhancement | ENABLE_* 플래그, PARAMETER_BATCH_SIZE |
+
+### LLM 설정
+
+```python
+class LLMConfig:
+    ACTIVE_PROVIDER = "openai"  # or "anthropic"
+    OPENAI_MODEL = "gpt-4o-2024-08-06"
+    ANTHROPIC_MODEL = "claude-3-5-sonnet-20241022"
+    TEMPERATURE = 0.0  # 분석 정확도 위해 0
+    MAX_TOKENS = 4096
+```
+
+### 환경 변수
+
+```bash
+# .env
+OPENAI_API_KEY=sk-...
+ANTHROPIC_API_KEY=sk-ant-...
+LLM_PROVIDER=openai
+NEO4J_ENABLED=true
+NEO4J_URI=bolt://localhost:7687
+NEO4J_USER=neo4j
+NEO4J_PASSWORD=password
+```
+
+---
+
 ## 🎯 설계 원칙
 
 1. **4-Phase Architecture**: Phase별로 명확히 분리된 처리 흐름
@@ -595,3 +643,36 @@ IndexingAgent/
 4. **Dual Storage**: PostgreSQL (정형) + Neo4j (그래프) 병렬 저장
 5. **Progressive Enhancement**: 단계별로 온톨로지가 점진적으로 풍부해짐
 6. **NodeRegistry 패턴**: 동적으로 노드 추가/제거 가능
+
+---
+
+## ⚠️ 알려진 제한사항
+
+### Long-format 데이터 처리
+
+현재 시스템은 **Long-format CSV**의 파라미터를 완전히 추출하지 못합니다:
+
+```
+Wide-format (지원됨):
+┌─────────┬─────┬──────┬─────┐
+│ caseid  │ HR  │ SpO2 │ BP  │  → 컬럼명이 파라미터
+└─────────┴─────┴──────┴─────┘
+
+Long-format (부분 지원):
+┌─────────┬──────┬───────┐
+│ caseid  │ name │ value │  → name 컬럼의 값들이 파라미터
+├─────────┼──────┼───────┤
+│ 1       │ HR   │ 72    │
+│ 1       │ SpO2 │ 98    │
+└─────────┴──────┴───────┘
+```
+
+`name` 컬럼의 unique values는 `value_distribution`에 저장되지만, 이를 온톨로지 파라미터로 자동 변환하는 기능은 아직 구현되지 않았습니다.
+
+---
+
+## 🔗 관련 문서
+
+- [docs/ontology_builder_implementation_plan.md](docs/ontology_builder_implementation_plan.md) - 구현 계획
+- [docs/ontology_and_multilevel_anchor_analysis.md](docs/ontology_and_multilevel_anchor_analysis.md) - 온톨로지 분석
+- [docs/ontology_builder_datacatalog.md](docs/ontology_builder_datacatalog.md) - 데이터 카탈로그 설계
