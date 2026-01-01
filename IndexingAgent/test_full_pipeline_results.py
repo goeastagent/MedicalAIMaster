@@ -184,47 +184,47 @@ def run_full_pipeline():
         "data_catalog": {},
         
         # [directory_catalog] Result
-        "phase1_result": None,
-        "phase1_dir_ids": [],
+        "directory_catalog_result": None,
+        "catalog_dir_ids": [],
         
         # [file_catalog] Result
-        "phase2_result": None,
-        "phase2_file_ids": [],
+        "file_catalog_result": None,
+        "catalog_file_ids": [],
         
         # [schema_aggregation] Result
-        "phase3_result": None,
+        "schema_aggregation_result": None,
         "unique_columns": [],
         "unique_files": [],
         "column_batches": [],
         "file_batches": [],
         
         # [file_classification] Result
-        "phase4_result": None,
+        "file_classification_result": None,
         "metadata_files": [],
         "data_files": [],
         
         # [metadata_semantic] Result
-        "phase5_result": None,
+        "metadata_semantic_result": None,
         "data_dictionary_entries": [],
         
         # [data_semantic] Result
-        "phase6_result": None,
+        "data_semantic_result": None,
         "data_semantic_entries": [],
         
         # [directory_pattern] Result
-        "phase7_result": None,
-        "phase7_dir_patterns": {},
+        "directory_pattern_result": None,
+        "directory_patterns": {},
         
         # [entity_identification] Result
-        "phase8_result": None,
+        "entity_identification_result": None,
         "table_entity_results": [],
         
         # [relationship_inference] Result
-        "phase9_result": None,
+        "relationship_inference_result": None,
         "table_relationships": [],
         
         # [ontology_enhancement] Result
-        "phase10_result": None,
+        "ontology_enhancement_result": None,
         "ontology_subcategories": [],
         "semantic_edges": [],
         "medical_term_mappings": [],

@@ -93,11 +93,11 @@ Return ONLY valid JSON (no markdown, no explanation):
         파일을 metadata/data로 분류
         
         Args:
-            state: AgentState (phase2_file_ids 필요)
+            state: AgentState (catalog_file_ids 필요)
         
         Returns:
             업데이트된 상태:
-            - phase4_result: 분류 결과 요약
+            - file_classification_result: 분류 결과 요약
             - metadata_files: metadata 파일 경로 목록
             - data_files: data 파일 경로 목록
         """
@@ -108,7 +108,7 @@ Return ONLY valid JSON (no markdown, no explanation):
         started_at = datetime.now()
         
         # file_catalog에서 처리된 파일 ID들
-        file_ids = state.get("phase2_file_ids", [])
+        file_ids = state.get("catalog_file_ids", [])
         
         if not file_ids:
             print("   ⚠️ No files to classify")
@@ -201,7 +201,7 @@ Return ONLY valid JSON (no markdown, no explanation):
         print("=" * 60 + "\n")
         
         return {
-            "phase4_result": result.model_dump(),
+            "file_classification_result": result.model_dump(),
             "metadata_files": metadata_files,
             "data_files": data_files,
             "logs": [
@@ -316,7 +316,7 @@ Return ONLY valid JSON (no markdown, no explanation):
     def _create_empty_result(self, error_msg: str) -> Dict[str, Any]:
         """빈 결과 생성"""
         return {
-            "phase4_result": {
+            "file_classification_result": {
                 "total_files": 0,
                 "metadata_files": [],
                 "data_files": [],
@@ -348,5 +348,5 @@ Return ONLY valid JSON (no markdown, no explanation):
             file_repo = node._get_file_repo()
             file_ids = file_repo.get_all_file_ids()
         
-        state = {"phase2_file_ids": file_ids}
+        state = {"catalog_file_ids": file_ids}
         return node.execute(state)

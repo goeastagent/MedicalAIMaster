@@ -57,7 +57,7 @@ class FileCatalogNode(BaseNode, DatabaseMixin):
             state: AgentState (input_files 필드 필요)
         
         Returns:
-            업데이트된 상태 (phase2_result, phase2_file_ids, logs)
+            업데이트된 상태 (file_catalog_result, catalog_file_ids, logs)
         """
         print("\n" + "="*80)
         print("📦 [File Catalog] 메타데이터 추출 시작")
@@ -68,8 +68,8 @@ class FileCatalogNode(BaseNode, DatabaseMixin):
         if not input_files:
             return {
                 "logs": ["❌ [File Catalog] Error: 입력 파일이 없습니다."],
-                "phase2_result": self._empty_result(),
-                "phase2_file_ids": [],
+                "file_catalog_result": self._empty_result(),
+                "catalog_file_ids": [],
                 "error_message": "No input files provided"
             }
         
@@ -107,8 +107,8 @@ class FileCatalogNode(BaseNode, DatabaseMixin):
         
         return {
             "logs": logs,
-            "phase2_result": result,
-            "phase2_file_ids": file_ids
+            "file_catalog_result": result,
+            "catalog_file_ids": file_ids
         }
     
     # =========================================================================

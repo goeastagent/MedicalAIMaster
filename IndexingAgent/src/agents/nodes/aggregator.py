@@ -103,7 +103,7 @@ class SchemaAggregationNode(BaseNode, DatabaseMixin):
         
         Returns:
             업데이트된 상태:
-            - phase3_result: 집계 결과 요약
+            - schema_aggregation_result: 집계 결과 요약
             - unique_columns: 유니크 컬럼 리스트
             - unique_files: 유니크 파일 리스트
             - column_batches: 컬럼 LLM 배치 리스트
@@ -182,7 +182,7 @@ class SchemaAggregationNode(BaseNode, DatabaseMixin):
         print("=" * 60 + "\n")
         
         return {
-            "phase3_result": result,
+            "schema_aggregation_result": result,
             "unique_columns": unique_columns,
             "unique_files": unique_files,
             "column_batches": column_batches,

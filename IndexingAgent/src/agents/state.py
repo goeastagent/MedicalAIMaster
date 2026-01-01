@@ -43,47 +43,47 @@ class AgentState(TypedDict):
     data_catalog: Dict[str, Any]  # DataCatalog 형태
     
     # --- [directory_catalog] Result ---
-    phase1_result: Optional[Dict[str, Any]]  # 디렉토리 구조 분석 결과
-    phase1_dir_ids: List[str]  # 생성된 dir_id 목록
+    directory_catalog_result: Optional[Dict[str, Any]]  # 디렉토리 구조 분석 결과
+    catalog_dir_ids: List[str]  # 생성된 dir_id 목록
     
     # --- [file_catalog] Result ---
-    phase2_result: Optional[Dict[str, Any]]  # 파일 메타데이터 추출 결과
-    phase2_file_ids: List[str]  # 처리된 모든 파일의 file_id (UUID 문자열)
+    file_catalog_result: Optional[Dict[str, Any]]  # 파일 메타데이터 추출 결과
+    catalog_file_ids: List[str]  # 처리된 모든 파일의 file_id (UUID 문자열)
     
     # --- [schema_aggregation] Result ---
-    phase3_result: Optional[Dict[str, Any]]  # 스키마 집계 결과
+    schema_aggregation_result: Optional[Dict[str, Any]]  # 스키마 집계 결과
     unique_columns: List[Dict[str, Any]]  # 유니크 컬럼 리스트
     unique_files: List[Dict[str, Any]]  # 유니크 파일 리스트
     column_batches: List[List[Dict[str, Any]]]  # 컬럼 LLM 배치
     file_batches: List[List[Dict[str, Any]]]  # 파일 LLM 배치
     
     # --- [file_classification] Result ---
-    phase4_result: Optional[Dict[str, Any]]  # 파일 분류 결과
+    file_classification_result: Optional[Dict[str, Any]]  # 파일 분류 결과
     metadata_files: List[str]  # is_metadata=true 파일 경로 목록
     data_files: List[str]  # is_metadata=false 파일 경로 목록
     
     # --- [metadata_semantic] Result ---
-    phase5_result: Optional[Dict[str, Any]]  # 메타데이터 분석 결과
+    metadata_semantic_result: Optional[Dict[str, Any]]  # 메타데이터 분석 결과
     data_dictionary_entries: List[Dict[str, Any]]  # 추출된 key-desc-unit 엔트리들
     
     # --- [data_semantic] Result ---
-    phase6_result: Optional[Dict[str, Any]]  # 데이터 시맨틱 분석 결과
+    data_semantic_result: Optional[Dict[str, Any]]  # 데이터 시맨틱 분석 결과
     data_semantic_entries: List[Dict[str, Any]]  # LLM이 분석한 데이터 컬럼 의미 정보
     
     # --- [directory_pattern] Result ---
-    phase7_result: Optional[Dict[str, Any]]  # 디렉토리 패턴 분석 결과
-    phase7_dir_patterns: Dict[str, Dict]  # {dir_id: pattern_info}
+    directory_pattern_result: Optional[Dict[str, Any]]  # 디렉토리 패턴 분석 결과
+    directory_patterns: Dict[str, Dict]  # {dir_id: pattern_info}
     
     # --- [entity_identification] Result ---
-    phase8_result: Optional[Dict[str, Any]]  # Entity 식별 결과
+    entity_identification_result: Optional[Dict[str, Any]]  # Entity 식별 결과
     table_entity_results: List[Dict[str, Any]]  # TableEntityResult 목록
     
     # --- [relationship_inference] Result ---
-    phase9_result: Optional[Dict[str, Any]]  # 관계 추론 결과
+    relationship_inference_result: Optional[Dict[str, Any]]  # 관계 추론 결과
     table_relationships: List[Dict[str, Any]]  # TableRelationship 목록
     
     # --- [ontology_enhancement] Result ---
-    phase10_result: Optional[Dict[str, Any]]  # 온톨로지 강화 결과
+    ontology_enhancement_result: Optional[Dict[str, Any]]  # 온톨로지 강화 결과
     ontology_subcategories: List[Dict[str, Any]]  # SubCategoryResult 목록
     semantic_edges: List[Dict[str, Any]]  # SemanticEdge 목록
     medical_term_mappings: List[Dict[str, Any]]  # MedicalTermMapping 목록

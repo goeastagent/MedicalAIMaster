@@ -101,7 +101,7 @@ Return ONLY valid JSON (no markdown, no explanation):
         
         Returns:
             업데이트된 상태:
-            - phase5_result: 처리 결과 요약
+            - metadata_semantic_result: 처리 결과 요약
             - data_dictionary_entries: 추출된 모든 엔트리
         """
         print("\n" + "=" * 60)
@@ -205,7 +205,7 @@ Return ONLY valid JSON (no markdown, no explanation):
         print(f"   📊 Data Dictionary Stats: {stats}")
         
         return {
-            "phase5_result": result.model_dump(),
+            "metadata_semantic_result": result.model_dump(),
             "data_dictionary_entries": all_entries,
             "logs": [
                 f"📖 [MetaData Semantic] Extracted {len(all_entries)} entries from "
@@ -527,7 +527,7 @@ Return ONLY valid JSON (no markdown, no explanation):
     def _create_empty_result(self, error_msg: str) -> Dict[str, Any]:
         """빈 결과 생성"""
         return {
-            "phase5_result": {
+            "metadata_semantic_result": {
                 "total_metadata_files": 0,
                 "processed_files": 0,
                 "total_entries_extracted": 0,

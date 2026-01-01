@@ -60,8 +60,8 @@ class DirectoryCatalogNode(BaseNode, DatabaseMixin):
         
         Returns:
             업데이트된 상태:
-            - phase1_result: 처리 결과
-            - phase1_dir_ids: 생성된 dir_id 목록
+            - directory_catalog_result: 처리 결과
+            - catalog_dir_ids: 생성된 dir_id 목록
             - logs: 로그 메시지
         """
         print("\n" + "="*80)
@@ -130,8 +130,8 @@ class DirectoryCatalogNode(BaseNode, DatabaseMixin):
         
         return {
             "logs": logs,
-            "phase1_result": result,
-            "phase1_dir_ids": result.get("dir_ids", [])
+            "directory_catalog_result": result,
+            "catalog_dir_ids": result.get("dir_ids", [])
         }
     
     # =========================================================================
@@ -470,13 +470,13 @@ class DirectoryCatalogNode(BaseNode, DatabaseMixin):
         print(f"   ❌ {error_msg}")
         return {
             "logs": [f"❌ [Directory Catalog] Error: {error_msg}"],
-            "phase1_result": {
+            "directory_catalog_result": {
                 **self._empty_result(),
                 "started_at": started_at,
                 "completed_at": datetime.now().isoformat(),
                 "error": error_msg
             },
-            "phase1_dir_ids": [],
+            "catalog_dir_ids": [],
             "error_message": error_msg
         }
     
