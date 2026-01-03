@@ -65,9 +65,9 @@ class FileClassificationNode(BaseNode, LLMMixin, DatabaseMixin):
             - metadata_files: metadata 파일 경로 목록
             - data_files: data 파일 경로 목록
         """
-        print("\n" + "=" * 60)
-        print("🏷️  [File Classification] metadata vs data 분류")
-        print("=" * 60)
+        self.log("=" * 60)
+        self.log("🏷️  metadata vs data 분류")
+        self.log("=" * 60)
         
         started_at = datetime.now()
         
@@ -75,38 +75,38 @@ class FileClassificationNode(BaseNode, LLMMixin, DatabaseMixin):
         file_ids = state.get("catalog_file_ids", [])
         
         if not file_ids:
-            print("   ⚠️ No files to classify")
+            self.log("⚠️ No files to classify", indent=1)
             return self._create_empty_result("No files to classify")
         
-        print(f"   📂 Files to classify: {len(file_ids)}")
+        self.log(f"📂 Files to classify: {len(file_ids)}", indent=1)
         
         # 1. 파일 정보 수집
-        print("\n   📊 Collecting file information...")
+        self.log("📊 Collecting file information...", indent=1)
         file_infos = self._get_files_info(file_ids)
         
         # file_name → file_path 매핑
         file_id_to_path = {info['file_name']: info['file_path'] for info in file_infos}
         
         for info in file_infos:
-            print(f"      ✅ {info['file_name']} ({info['column_count']} cols, {info['row_count']} rows)")
+            self.log(f"✅ {info['file_name']} ({info['column_count']} cols, {info['row_count']} rows)", indent=2)
         
         if len(file_infos) < len(file_ids):
-            print(f"      ⚠️ Failed to get info for {len(file_ids) - len(file_infos)} files")
+            self.log(f"⚠️ Failed to get info for {len(file_ids) - len(file_infos)} files", indent=2)
         
         if not file_infos:
-            print("   ❌ No file info collected")
+            self.log("❌ No file info collected", indent=1)
             return self._create_empty_result("No file info collected")
         
         # 2. LLM 호출
-        print(f"\n   🤖 Calling LLM for classification...")
+        self.log("🤖 Calling LLM for classification...", indent=1)
         classifications = self._call_llm_for_classification(file_infos)
         
         if not classifications:
-            print("   ❌ LLM classification failed")
+            self.log("❌ LLM classification failed", indent=1)
             return self._create_empty_result("LLM classification failed")
         
         # 3. 결과 처리 및 DB 업데이트
-        print(f"\n   📝 Processing {len(classifications)} classifications...")
+        self.log(f"📝 Processing {len(classifications)} classifications...", indent=1)
         
         metadata_files = []
         data_files = []
@@ -131,7 +131,7 @@ class FileClassificationNode(BaseNode, LLMMixin, DatabaseMixin):
                 data_files.append(file_path)
                 marker = "📊 data"
             
-            print(f"      {marker}: {file_name} (conf={confidence:.2f})")
+            self.log(f"{marker}: {file_name} (conf={confidence:.2f})", indent=2)
             
             classifications_dict[file_name] = {
                 "file_path": file_path,
@@ -154,15 +154,15 @@ class FileClassificationNode(BaseNode, LLMMixin, DatabaseMixin):
             completed_at=completed_at.isoformat()
         )
         
-        print(f"\n✅ [File Classification] Complete!")
-        print(f"   📋 Metadata files: {len(metadata_files)}")
+        self.log("✅ Complete!")
+        self.log(f"📋 Metadata files: {len(metadata_files)}", indent=1)
         for f in metadata_files:
-            print(f"      - {f.split('/')[-1]}")
-        print(f"   📊 Data files: {len(data_files)}")
+            self.log(f"- {f.split('/')[-1]}", indent=2)
+        self.log(f"📊 Data files: {len(data_files)}", indent=1)
         for f in data_files:
-            print(f"      - {f.split('/')[-1]}")
-        print(f"   ⏱️  Duration: {duration:.1f}s")
-        print("=" * 60 + "\n")
+            self.log(f"- {f.split('/')[-1]}", indent=2)
+        self.log(f"⏱️  Duration: {duration:.1f}s", indent=1)
+        self.log("=" * 60)
         
         return {
             "file_classification_result": result.model_dump(),
@@ -190,7 +190,7 @@ class FileClassificationNode(BaseNode, LLMMixin, DatabaseMixin):
         try:
             return file_repo.get_files_with_classification_info(file_ids)
         except Exception as e:
-            print(f"   ❌ Error getting files info: {e}")
+            self.log(f"❌ Error getting files info: {e}", indent=1)
             return []
     
     # =========================================================================
@@ -212,20 +212,20 @@ class FileClassificationNode(BaseNode, LLMMixin, DatabaseMixin):
             data = llm.ask_json(prompt, max_tokens=LLMConfig.MAX_TOKENS)
             
             if data.get("error"):
-                print(f"   ❌ LLM returned error: {data.get('error')}")
+                self.log(f"❌ LLM returned error: {data.get('error')}", indent=1)
                 return []
             
             # PromptTemplate의 parse_response 사용
             classifications = self.prompt_class.parse_response(data)
             
             if classifications is None:
-                print("   ⚠️ Failed to parse LLM response")
+                self.log("⚠️ Failed to parse LLM response", indent=1)
                 return []
             
             return classifications
             
         except Exception as e:
-            print(f"   ❌ LLM call error: {e}")
+            self.log(f"❌ LLM call error: {e}", indent=1)
             return []
     
     def _build_files_info_text(self, file_infos: List[Dict[str, Any]]) -> str:

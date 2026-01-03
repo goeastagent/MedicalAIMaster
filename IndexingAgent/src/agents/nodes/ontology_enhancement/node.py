@@ -11,7 +11,6 @@ Tasks:
 4. Cross-table Semantics: 테이블 간 숨겨진 시맨틱 관계
 """
 
-import json
 from datetime import datetime
 from typing import Dict, List, Any, Optional, Tuple, Set
 
@@ -27,7 +26,7 @@ from ...models.llm_responses import (
     CrossTableResponse,
     OntologyEnhancementResult,
 )
-from ...base import BaseNode, LLMMixin, DatabaseMixin
+from ...base import BaseNode, LLMMixin, DatabaseMixin, Neo4jMixin
 from ...registry import register_node
 from src.database import OntologySchemaManager, OntologyRepository
 from src.config import OntologyEnhancementConfig, LLMConfig, Neo4jConfig
@@ -35,7 +34,7 @@ from .prompts import OntologyEnhancementPrompts
 
 
 @register_node
-class OntologyEnhancementNode(BaseNode, LLMMixin, DatabaseMixin):
+class OntologyEnhancementNode(BaseNode, LLMMixin, DatabaseMixin, Neo4jMixin):
     """
     Ontology Enhancement Node (LLM-based)
     
@@ -62,124 +61,65 @@ class OntologyEnhancementNode(BaseNode, LLMMixin, DatabaseMixin):
     prompt_class = OntologyEnhancementPrompts
     
     # =============================================================================
-    # Data Loading
+    # Data Loading (Using Repository Pattern)
     # =============================================================================
     
     def _load_concept_categories_with_parameters(self) -> Dict[str, List[Dict]]:
         """
         ConceptCategory와 해당 Parameter 목록 로드
         
+        Uses: ParameterRepository.get_parameters_by_concept()
+        
         Returns:
             {"Vitals": [{"key": "hr", "name": "Heart Rate", "unit": "bpm"}, ...], ...}
         """
-        conn = self.get_connection()
-        cursor = conn.cursor()
-        
-        concept_params = {}
-        
         try:
-            cursor.execute("""
-                SELECT concept_category, original_name, semantic_name, unit
-                FROM column_metadata
-                WHERE concept_category IS NOT NULL
-                ORDER BY concept_category, original_name
-            """)
-            
-            for row in cursor.fetchall():
-                concept, orig_name, sem_name, unit = row
-                
-                if concept not in concept_params:
-                    concept_params[concept] = []
-                
-                concept_params[concept].append({
-                    "key": orig_name,
-                    "name": sem_name or orig_name,
-                    "unit": unit
-                })
-        
+            return self.parameter_repo.get_parameters_by_concept()
         except Exception as e:
             self.log(f"❌ Error loading concepts: {e}")
-        
-        return concept_params
+            return {}
     
     def _load_all_parameters(self) -> List[Dict[str, Any]]:
         """
-        모든 Parameter 정보 로드
+        모든 Parameter 정보 로드 (중복 제거)
+        
+        Uses: ParameterRepository.get_all_parameters_for_ontology()
         
         Returns:
             [{"key": "hr", "name": "Heart Rate", "unit": "bpm", "concept": "Vitals"}, ...]
         """
-        conn = self.get_connection()
-        cursor = conn.cursor()
-        
-        parameters = []
-        seen_keys = set()
-        
         try:
-            cursor.execute("""
-                SELECT original_name, semantic_name, unit, concept_category
-                FROM column_metadata
-                ORDER BY original_name
-            """)
-            
-            for row in cursor.fetchall():
-                orig_name, sem_name, unit, concept = row
-                
-                if orig_name not in seen_keys:
-                    seen_keys.add(orig_name)
-                    parameters.append({
-                        "key": orig_name,
-                        "name": sem_name or orig_name,
-                        "unit": unit,
-                        "concept": concept
-                    })
-        
+            return self.parameter_repo.get_all_parameters_for_ontology()
         except Exception as e:
             self.log(f"❌ Error loading parameters: {e}")
-        
-        return parameters
+            return []
     
     def _load_tables_with_columns(self) -> List[Dict[str, Any]]:
         """
-        테이블별 컬럼 정보 로드
+        테이블별 컬럼 정보 로드 (semantic 정보 포함)
+        
+        Uses: 
+          - FileRepository.get_data_files_with_details()
+          - ColumnRepository.get_columns_with_semantic()
         
         Returns:
             [{"file_name": "...", "file_id": "...", "columns": [...]}, ...]
         """
-        conn = self.get_connection()
-        cursor = conn.cursor()
-        
         tables = []
         
         try:
-            cursor.execute("""
-                SELECT fc.file_id, fc.file_name
-                FROM file_catalog fc
-                WHERE fc.is_metadata = false
-            """)
+            # 데이터 파일 목록 조회
+            data_files = self.file_repo.get_data_files_with_details()
             
-            table_rows = cursor.fetchall()
-            
-            for file_id, file_name in table_rows:
-                cursor.execute("""
-                    SELECT original_name, semantic_name, concept_category, unit
-                    FROM column_metadata
-                    WHERE file_id = %s
-                """, (str(file_id),))
+            for f in data_files:
+                file_id = f['file_id']
                 
-                columns = []
-                for col_row in cursor.fetchall():
-                    orig, sem, concept, unit = col_row
-                    columns.append({
-                        "original_name": orig,
-                        "semantic_name": sem or orig,
-                        "concept_category": concept,
-                        "unit": unit
-                    })
+                # 컬럼 정보 조회 (parameter와 JOIN됨)
+                columns = self.column_repo.get_columns_with_semantic(file_id)
                 
                 tables.append({
-                    "file_id": str(file_id),
-                    "file_name": file_name,
+                    "file_id": file_id,
+                    "file_name": f['file_name'],
                     "columns": columns
                 })
         
@@ -468,22 +408,8 @@ class OntologyEnhancementNode(BaseNode, LLMMixin, DatabaseMixin):
                 repo.save_cross_table_semantics(cross_dicts)
     
     # =============================================================================
-    # Neo4j Sync
+    # Neo4j Sync (Using Neo4jMixin)
     # =============================================================================
-    
-    def _get_neo4j_driver(self):
-        """Neo4j 드라이버 가져오기"""
-        try:
-            from neo4j import GraphDatabase
-            driver = GraphDatabase.driver(
-                Neo4jConfig.URI,
-                auth=(Neo4jConfig.USER, Neo4jConfig.PASSWORD)
-            )
-            driver.verify_connectivity()
-            return driver
-        except Exception as e:
-            self.log(f"⚠️ Neo4j connection failed: {e}", indent=1)
-            return None
     
     def _sync_subcategories_to_neo4j(self, driver, subcategories: List[SubCategoryResult]) -> int:
         """SubCategory 노드와 관계 생성"""
@@ -645,7 +571,7 @@ class OntologyEnhancementNode(BaseNode, LLMMixin, DatabaseMixin):
         cross_semantics: List[CrossTableSemantic],
         tables: List[Dict]
     ) -> Dict[str, int]:
-        """Neo4j 전체 동기화"""
+        """Neo4j 전체 동기화 (Neo4jMixin 사용)"""
         stats = {
             "subcategory_nodes": 0,
             "medical_term_nodes": 0,
@@ -657,7 +583,7 @@ class OntologyEnhancementNode(BaseNode, LLMMixin, DatabaseMixin):
             self.log("ℹ️ Neo4j sync is disabled", indent=1)
             return stats
         
-        driver = self._get_neo4j_driver()
+        driver = self.neo4j_driver  # Neo4jMixin 사용
         if not driver:
             self.log("⚠️ Skipping Neo4j sync (connection failed)", indent=1)
             return stats
@@ -678,7 +604,7 @@ class OntologyEnhancementNode(BaseNode, LLMMixin, DatabaseMixin):
             self.log(f"✓ Cross-table edges: {stats['cross_table_edges']}", indent=2)
             
         finally:
-            driver.close()
+            self.close_neo4j()  # Neo4jMixin 사용
         
         return stats
     

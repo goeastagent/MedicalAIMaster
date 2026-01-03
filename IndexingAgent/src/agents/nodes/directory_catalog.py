@@ -64,9 +64,9 @@ class DirectoryCatalogNode(BaseNode, DatabaseMixin):
             - catalog_dir_ids: 생성된 dir_id 목록
             - logs: 로그 메시지
         """
-        print("\n" + "="*80)
-        print("📁 [Directory Catalog] 디렉토리 구조 분석 시작")
-        print("="*80)
+        self.log("=" * 80)
+        self.log("📁 디렉토리 구조 분석 시작")
+        self.log("=" * 80)
         
         started_at = datetime.now().isoformat()
         
@@ -78,7 +78,7 @@ class DirectoryCatalogNode(BaseNode, DatabaseMixin):
             # input_files에서 공통 상위 디렉토리 추출
             input_directory = self._find_common_parent_directory(input_files)
             if input_directory:
-                print(f"   📂 Inferred directory from input_files: {input_directory}")
+                self.log(f"📂 Inferred directory from input_files: {input_directory}", indent=1)
         
         if not input_directory:
             return self._create_error_result(
@@ -91,7 +91,7 @@ class DirectoryCatalogNode(BaseNode, DatabaseMixin):
                 f"Directory not found: {input_directory}", started_at
             )
         
-        print(f"   📂 Input directory: {input_directory}\n")
+        self.log(f"📂 Input directory: {input_directory}", indent=1)
         
         # 스키마 확인/생성
         self._ensure_schema()
@@ -123,10 +123,10 @@ class DirectoryCatalogNode(BaseNode, DatabaseMixin):
             logs.append(f"   ⚠️ Error: {result['error']}")
         
         # 요약 출력
-        print(f"\n✅ [Directory Catalog] 완료:")
-        print(f"   📊 총 디렉토리: {result['total_dirs']}개")
-        print(f"   ✅ 처리 완료: {result['processed_dirs']}개")
-        print(f"   📄 총 파일: {result['total_files']}개")
+        self.log("✅ 완료:")
+        self.log(f"📊 총 디렉토리: {result['total_dirs']}개", indent=1)
+        self.log(f"✅ 처리 완료: {result['processed_dirs']}개", indent=1)
+        self.log(f"📄 총 파일: {result['total_files']}개", indent=1)
         
         return {
             "logs": logs,
@@ -164,7 +164,7 @@ class DirectoryCatalogNode(BaseNode, DatabaseMixin):
         # 깊이 제한 체크
         if current_depth > DirectoryCatalogConfig.MAX_DEPTH:
             if verbose:
-                print(f"   ⚠️ Max depth reached: {root_path}")
+                self.log(f"⚠️ Max depth reached: {root_path}", indent=1)
             return self._empty_result()
         
         # 디렉토리 스캔
@@ -199,11 +199,11 @@ class DirectoryCatalogNode(BaseNode, DatabaseMixin):
             if verbose:
                 short_id = dir_id[:8]
                 type_str = f" [{dir_type}]" if dir_type else ""
-                print(f"   ✅ [{short_id}] {dir_info['dir_name']}{type_str} ({dir_info['file_count']} files, {len(dir_info['subdirs'])} subdirs)")
+                self.log(f"✅ [{short_id}] {dir_info['dir_name']}{type_str} ({dir_info['file_count']} files, {len(dir_info['subdirs'])} subdirs)", indent=1)
             
         except Exception as e:
             if verbose:
-                print(f"   ❌ Error processing {dir_info['dir_name']}: {e}")
+                self.log(f"❌ Error processing {dir_info['dir_name']}: {e}", indent=1)
             return {
                 "total_dirs": 1,
                 "processed_dirs": 0,
@@ -261,7 +261,7 @@ class DirectoryCatalogNode(BaseNode, DatabaseMixin):
         try:
             entries = os.listdir(dir_path)
         except PermissionError:
-            print(f"   ⚠️ Permission denied: {dir_path}")
+            self.log(f"⚠️ Permission denied: {dir_path}", indent=1)
             return {
                 "dir_path": dir_path,
                 "dir_name": dir_name,
@@ -467,7 +467,7 @@ class DirectoryCatalogNode(BaseNode, DatabaseMixin):
     
     def _create_error_result(self, error_msg: str, started_at: str) -> Dict[str, Any]:
         """에러 결과 생성"""
-        print(f"   ❌ {error_msg}")
+        self.log(f"❌ {error_msg}", indent=1)
         return {
             "logs": [f"❌ [Directory Catalog] Error: {error_msg}"],
             "directory_catalog_result": {
@@ -506,7 +506,7 @@ class DirectoryCatalogNode(BaseNode, DatabaseMixin):
         node._ensure_schema()
         
         if verbose:
-            print(f"[Directory Catalog] Processing directory: {directory}")
+            node.log(f"Processing directory: {directory}")
         
         return node._process_directory_tree(
             root_path=directory,

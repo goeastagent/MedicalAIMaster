@@ -4,6 +4,10 @@ Dynamic Indexing Pipeline Builder
 
 NodeRegistry를 사용하여 동적으로 파이프라인을 구성합니다.
 
+⚠️ 현재 테스트 상태:
+   - relationship_inference(900)까지만 테스트 중
+   - ontology_enhancement(1000)는 exclude_nodes로 제외
+
 Pipeline Flow (order 기반):
     START
       │
@@ -29,12 +33,17 @@ Pipeline Flow (order 기반):
                 │
                 ▼
 ┌─────────────────────────────┐
+│ column_classification (420) │ ← 컬럼 역할 분류 + parameter 생성 (LLM + Rule-based)
+└───────────────┬─────────────┘
+                │
+                ▼
+┌─────────────────────────────┐
 │ metadata_semantic (500)     │ ← metadata 파일에서 data_dictionary 추출 (LLM)
 └───────────────┬─────────────┘
                 │
                 ▼
 ┌─────────────────────────────┐
-│ data_semantic (600)         │ ← data 파일 컬럼 의미 분석 + dictionary 매칭 (LLM)
+│ parameter_semantic (600)    │ ← parameter 의미 분석 + dictionary 매칭 (LLM)
 └───────────────┬─────────────┘
                 │
                 ▼
@@ -51,10 +60,11 @@ Pipeline Flow (order 기반):
 ┌─────────────────────────────┐
 │ relationship_inference (900)│ ← 테이블 간 FK 관계 추론 + Neo4j 3-Level Ontology (LLM)
 └───────────────┬─────────────┘
-                │
+                │           ⏸️ 현재 테스트는 여기까지
                 ▼
 ┌─────────────────────────────┐
 │ ontology_enhancement (1000) │ ← Concept Hierarchy, Semantic Edges, Medical Terms (LLM)
+│     ⏸️ 현재 테스트 제외     │    [exclude_nodes로 제외 가능]
 └───────────────┬─────────────┘
                 │
                 ▼

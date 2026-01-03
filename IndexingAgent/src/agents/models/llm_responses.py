@@ -9,7 +9,8 @@ LLM 응답 구조화를 위한 Pydantic 모델들
 - 디버깅 용이
 
 Node별 모델:
-- [file_classification]: File Classification
+- [file_classification]: File Classification (metadata vs data)
+- [column_classification]: Column Classification (column_role + parameter 생성)
 - [metadata_semantic]: Metadata Semantic
 - [data_semantic]: Data Semantic
 - [entity_identification]: Entity Identification
@@ -56,6 +57,63 @@ class FileClassificationResult(PhaseResultBase):
     metadata_files: List[str] = []        # is_metadata=true 파일 경로
     data_files: List[str] = []            # is_metadata=false 파일 경로
     classifications: Dict[str, Dict[str, Any]] = {}  # 파일별 상세 분류 정보
+    # llm_calls, started_at, completed_at은 PhaseResultBase에서 상속
+
+
+# =============================================================================
+# [column_classification] node 모델
+# =============================================================================
+
+class ColumnClassificationItem(LLMAnalysisBase):
+    """
+    [column_classification] 개별 컬럼 분류 결과
+    
+    LLM이 각 컬럼에 대해 역할을 분류한 결과.
+    column_role은 ColumnRole enum 값 중 하나여야 함.
+    """
+    column_name: str = Field(
+        default="",
+        description="Original column name"
+    )
+    column_role: str = Field(
+        default="other",
+        description="Column role: parameter_name, parameter_container, identifier, value, unit, timestamp, attribute, other"
+    )
+    is_parameter_name: bool = Field(
+        default=False,
+        description="True if column name itself is a measurement parameter (Wide-format)"
+    )
+    is_parameter_container: bool = Field(
+        default=False,
+        description="True if column values are parameter names (Long-format key column)"
+    )
+    parameters: List[str] = Field(
+        default_factory=list,
+        description="If is_parameter_container=True, list of parameter names from unique values"
+    )
+    # confidence, reasoning은 LLMAnalysisBase에서 상속
+
+
+class ColumnClassificationResponse(BaseModel):
+    """[column_classification] LLM 응답 전체"""
+    columns: List[ColumnClassificationItem] = []
+    file_summary: Optional[str] = Field(
+        default=None,
+        description="Optional summary of the file's data format (wide/long/mixed)"
+    )
+
+
+class ColumnClassificationResult(PhaseResultBase):
+    """[column_classification] 컬럼 분류 최종 결과"""
+    total_files: int = 0
+    total_columns: int = 0
+    columns_by_role: Dict[str, int] = Field(
+        default_factory=dict,
+        description="Count of columns by role: {role: count}"
+    )
+    parameters_created: int = 0                 # parameter 테이블에 생성된 수
+    parameters_from_column_name: int = 0        # Wide-format (column_name → parameter)
+    parameters_from_column_value: int = 0       # Long-format (column_value → parameter)
     # llm_calls, started_at, completed_at은 PhaseResultBase에서 상속
 
 
@@ -114,21 +172,18 @@ class MetadataSemanticResult(PhaseResultBase):
 
 
 # =============================================================================
-# [data_semantic] node 모델
+# [parameter_semantic] node 모델
 # =============================================================================
 
-class ColumnSemanticResult(BaseModel):
+class ParameterSemanticResult(BaseModel):
     """
-    [data_semantic] 데이터 파일 컬럼의 의미론적 분석 결과
+    [parameter_semantic] parameter의 의미론적 분석 결과
     
-    LLM이 컬럼 이름, 통계, data_dictionary를 참조하여 분석
-    
-    Note: match_confidence는 dictionary 매칭 확신도로, 
-          일반적인 confidence와 다른 의미이므로 LLMAnalysisBase를 상속하지 않음
+    LLM이 param_key, 통계, data_dictionary를 참조하여 분석
     """
-    original_name: str = Field(
+    param_key: str = Field(
         default="",
-        description="Original column name (used as matching key)"
+        description="Parameter key (used as matching key)"
     )
     semantic_name: str = Field(
         default="",
@@ -140,7 +195,7 @@ class ColumnSemanticResult(BaseModel):
     )
     description: Optional[str] = Field(
         default=None,
-        description="Detailed description of the column"
+        description="Detailed description of the parameter"
     )
     concept_category: Optional[str] = Field(
         default=None,
@@ -162,22 +217,20 @@ class ColumnSemanticResult(BaseModel):
     )
 
 
-class DataSemanticResponse(BaseModel):
-    """[data_semantic] 파일별 LLM 응답"""
-    columns: List[ColumnSemanticResult] = []
-    file_summary: Optional[str] = None        # 파일 전체 요약 (선택)
+class ParameterSemanticResponse(BaseModel):
+    """[parameter_semantic] LLM 응답"""
+    parameters: List[ParameterSemanticResult] = []
+    summary: Optional[str] = None
 
 
-class DataSemanticResult(PhaseResultBase):
-    """[data_semantic] 데이터 시맨틱 분석 최종 결과"""
-    total_data_files: int = 0
-    processed_files: int = 0
-    total_columns_analyzed: int = 0
-    columns_matched: int = 0                  # dict_entry_id 매칭 성공
-    columns_not_found: int = 0                # dict에 없는 key 반환
-    columns_null_from_llm: int = 0            # LLM이 null 반환
-    columns_by_file: Dict[str, int] = {}
-    batches_processed: int = 0                # 배치 분할 횟수
+class ParameterSemanticResultSummary(PhaseResultBase):
+    """[parameter_semantic] 최종 결과 요약"""
+    total_parameters: int = 0
+    parameters_analyzed: int = 0
+    parameters_matched: int = 0          # dict_entry_id 매칭 성공
+    parameters_not_found: int = 0        # dict에 없는 key 반환
+    parameters_null_from_llm: int = 0    # LLM이 null 반환
+    batches_processed: int = 0
     # llm_calls, started_at, completed_at은 PhaseResultBase에서 상속
 
 

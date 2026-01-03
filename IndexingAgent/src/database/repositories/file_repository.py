@@ -186,6 +186,39 @@ class FileRepository(BaseRepository):
         
         return [row[0] for row in rows]
     
+    def get_data_files_with_details(self) -> List[Dict[str, Any]]:
+        """
+        [R5] is_metadata=false인 파일들의 상세 정보 조회
+        
+        [800] ontology_enhancement 노드의 _load_tables_with_columns()에서 사용
+        [700] relationship_inference 노드의 _load_tables_with_columns()에서 사용
+        [500] entity_identification 노드의 _load_data_files_with_columns()에서 사용
+        
+        Returns:
+            [
+                {
+                    "file_id": str,
+                    "file_name": str,
+                    "file_path": str
+                }
+            ]
+        """
+        rows = self._execute_query("""
+            SELECT file_id, file_name, file_path
+            FROM file_catalog
+            WHERE is_metadata = false
+            ORDER BY file_name
+        """, fetch="all")
+        
+        return [
+            {
+                "file_id": str(r[0]),
+                "file_name": r[1],
+                "file_path": r[2]
+            }
+            for r in rows
+        ]
+    
     def get_all_file_ids(self) -> List[str]:
         """모든 file_id 조회"""
         rows = self._execute_query("""
@@ -240,4 +273,86 @@ class FileRepository(BaseRepository):
             "is_metadata": is_metadata,
             "filename_values": self._parse_json_field(filename_values)
         }
+    
+    # =========================================================================
+    # [700] Directory Pattern Analysis 지원 메서드
+    # =========================================================================
+    
+    def update_filename_values_by_pattern(
+        self,
+        dir_id: str,
+        pattern_regex: str,
+        columns: List[Dict[str, Any]]
+    ) -> int:
+        """
+        패턴 regex를 사용하여 파일명에서 값 추출 후 filename_values 업데이트
+        
+        PostgreSQL substring() 함수를 사용하여 첫 번째 캡처 그룹 추출
+        
+        Args:
+            dir_id: 디렉토리 ID
+            pattern_regex: PostgreSQL regex 패턴 (캡처 그룹 포함)
+            columns: [{"name": str, "type": str}] 추출할 컬럼 정보
+        
+        Returns:
+            업데이트된 총 파일 수
+        """
+        conn, cursor = self._get_cursor()
+        updated_total = 0
+        
+        try:
+            for col in columns:
+                col_name = col.get("name")
+                if not col_name:
+                    continue
+                
+                col_type = col.get("type", "text")
+                
+                if col_type == "integer":
+                    # 정수형 캐스팅
+                    cursor.execute("""
+                        UPDATE file_catalog
+                        SET filename_values = CASE 
+                            WHEN file_name ~ %s THEN
+                                COALESCE(filename_values, '{}'::jsonb) || 
+                                jsonb_build_object(%s, substring(file_name from %s)::integer)
+                            ELSE filename_values
+                        END
+                        WHERE dir_id = %s
+                          AND file_name ~ %s
+                    """, (
+                        pattern_regex,
+                        col_name,
+                        pattern_regex,
+                        dir_id,
+                        pattern_regex
+                    ))
+                else:
+                    # 텍스트형
+                    cursor.execute("""
+                        UPDATE file_catalog
+                        SET filename_values = CASE 
+                            WHEN file_name ~ %s THEN
+                                COALESCE(filename_values, '{}'::jsonb) || 
+                                jsonb_build_object(%s, substring(file_name from %s))
+                            ELSE filename_values
+                        END
+                        WHERE dir_id = %s
+                          AND file_name ~ %s
+                    """, (
+                        pattern_regex,
+                        col_name,
+                        pattern_regex,
+                        dir_id,
+                        pattern_regex
+                    ))
+                
+                updated_total += cursor.rowcount
+            
+            conn.commit()
+        except Exception as e:
+            conn.rollback()
+            print(f"[FileRepository] Error updating filename_values: {e}")
+        
+        return updated_total
 

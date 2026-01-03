@@ -11,7 +11,6 @@ Entity Identification Node
 - table_entities 테이블에 결과 저장
 """
 
-import json
 import time
 from datetime import datetime
 from typing import Dict, List, Any, Optional, Tuple
@@ -24,7 +23,7 @@ from ...models.llm_responses import (
 )
 from ...base import BaseNode, LLMMixin, DatabaseMixin
 from ...registry import register_node
-from src.database import OntologySchemaManager, EntityRepository
+from src.database import OntologySchemaManager
 from src.config import EntityIdentificationConfig, LLMConfig
 from .prompts import EntityIdentificationPrompt
 
@@ -58,6 +57,11 @@ class EntityIdentificationNode(BaseNode, LLMMixin, DatabaseMixin):
         """
         데이터 파일과 그 컬럼 정보를 DB에서 로드
         
+        Uses:
+          - FileRepository.get_files_by_paths()
+          - ColumnRepository.get_columns_with_stats()
+          - ColumnRepository.get_columns_with_semantic()
+        
         Returns:
             [
                 {
@@ -82,84 +86,54 @@ class EntityIdentificationNode(BaseNode, LLMMixin, DatabaseMixin):
         if not data_files:
             return []
         
-        conn = self.get_connection()
-        cursor = conn.cursor()
-        
         files_info = []
         
         try:
-            for file_path in data_files:
-                # 파일 정보 조회 (row_count는 file_metadata JSONB에 있음)
-                cursor.execute("""
-                    SELECT file_id, file_name, file_metadata
-                    FROM file_catalog
-                    WHERE file_path = %s
-                """, (file_path,))
+            # 파일 정보 조회
+            files = self.file_repo.get_files_by_paths(data_files)
+            
+            for f in files:
+                file_id = f['file_id']
+                file_name = f['file_name']
+                file_path = f['file_path']
                 
-                file_row = cursor.fetchone()
-                if not file_row:
-                    continue
+                # row_count 추출
+                metadata = f.get('file_metadata', {})
+                row_count = metadata.get('row_count', 0) if metadata else 0
                 
-                file_id, file_name, file_metadata = file_row
+                # 컬럼 정보 조회 (통계 + semantic)
+                # get_columns_with_stats() + get_columns_with_semantic() 병합
+                cols_stats = self.column_repo.get_columns_with_stats(file_id)
+                cols_semantic = self.column_repo.get_columns_with_semantic(file_id)
                 
-                # file_metadata에서 row_count 추출
-                if file_metadata:
-                    if isinstance(file_metadata, str):
-                        file_metadata = json.loads(file_metadata)
-                    row_count = file_metadata.get('row_count', 0)
-                else:
-                    row_count = 0
-                
-                # 컬럼 정보 조회 (이전 단계에서 분석된 semantic 정보 포함)
-                cursor.execute("""
-                    SELECT 
-                        original_name,
-                        semantic_name,
-                        column_type,
-                        concept_category,
-                        column_info,
-                        value_distribution
-                    FROM column_metadata
-                    WHERE file_id = %s
-                    ORDER BY col_id
-                """, (str(file_id),))
+                # 병합: col_id 기준
+                semantic_map = {c['col_id']: c for c in cols_semantic}
                 
                 columns = []
-                for col_row in cursor.fetchall():
-                    (original_name, semantic_name, column_type,
-                     concept_category, column_info, value_distribution) = col_row
-                    
-                    # unique_count 추출
-                    unique_count = None
-                    if value_distribution:
-                        if isinstance(value_distribution, str):
-                            value_distribution = json.loads(value_distribution)
-                        unique_values = value_distribution.get('unique_values', [])
-                        unique_count = len(unique_values) if unique_values else None
-                    
-                    # column_info에서 추가 정보 추출
-                    if column_info:
-                        if isinstance(column_info, str):
-                            column_info = json.loads(column_info)
-                        # unique_count가 없으면 column_info에서 추출 시도
-                        if unique_count is None:
-                            unique_count = column_info.get('unique_count')
+                for col in cols_stats:
+                    col_id = col['col_id']
+                    sem_info = semantic_map.get(col_id, {})
                     
                     columns.append({
-                        "original_name": original_name,
-                        "semantic_name": semantic_name,
-                        "column_type": column_type,
-                        "concept_category": concept_category,
-                        "unique_count": unique_count,
-                        "column_info": column_info if isinstance(column_info, dict) else {}
+                        "original_name": col['original_name'],
+                        "column_role": col.get('column_role'),
+                        "semantic_name": sem_info.get('semantic_name'),
+                        "column_type": col.get('column_type'),
+                        "concept_category": sem_info.get('concept_category'),
+                        "unique_count": col.get('unique_count'),
+                        "column_info": col.get('column_info', {})
                     })
                 
+                # filename_values 추출 (파일명에서 추출된 값들)
+                filename_values = f.get('filename_values', {})
+                
                 files_info.append({
-                    "file_id": str(file_id),
+                    "file_id": file_id,
                     "file_name": file_name,
                     "row_count": row_count or 0,
                     "file_path": file_path,
-                    "columns": columns
+                    "columns": columns,
+                    "filename_values": filename_values
                 })
         
         except Exception as e:
@@ -173,6 +147,9 @@ class EntityIdentificationNode(BaseNode, LLMMixin, DatabaseMixin):
         """
         LLM 프롬프트용 테이블 컨텍스트 생성
         
+        column_role을 활용하여 identifier 후보를 강조합니다.
+        filename_values도 포함하여 파일명에서 추출된 값을 표시합니다.
+        
         Args:
             files_info: _load_data_files_with_columns()의 결과
         
@@ -185,9 +162,17 @@ class EntityIdentificationNode(BaseNode, LLMMixin, DatabaseMixin):
             file_name = file_info['file_name']
             row_count = file_info['row_count']
             columns = file_info['columns']
+            filename_values = file_info.get('filename_values', {})
             
             lines.append(f"\n## {file_name}")
             lines.append(f"Rows: {row_count:,}")
+            
+            # filename_values 표시 (파일명에서 추출된 값)
+            if filename_values:
+                lines.append("Filename-extracted values (embedded in filename):")
+                for key, value in filename_values.items():
+                    lines.append(f"  - {key}: {value}")
+            
             lines.append("Columns:")
             
             max_cols = EntityIdentificationConfig.MAX_COLUMNS_PER_TABLE
@@ -195,19 +180,39 @@ class EntityIdentificationNode(BaseNode, LLMMixin, DatabaseMixin):
             
             for col in display_cols:
                 name = col['original_name']
+                col_role = col.get('column_role')
                 semantic = col.get('semantic_name') or name
-                concept = col.get('concept_category') or '-'
+                concept = col.get('concept_category')
                 col_type = col.get('column_type') or '-'
                 unique_count = col.get('unique_count')
                 
-                line = f"  - {name}"
-                if semantic != name:
-                    line += f" ({semantic})"
-                line += f" [{concept}, {col_type}]"
-                
-                # identifier 후보인 경우 unique count 강조
-                if EntityIdentificationConfig.SHOW_UNIQUE_COUNTS and unique_count is not None:
-                    line += f" unique: {unique_count:,}"
+                # column_role에 따라 다른 형식으로 표시
+                if col_role == 'identifier':
+                    # identifier는 강조 표시
+                    line = f"  - {name} 🔑[IDENTIFIER]"
+                    if unique_count is not None:
+                        line += f" unique: {unique_count:,}"
+                        # row_count와 비교하여 unique identifier 후보 표시
+                        if row_count > 0 and unique_count == row_count:
+                            line += " ← matches row count!"
+                elif col_role == 'parameter_name':
+                    # parameter는 semantic 정보 포함
+                    line = f"  - {name}"
+                    if semantic and semantic != name:
+                        line += f" ({semantic})"
+                    if concept:
+                        line += f" [{concept}]"
+                elif col_role == 'timestamp':
+                    line = f"  - {name} [timestamp]"
+                elif col_role == 'attribute':
+                    line = f"  - {name} [attribute]"
+                    if unique_count is not None:
+                        line += f" unique: {unique_count:,}"
+                else:
+                    # 기타 컬럼
+                    line = f"  - {name} [{col_type}]"
+                    if EntityIdentificationConfig.SHOW_UNIQUE_COUNTS and unique_count is not None:
+                        line += f" unique: {unique_count:,}"
                 
                 lines.append(line)
             
@@ -307,7 +312,7 @@ class EntityIdentificationNode(BaseNode, LLMMixin, DatabaseMixin):
             })
         
         if entities_to_save:
-            EntityRepository().save_table_entities(entities_to_save)
+            self.entity_repo.save_table_entities(entities_to_save)
         
         return len(entities_to_save)
     

@@ -24,9 +24,8 @@ load_dotenv()
 def reset_postgres(recreate_tables=True):
     """PostgreSQL 모든 테이블 삭제 및 재생성
     
-    FK 참조 관계로 인해 삭제/생성 순서가 중요:
-    - 삭제: Ontology → Dictionary → Catalog (참조하는 것 먼저)
-    - 생성: Catalog → Dictionary → Ontology (참조되는 것 먼저)
+    모든 public 스키마의 테이블을 CASCADE로 강제 삭제한 후,
+    필요시 빈 테이블을 재생성합니다.
     
     Args:
         recreate_tables: True면 삭제 후 빈 테이블 재생성
@@ -41,12 +40,14 @@ def reset_postgres(recreate_tables=True):
             DictionarySchemaManager,
             OntologySchemaManager,
             DirectorySchemaManager,
+            ParameterSchemaManager,
             get_db_manager,
         )
         db = get_db_manager()
         conn = db.get_connection()
         cursor = conn.cursor()
         
+        # 1. 현재 테이블 목록 조회
         cursor.execute("""
             SELECT table_name 
             FROM information_schema.tables 
@@ -58,35 +59,43 @@ def reset_postgres(recreate_tables=True):
         if tables:
             print(f"   - 삭제 대상 테이블: {len(tables)}개")
             for table in tables:
-                print(f"     • {table}")
+                cursor.execute(f"SELECT COUNT(*) FROM {table}")
+                count = cursor.fetchone()[0]
+                print(f"     • {table} ({count}개 row)")
         else:
             print("   - 삭제할 테이블 없음")
         
-        # 1. 삭제: FK 참조하는 테이블 먼저 (역순)
-        # 순서: Ontology → Dictionary → Catalog → Directory
-        print("\n   📤 테이블 삭제 (FK 참조 순서)...")
-        try:
-            OntologySchemaManager().drop_tables(confirm=True)
-        except Exception as e:
-            print(f"      ⚠️ Ontology: {e}")
+        # 2. 모든 테이블 강제 삭제 (CASCADE)
+        print("\n   📤 모든 테이블 강제 삭제 (CASCADE)...")
+        cursor.execute("""
+            DO $$ 
+            DECLARE 
+                r RECORD;
+            BEGIN
+                -- 모든 public 스키마 테이블 삭제
+                FOR r IN (SELECT tablename FROM pg_tables WHERE schemaname = 'public') 
+                LOOP
+                    EXECUTE 'DROP TABLE IF EXISTS public.' || quote_ident(r.tablename) || ' CASCADE';
+                END LOOP;
+            END $$;
+        """)
+        conn.commit()
         
-        try:
-            DictionarySchemaManager().drop_tables(confirm=True)
-        except Exception as e:
-            print(f"      ⚠️ Dictionary: {e}")
+        # 삭제 확인
+        cursor.execute("""
+            SELECT table_name 
+            FROM information_schema.tables 
+            WHERE table_schema = 'public' 
+            AND table_type = 'BASE TABLE'
+        """)
+        remaining = cursor.fetchall()
+        if remaining:
+            print(f"   ⚠️ 남은 테이블: {[r[0] for r in remaining]}")
+        else:
+            print("   ✅ 모든 테이블 삭제됨")
         
-        try:
-            CatalogSchemaManager().drop_tables(confirm=True)
-        except Exception as e:
-            print(f"      ⚠️ Catalog: {e}")
-        
-        try:
-            DirectorySchemaManager().drop_tables(confirm=True)
-        except Exception as e:
-            print(f"      ⚠️ Directory: {e}")
-        
-        # 2. 생성: FK 참조되는 테이블 먼저 (정순)
-        # 순서: Directory → Catalog → Dictionary → Ontology
+        # 3. 테이블 재생성 (FK 참조 순서대로)
+        # 순서: Directory → Catalog → Dictionary → Parameter → Ontology
         if recreate_tables:
             print("\n   📥 테이블 생성 (FK 참조 순서)...")
             try:
@@ -105,6 +114,11 @@ def reset_postgres(recreate_tables=True):
                 print(f"      ⚠️ Dictionary: {e}")
             
             try:
+                ParameterSchemaManager().create_tables()
+            except Exception as e:
+                print(f"      ⚠️ Parameter: {e}")
+            
+            try:
                 OntologySchemaManager().create_tables()
             except Exception as e:
                 print(f"      ⚠️ Ontology: {e}")
@@ -113,6 +127,8 @@ def reset_postgres(recreate_tables=True):
         
     except Exception as e:
         print(f"❌ [PostgreSQL] 오류: {e}")
+        import traceback
+        traceback.print_exc()
 
 
 def reset_neo4j():

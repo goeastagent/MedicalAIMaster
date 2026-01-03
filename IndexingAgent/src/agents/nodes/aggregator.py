@@ -109,58 +109,58 @@ class SchemaAggregationNode(BaseNode, DatabaseMixin):
             - column_batches: 컬럼 LLM 배치 리스트
             - file_batches: 파일 LLM 배치 리스트
         """
-        print("\n" + "=" * 60)
-        print("🔄 [Schema Aggregation] 유니크 컬럼/파일 집계")
-        print("=" * 60)
+        self.log("=" * 60)
+        self.log("🔄 유니크 컬럼/파일 집계")
+        self.log("=" * 60)
         
         # 1. 집계 통계 조회
         stats = self._get_aggregation_stats()
-        print(f"\n📊 Current DB Stats:")
-        print(f"   Total files: {stats.get('total_files', 0):,}")
-        print(f"   Total columns: {stats.get('total_columns', 0):,}")
-        print(f"   Unique columns: {stats.get('unique_columns', 0):,}")
+        self.log("📊 Current DB Stats:")
+        self.log(f"Total files: {stats.get('total_files', 0):,}", indent=1)
+        self.log(f"Total columns: {stats.get('total_columns', 0):,}", indent=1)
+        self.log(f"Unique columns: {stats.get('unique_columns', 0):,}", indent=1)
         
         if stats.get('unique_by_type'):
-            print(f"   By type: {stats.get('unique_by_type')}")
+            self.log(f"By type: {stats.get('unique_by_type')}", indent=1)
         
         # 2. 유니크 컬럼 집계
-        print(f"\n🔍 Aggregating unique columns...")
+        self.log("🔍 Aggregating unique columns...")
         unique_columns = self._aggregate_unique_columns()
-        print(f"   ✅ Found {len(unique_columns)} unique columns")
+        self.log(f"✅ Found {len(unique_columns)} unique columns", indent=1)
         
         # 컬럼 배치 준비
         column_batch_size = MetadataSemanticConfig.COLUMN_BATCH_SIZE
         column_batches = self._prepare_batches(unique_columns, column_batch_size)
-        print(f"\n📦 Column LLM Batches:")
-        print(f"   Batch size: {column_batch_size}")
-        print(f"   Total batches: {len(column_batches)}")
+        self.log("📦 Column LLM Batches:")
+        self.log(f"Batch size: {column_batch_size}", indent=1)
+        self.log(f"Total batches: {len(column_batches)}", indent=1)
         
         # 샘플 출력
         if unique_columns:
-            print(f"\n📝 Sample columns (top 5 by frequency):")
+            self.log("📝 Sample columns (top 5 by frequency):")
             for col in unique_columns[:5]:
-                self._print_column_sample(col)
+                self._log_column_sample(col)
         
         # 3. 파일 집계
-        print(f"\n🔍 Aggregating files for semantic analysis...")
+        self.log("🔍 Aggregating files for semantic analysis...")
         unique_files = self._aggregate_unique_files()
-        print(f"   ✅ Found {len(unique_files)} files to analyze")
+        self.log(f"✅ Found {len(unique_files)} files to analyze", indent=1)
         
         # 파일 배치 준비
         file_batch_size = MetadataSemanticConfig.FILE_BATCH_SIZE
         file_batches = self._prepare_batches(unique_files, file_batch_size)
-        print(f"\n📦 File LLM Batches:")
-        print(f"   Batch size: {file_batch_size}")
-        print(f"   Total batches: {len(file_batches)}")
+        self.log("📦 File LLM Batches:")
+        self.log(f"Batch size: {file_batch_size}", indent=1)
+        self.log(f"Total batches: {len(file_batches)}", indent=1)
         
         # 샘플 출력
         if unique_files:
-            print(f"\n📁 Sample files:")
+            self.log("📁 Sample files:")
             for f in unique_files[:5]:
                 name = f.get('file_name', '?')
                 cols = f.get('column_count', 0)
                 ptype = f.get('processor_type', '?')
-                print(f"   - {name} ({ptype}, {cols} columns)")
+                self.log(f"- {name} ({ptype}, {cols} columns)", indent=1)
         
         # 4. 결과 구성
         result = {
@@ -175,11 +175,11 @@ class SchemaAggregationNode(BaseNode, DatabaseMixin):
             "stats": stats
         }
         
-        print(f"\n✅ [Schema Aggregation] Complete!")
-        print(f"   → {len(unique_columns)} unique columns → {len(column_batches)} batches")
-        print(f"   → {len(unique_files)} files → {len(file_batches)} batches")
-        print(f"   → Ready for LLM analysis!")
-        print("=" * 60 + "\n")
+        self.log("✅ Complete!")
+        self.log(f"→ {len(unique_columns)} unique columns → {len(column_batches)} batches", indent=1)
+        self.log(f"→ {len(unique_files)} files → {len(file_batches)} batches", indent=1)
+        self.log(f"→ Ready for LLM analysis!", indent=1)
+        self.log("=" * 60)
         
         return {
             "schema_aggregation_result": result,
@@ -214,7 +214,7 @@ class SchemaAggregationNode(BaseNode, DatabaseMixin):
             return unique_columns
             
         except Exception as e:
-            print(f"[Schema Aggregation] Error aggregating columns: {e}")
+            self.log(f"❌ Error aggregating columns: {e}")
             conn.rollback()
             raise
         finally:
@@ -241,7 +241,7 @@ class SchemaAggregationNode(BaseNode, DatabaseMixin):
             return files
             
         except Exception as e:
-            print(f"[Schema Aggregation] Error aggregating files: {e}")
+            self.log(f"❌ Error aggregating files: {e}")
             conn.rollback()
             raise
         finally:
@@ -273,7 +273,7 @@ class SchemaAggregationNode(BaseNode, DatabaseMixin):
             stats["total_files"] = cursor.fetchone()[0]
             
         except Exception as e:
-            print(f"[Schema Aggregation] Error getting stats: {e}")
+            self.log(f"❌ Error getting stats: {e}")
             stats["error"] = str(e)
         
         return stats
@@ -355,7 +355,7 @@ class SchemaAggregationNode(BaseNode, DatabaseMixin):
             batches.append(batch)
         return batches
     
-    def _print_column_sample(self, col: Dict[str, Any]):
+    def _log_column_sample(self, col: Dict[str, Any]):
         """컬럼 샘플 출력"""
         freq = col.get('frequency', 0)
         col_type = col.get('column_type', 'unknown')
@@ -368,7 +368,7 @@ class SchemaAggregationNode(BaseNode, DatabaseMixin):
             values = list(col['sample_values'].keys())[:3]
             stat_str = f"values: {values}"
         
-        print(f"   - {name} ({col_type}, freq={freq}) {stat_str}")
+        self.log(f"- {name} ({col_type}, freq={freq}) {stat_str}", indent=1)
     
     # =========================================================================
     # Convenience Methods (Standalone Execution)
@@ -385,9 +385,9 @@ class SchemaAggregationNode(BaseNode, DatabaseMixin):
         node = cls()
         
         if verbose:
-            print("\n" + "=" * 60)
-            print("🔄 Running Schema Aggregation...")
-            print("=" * 60)
+            node.log("=" * 60)
+            node.log("🔄 Running Schema Aggregation...")
+            node.log("=" * 60)
         
         # 컬럼 집계
         unique_columns = node._aggregate_unique_columns()
@@ -413,9 +413,9 @@ class SchemaAggregationNode(BaseNode, DatabaseMixin):
         }
         
         if verbose:
-            print(f"\n✅ Aggregation Complete:")
-            print(f"   Unique columns: {len(unique_columns)} → {len(column_batches)} batches")
-            print(f"   Unique files: {len(unique_files)} → {len(file_batches)} batches")
+            node.log("✅ Aggregation Complete:")
+            node.log(f"Unique columns: {len(unique_columns)} → {len(column_batches)} batches", indent=1)
+            node.log(f"Unique files: {len(unique_files)} → {len(file_batches)} batches", indent=1)
         
         return result
     

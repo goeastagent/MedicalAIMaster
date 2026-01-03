@@ -52,6 +52,10 @@ from .managers import (
     OntologySchemaManager,
     init_ontology_schema,
     ensure_ontology_schema,
+    # Parameter
+    ParameterSchemaManager,
+    init_parameter_schema,
+    ensure_parameter_schema,
 )
 
 # CRUD 함수 (하위 호환성)
@@ -93,16 +97,19 @@ __all__ = [
     'DictionarySchemaManager',
     'DirectorySchemaManager',
     'OntologySchemaManager',
+    'ParameterSchemaManager',
     
     # Schema 편의 함수
     'init_catalog_schema',
     'init_dictionary_schema',
     'init_directory_schema',
     'init_ontology_schema',
+    'init_parameter_schema',
     'ensure_catalog_schema',
     'ensure_dictionary_schema',
     'ensure_directory_schema',
     'ensure_ontology_schema',
+    'ensure_parameter_schema',
     
     # CRUD 함수 (하위 호환성)
     'insert_dictionary_entries_batch',

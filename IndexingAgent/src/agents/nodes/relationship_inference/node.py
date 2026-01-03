@@ -24,15 +24,15 @@ from ...models.llm_responses import (
     RelationshipInferenceResponse,
     RelationshipInferenceResult,
 )
-from ...base import BaseNode, LLMMixin, DatabaseMixin
+from ...base import BaseNode, LLMMixin, DatabaseMixin, Neo4jMixin
 from ...registry import register_node
-from src.database import OntologySchemaManager, EntityRepository
+from src.database import OntologySchemaManager
 from src.config import RelationshipInferenceConfig, LLMConfig, Neo4jConfig
 from .prompts import RelationshipInferencePrompt
 
 
 @register_node
-class RelationshipInferenceNode(BaseNode, LLMMixin, DatabaseMixin):
+class RelationshipInferenceNode(BaseNode, LLMMixin, DatabaseMixin, Neo4jMixin):
     """
     Relationship Inference + Neo4j Node (LLM-based)
     
@@ -61,12 +61,14 @@ class RelationshipInferenceNode(BaseNode, LLMMixin, DatabaseMixin):
     prompt_class = RelationshipInferencePrompt
     
     # =============================================================================
-    # Data Loading
+    # Data Loading (Using Repository Pattern)
     # =============================================================================
     
     def _load_tables_with_entity_and_columns(self) -> List[Dict[str, Any]]:
         """
         table_entities + column_metadata + file_catalog 조인 로드
+        
+        Uses: EntityRepository.get_tables_with_entities(include_semantic=True)
         
         Returns:
             [
@@ -82,95 +84,13 @@ class RelationshipInferenceNode(BaseNode, LLMMixin, DatabaseMixin):
                 ...
             ]
         """
-        conn = self.get_connection()
-        cursor = conn.cursor()
-        
-        tables_info = []
-        
         try:
-            # 1. table_entities와 file_catalog 조인 (filename_values 포함)
-            cursor.execute("""
-                SELECT 
-                    te.file_id,
-                    fc.file_name,
-                    fc.file_metadata,
-                    te.row_represents,
-                    te.entity_identifier,
-                    te.confidence,
-                    fc.filename_values
-                FROM table_entities te
-                JOIN file_catalog fc ON te.file_id = fc.file_id
-            """)
-            
-            table_rows = cursor.fetchall()
-            
-            for row in table_rows:
-                file_id, file_name, file_metadata, row_represents, entity_identifier, confidence, filename_values = row
-                
-                # row_count 추출
-                row_count = 0
-                if file_metadata:
-                    if isinstance(file_metadata, str):
-                        file_metadata = json.loads(file_metadata)
-                    row_count = file_metadata.get('row_count', 0)
-                
-                # filename_values 파싱
-                if filename_values:
-                    if isinstance(filename_values, str):
-                        filename_values = json.loads(filename_values)
-                else:
-                    filename_values = {}
-                
-                # 2. 해당 테이블의 컬럼 정보 조회
-                cursor.execute("""
-                    SELECT 
-                        original_name,
-                        semantic_name,
-                        concept_category,
-                        unit,
-                        value_distribution
-                    FROM column_metadata
-                    WHERE file_id = %s
-                    ORDER BY col_id
-                """, (str(file_id),))
-                
-                columns = []
-                for col_row in cursor.fetchall():
-                    orig_name, sem_name, concept, unit, value_dist = col_row
-                    
-                    # unique_count 추출
-                    unique_count = None
-                    if value_dist:
-                        if isinstance(value_dist, str):
-                            value_dist = json.loads(value_dist)
-                        unique_values = value_dist.get('unique_values', [])
-                        unique_count = len(unique_values) if unique_values else None
-                    
-                    columns.append({
-                        "original_name": orig_name,
-                        "semantic_name": sem_name,
-                        "concept_category": concept,
-                        "unit": unit,
-                        "unique_count": unique_count
-                    })
-                
-                tables_info.append({
-                    "file_id": str(file_id),
-                    "file_name": file_name,
-                    "row_represents": row_represents,
-                    "entity_identifier": entity_identifier,
-                    "row_count": row_count,
-                    "confidence": confidence,
-                    "columns": columns,
-                    "filename_values": filename_values
-                })
-        
+            return self.entity_repo.get_tables_with_entities(include_semantic=True)
         except Exception as e:
             self.log(f"❌ Error loading tables: {e}")
             import traceback
             traceback.print_exc()
-        
-        return tables_info
+            return []
     
     def _find_shared_columns(self, tables: List[Dict]) -> List[Dict[str, Any]]:
         """
@@ -250,16 +170,19 @@ class RelationshipInferenceNode(BaseNode, LLMMixin, DatabaseMixin):
             if filename_values:
                 lines.append(f"- filename_values (extracted from filename): {filename_values}")
             
-            # FK 후보 컬럼만 표시
+            # FK 후보 컬럼만 표시 (identifier role 또는 FK 패턴/개념)
             fk_candidates = [c for c in table['columns'] 
-                            if c['concept_category'] in RelationshipInferenceConfig.FK_CANDIDATE_CONCEPTS
+                            if c.get('column_role') == 'identifier'
+                            or c.get('concept_category') in RelationshipInferenceConfig.FK_CANDIDATE_CONCEPTS
                             or any(p in (c['original_name'] or '') for p in RelationshipInferenceConfig.FK_CANDIDATE_PATTERNS)]
             
             if fk_candidates:
                 lines.append("- FK candidate columns:")
                 for col in fk_candidates:
                     unique_str = f"unique: {col['unique_count']:,}" if col['unique_count'] else "unique: ?"
-                    lines.append(f"    - {col['original_name']} ({col['concept_category'] or '-'}) [{unique_str}]")
+                    role_str = f"🔑" if col.get('column_role') == 'identifier' else ""
+                    concept_str = col.get('concept_category') or col.get('column_role') or '-'
+                    lines.append(f"    - {col['original_name']} {role_str}({concept_str}) [{unique_str}]")
         
         return "\n".join(lines)
     
@@ -394,27 +317,13 @@ class RelationshipInferenceNode(BaseNode, LLMMixin, DatabaseMixin):
             })
         
         if rel_dicts:
-            EntityRepository().save_relationships(rel_dicts)
+            self.entity_repo.save_relationships(rel_dicts)
         
         return len(rel_dicts)
     
     # =============================================================================
-    # Neo4j Sync
+    # Neo4j Sync (Using Neo4jMixin)
     # =============================================================================
-    
-    def _get_neo4j_driver(self):
-        """Neo4j 드라이버 가져오기"""
-        try:
-            from neo4j import GraphDatabase
-            driver = GraphDatabase.driver(
-                Neo4jConfig.URI,
-                auth=(Neo4jConfig.USER, Neo4jConfig.PASSWORD)
-            )
-            driver.verify_connectivity()
-            return driver
-        except Exception as e:
-            self.log(f"⚠️ Neo4j connection failed: {e}", indent=1)
-            return None
     
     def _create_row_entity_nodes(self, driver, tables: List[Dict]) -> int:
         """Level 1: RowEntity 노드 생성"""
@@ -623,43 +532,12 @@ class RelationshipInferenceNode(BaseNode, LLMMixin, DatabaseMixin):
         return count
     
     def _load_filename_column_mappings(self) -> Dict[str, Dict[str, Any]]:
-        """directory_catalog에서 filename_columns 매핑 정보 로드"""
-        conn = self.get_connection()
-        cursor = conn.cursor()
+        """
+        directory_catalog에서 filename_columns 매핑 정보 로드
         
-        mappings = {}
-        
-        try:
-            cursor.execute("""
-                SELECT dir_name, filename_columns
-                FROM directory_catalog
-                WHERE filename_columns IS NOT NULL
-            """)
-            
-            for row in cursor.fetchall():
-                dir_name, filename_columns = row
-                if filename_columns:
-                    if isinstance(filename_columns, str):
-                        filename_columns = json.loads(filename_columns)
-                    
-                    col_map = {}
-                    for col_info in filename_columns:
-                        col_name = col_info.get('name')
-                        if col_name:
-                            col_map[col_name] = {
-                                "type": col_info.get('type'),
-                                "matched_column": col_info.get('matched_column'),
-                                "match_confidence": col_info.get('match_confidence', 0.0),
-                                "match_reasoning": col_info.get('match_reasoning', '')
-                            }
-                    
-                    if col_map:
-                        mappings[dir_name] = col_map
-        
-        except Exception as e:
-            self.log(f"⚠️ Error loading filename column mappings: {e}", indent=1)
-        
-        return mappings
+        Uses: DirectoryRepository.get_filename_column_mappings()
+        """
+        return self.directory_repo.get_filename_column_mappings()
     
     def _create_filename_value_edges(self, driver, tables: List[Dict]) -> int:
         """filename_values에서 추출된 값을 Parameter 노드와 FILENAME_VALUE 관계로 연결"""
@@ -689,20 +567,22 @@ class RelationshipInferenceNode(BaseNode, LLMMixin, DatabaseMixin):
                             break
                     
                     if matched_info:
-                        matched_column = matched_info.get('matched_column', key)
+                        matched_column = matched_info.get('matched_column') or key  # None 방지
                         confidence = matched_info.get('match_confidence', 0.8)
                         reasoning = matched_info.get('match_reasoning', reasoning)
-                        
-                        if 'id' in matched_column.lower() or 'case' in matched_column.lower():
-                            semantic_role = "case_identifier"
-                        elif 'subject' in matched_column.lower() or 'patient' in matched_column.lower():
-                            semantic_role = "subject_identifier"
-                        elif 'date' in matched_column.lower() or 'time' in matched_column.lower():
-                            semantic_role = "temporal_identifier"
-                        else:
-                            semantic_role = "identifier"
                     else:
                         matched_column = key
+                    
+                    # semantic_role 결정 (matched_column은 항상 문자열)
+                    matched_lower = matched_column.lower()
+                    if 'id' in matched_lower or 'case' in matched_lower:
+                        semantic_role = "case_identifier"
+                    elif 'subject' in matched_lower or 'patient' in matched_lower:
+                        semantic_role = "subject_identifier"
+                    elif 'date' in matched_lower or 'time' in matched_lower:
+                        semantic_role = "temporal_identifier"
+                    else:
+                        semantic_role = "identifier"
                     
                     try:
                         session.run("""
@@ -734,7 +614,7 @@ class RelationshipInferenceNode(BaseNode, LLMMixin, DatabaseMixin):
         tables: List[Dict],
         relationships: List[TableRelationship]
     ) -> Dict[str, int]:
-        """Neo4j 전체 동기화"""
+        """Neo4j 전체 동기화 (Neo4jMixin 사용)"""
         stats = {
             "row_entity_nodes": 0,
             "concept_category_nodes": 0,
@@ -750,7 +630,7 @@ class RelationshipInferenceNode(BaseNode, LLMMixin, DatabaseMixin):
             self.log("ℹ️ Neo4j sync is disabled", indent=1)
             return stats
         
-        driver = self._get_neo4j_driver()
+        driver = self.neo4j_driver  # Neo4jMixin 사용
         if not driver:
             self.log("⚠️ Skipping Neo4j sync (connection failed)", indent=1)
             return stats
@@ -787,7 +667,7 @@ class RelationshipInferenceNode(BaseNode, LLMMixin, DatabaseMixin):
             self.log(f"✓ FILENAME_VALUE edges: {stats['edges_filename_value']}", indent=2)
             
         finally:
-            driver.close()
+            self.close_neo4j()  # Neo4jMixin 사용
         
         return stats
     

@@ -32,13 +32,18 @@ class EntityRepository(BaseRepository):
     
     def get_tables_with_entities(
         self, 
-        file_paths: List[str] = None
+        file_paths: List[str] = None,
+        include_semantic: bool = False
     ) -> List[Dict[str, Any]]:
         """
         Entity 정보가 포함된 테이블 목록 조회
         
         table_entities + file_catalog + column_metadata 조인
         relationship_inference node에서 FK 관계 추론 시 사용
+        
+        Args:
+            file_paths: 특정 파일 경로만 조회 (None이면 전체)
+            include_semantic: parameter 테이블의 semantic 정보 포함 여부
         
         Returns:
             [
@@ -87,8 +92,11 @@ class EntityRepository(BaseRepository):
             metadata = self._parse_json_field(file_metadata)
             row_count = metadata.get('row_count', 0)
             
-            # 컬럼 정보 조회
-            columns = col_repo.get_columns_for_relationship(str(file_id))
+            # 컬럼 정보 조회 (semantic 포함 여부에 따라)
+            if include_semantic:
+                columns = col_repo.get_columns_for_relationship_with_semantic(str(file_id))
+            else:
+                columns = col_repo.get_columns_for_relationship(str(file_id))
             
             tables.append({
                 "file_id": str(file_id),
@@ -157,14 +165,16 @@ class EntityRepository(BaseRepository):
                 cursor.execute("""
                     INSERT INTO table_entities (
                         file_id, row_represents, entity_identifier,
-                        confidence, reasoning
-                    ) VALUES (%s, %s, %s, %s, %s)
+                        confidence, reasoning, llm_analyzed_at
+                    ) VALUES (%s, %s, %s, %s, %s, NOW())
                     ON CONFLICT (file_id)
                     DO UPDATE SET
                         row_represents = EXCLUDED.row_represents,
                         entity_identifier = EXCLUDED.entity_identifier,
                         confidence = EXCLUDED.confidence,
-                        reasoning = EXCLUDED.reasoning
+                        reasoning = EXCLUDED.reasoning,
+                        llm_analyzed_at = NOW(),
+                        updated_at = NOW()
                 """, (
                     entity.get("file_id"),
                     entity.get("row_represents"),

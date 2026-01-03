@@ -1,28 +1,35 @@
 #!/usr/bin/env python3
 """
-Full Pipeline Test + Results Viewer
+Pipeline Test + Results Viewer (relationship_inference까지)
 
-전체 파이프라인 실행 후 모든 DB 테이블 결과를 출력합니다.
+파이프라인 실행 후 DB 테이블 결과를 출력합니다.
+현재 테스트는 relationship_inference(900)까지만 실행합니다.
+ontology_enhancement(1000)는 제외되어 있습니다.
 
-실행 Nodes (10-Node Sequential Pipeline):
+실행 Nodes (10-Node Pipeline - ontology_enhancement 제외):
 - [directory_catalog]: 디렉토리 구조 분석, 파일명 샘플 수집 (Rule-based)
 - [file_catalog]: 파일/컬럼 물리적 정보 수집 (Rule-based)
 - [schema_aggregation]: 스키마 집계 (Rule-based)
 - [file_classification]: 파일을 metadata/data로 분류 (LLM)
+- [column_classification]: 컬럼 역할 분류 + parameter 생성 (LLM)
 - [metadata_semantic]: metadata 파일에서 data_dictionary 추출 (LLM)
-- [data_semantic]: data 파일 컬럼 의미 분석 + dictionary 매칭 (LLM)
+- [parameter_semantic]: parameter 테이블 의미 분석 + dictionary 매칭 (LLM)
 - [directory_pattern]: 디렉토리 파일명 패턴 분석 + ID 추출 (LLM)
 - [entity_identification]: 테이블 Entity 식별 (row_represents, entity_identifier) (LLM)
 - [relationship_inference]: 테이블 간 FK 관계 추론 + Neo4j 3-Level Ontology (LLM + Rule)
-- [ontology_enhancement]: Ontology Enhancement (Concept Hierarchy, Semantic Edges, Medical Terms)
+
+⏸️ [ontology_enhancement]: Ontology Enhancement (테스트에서 제외)
 
 결과 DB Tables:
 - directory_catalog: 디렉토리 메타데이터 + 파일명 패턴
 - file_catalog: 파일 메타데이터 + filename_values
-- column_metadata: 컬럼 메타데이터 + 시맨틱 정보
+- column_metadata: 컬럼 물리 정보 + column_role
+- parameter: 파라미터 통합 관리 (Wide/Long format) + semantic 정보
 - data_dictionary: 파라미터 정의 (key, desc, unit)
 - table_entities: 테이블 Entity 정보
 - table_relationships: FK 관계
+
+(ontology_enhancement 제외로 아래 테이블은 비어있음):
 - ontology_subcategories: SubCategory 세분화
 - semantic_edges: Parameter 간 의미 관계
 - medical_term_mappings: SNOMED/LOINC 매핑
@@ -69,6 +76,7 @@ def reset_database():
         DictionarySchemaManager,
         OntologySchemaManager,
         DirectorySchemaManager,
+        ParameterSchemaManager,
     )
     
     # 1. 삭제: FK 참조하는 테이블 먼저 삭제 (역순)
@@ -78,6 +86,13 @@ def reset_database():
         print("✅ Ontology tables dropped")
     except Exception as e:
         print(f"⚠️  Error dropping ontology: {e}")
+    
+    try:
+        param_manager = ParameterSchemaManager()
+        param_manager.drop_tables(confirm=True)
+        print("✅ Parameter tables dropped")
+    except Exception as e:
+        print(f"⚠️  Error dropping parameter: {e}")
     
     try:
         dict_manager = DictionarySchemaManager()
@@ -123,6 +138,13 @@ def reset_database():
         print(f"⚠️  Error creating dictionary: {e}")
     
     try:
+        param_manager = ParameterSchemaManager()
+        param_manager.create_tables()
+        print("✅ Parameter tables created")
+    except Exception as e:
+        print(f"⚠️  Error creating parameter: {e}")
+    
+    try:
         ontology_manager = OntologySchemaManager()
         ontology_manager.create_tables()
         print("✅ Ontology tables created")
@@ -160,9 +182,10 @@ def find_data_files() -> list:
 
 
 def run_full_pipeline():
-    """전체 파이프라인 실행"""
+    """전체 파이프라인 실행 (relationship_inference까지만)"""
     print("\n" + "="*80)
-    print("🚀 Running Full Pipeline (directory_catalog → ontology_enhancement)")
+    print("🚀 Running Pipeline (directory_catalog → relationship_inference)")
+    print("   ℹ️  ontology_enhancement is excluded for testing")
     print("="*80)
     
     input_files = find_data_files()
@@ -172,7 +195,8 @@ def run_full_pipeline():
         return None
     
     from src.agents.graph import build_agent
-    agent = build_agent()
+    # ontology_enhancement (order 1000) 제외 - relationship_inference (900)까지만 테스트
+    agent = build_agent(exclude_nodes=["ontology_enhancement"])
     
     initial_state = {
         # Input Directory
@@ -203,13 +227,15 @@ def run_full_pipeline():
         "metadata_files": [],
         "data_files": [],
         
+        # [column_classification] Result
+        "column_classification_result": None,
+        
         # [metadata_semantic] Result
         "metadata_semantic_result": None,
         "data_dictionary_entries": [],
         
-        # [data_semantic] Result
-        "data_semantic_result": None,
-        "data_semantic_entries": [],
+        # [parameter_semantic] Result
+        "parameter_semantic_result": None,
         
         # [directory_pattern] Result
         "directory_pattern_result": None,
@@ -436,12 +462,12 @@ def print_file_catalog(limit: int = 10):
 
 
 def print_column_metadata(limit: int = 20):
-    """column_metadata 테이블 출력"""
+    """column_metadata 테이블 출력 (물리 정보 + column_role)"""
     conn = get_fresh_connection()
     cursor = conn.cursor()
     
     print("\n" + "="*80)
-    print("📊 TABLE: column_metadata")
+    print("📊 TABLE: column_metadata (물리 정보 + column_role)")
     print("="*80)
     
     try:
@@ -449,8 +475,8 @@ def print_column_metadata(limit: int = 20):
         total = cursor.fetchone()[0]
         
         cursor.execute("""
-            SELECT fc.file_name, cm.original_name, cm.semantic_name, 
-                   cm.concept_category, cm.unit, cm.dict_match_status
+            SELECT fc.file_name, cm.original_name, cm.column_type,
+                   cm.data_type, cm.column_role
             FROM column_metadata cm
             JOIN file_catalog fc ON cm.file_id = fc.file_id
             ORDER BY fc.file_name, cm.col_id
@@ -459,26 +485,97 @@ def print_column_metadata(limit: int = 20):
         
         rows = cursor.fetchall()
         
-        print(f"\n{'File':<25} {'Column':<15} {'Semantic':<20} {'Category':<18} {'Unit':<8} {'Match'}")
-        print("-"*100)
+        print(f"\n{'File':<25} {'Column':<18} {'Column Type':<15} {'Data Type':<12} {'Role'}")
+        print("-"*90)
         
         for row in rows:
-            file_name, orig, semantic, category, unit, match_status = row
+            file_name, orig, col_type, data_type, col_role = row
             file_short = file_name[:22] + "..." if len(file_name) > 25 else file_name
-            orig_short = (orig or '-')[:12]
-            semantic_short = (semantic or '-')[:17]
-            category_short = (category or '-')[:15]
-            unit_short = (unit or '-')[:6]
-            match_short = (match_status or '-')[:8]
+            orig_short = (orig or '-')[:15]
+            col_type_short = (col_type or '-')[:12]
+            data_type_short = (data_type or '-')[:10]
+            role_short = (col_role or '-')[:15]
             
-            print(f"{file_short:<25} {orig_short:<15} {semantic_short:<20} {category_short:<18} {unit_short:<8} {match_short}")
+            print(f"{file_short:<25} {orig_short:<18} {col_type_short:<15} {data_type_short:<12} {role_short}")
         
         print(f"\nTotal: {total} columns")
         
-        # 통계
+        # column_role 통계
+        cursor.execute("""
+            SELECT column_role, COUNT(*) 
+            FROM column_metadata 
+            GROUP BY column_role
+            ORDER BY COUNT(*) DESC
+        """)
+        stats = cursor.fetchall()
+        print("\nColumn Role Distribution:")
+        for role, cnt in stats:
+            print(f"   {role or 'null'}: {cnt}")
+        
+        conn.commit()
+        
+    except Exception as e:
+        conn.rollback()
+        print(f"Error: {e}")
+
+
+def print_parameter(limit: int = 20):
+    """parameter 테이블 출력 (semantic 정보)"""
+    conn = get_fresh_connection()
+    cursor = conn.cursor()
+    
+    print("\n" + "="*80)
+    print("🏷️  TABLE: parameter (Wide/Long format 통합 + semantic)")
+    print("="*80)
+    
+    try:
+        cursor.execute("SELECT COUNT(*) FROM parameter")
+        total = cursor.fetchone()[0]
+        
+        cursor.execute("""
+            SELECT fc.file_name, p.param_key, p.source_type, 
+                   p.semantic_name, p.concept_category, p.unit, 
+                   p.dict_match_status
+            FROM parameter p
+            JOIN file_catalog fc ON p.file_id = fc.file_id
+            ORDER BY fc.file_name, p.param_id
+            LIMIT %s
+        """, (limit,))
+        
+        rows = cursor.fetchall()
+        
+        print(f"\n{'File':<22} {'Param Key':<15} {'Source':<12} {'Semantic':<18} {'Category':<15} {'Unit':<8} {'Match'}")
+        print("-"*105)
+        
+        for row in rows:
+            file_name, param_key, source_type, semantic, category, unit, match_status = row
+            file_short = file_name[:19] + "..." if len(file_name) > 22 else file_name
+            key_short = (param_key or '-')[:12]
+            source_short = (source_type or '-')[:10]
+            semantic_short = (semantic or '-')[:15]
+            category_short = (category or '-')[:12]
+            unit_short = (unit or '-')[:6]
+            match_short = (match_status or '-')[:8]
+            
+            print(f"{file_short:<22} {key_short:<15} {source_short:<12} {semantic_short:<18} {category_short:<15} {unit_short:<8} {match_short}")
+        
+        print(f"\nTotal: {total} parameters")
+        
+        # source_type 통계
+        cursor.execute("""
+            SELECT source_type, COUNT(*) 
+            FROM parameter 
+            GROUP BY source_type
+        """)
+        stats = cursor.fetchall()
+        print("\nSource Type Distribution:")
+        for stype, cnt in stats:
+            print(f"   {stype or 'null'}: {cnt}")
+        
+        # match_status 통계
         cursor.execute("""
             SELECT dict_match_status, COUNT(*) 
-            FROM column_metadata 
+            FROM parameter 
             GROUP BY dict_match_status
         """)
         stats = cursor.fetchall()
@@ -917,7 +1014,8 @@ def print_summary_stats():
     tables = [
         ('directory_catalog', 'Directories (directory_catalog)'),
         ('file_catalog', 'Files'),
-        ('column_metadata', 'Columns'),
+        ('column_metadata', 'Columns (physical + role)'),
+        ('parameter', 'Parameters (semantic)'),
         ('data_dictionary', 'Dictionary Entries'),
         ('table_entities', 'Table Entities'),
         ('table_relationships', 'FK Relationships'),
@@ -973,9 +1071,10 @@ def print_summary_stats():
 def main():
     """메인 함수"""
     print("="*80)
-    print("🧪 Full Pipeline Test + Results Viewer")
+    print("🧪 Pipeline Test + Results Viewer (relationship_inference까지)")
     print("="*80)
     print(f"   Dataset: Open VitalDB")
+    print(f"   Mode: Testing up to relationship_inference (ontology_enhancement excluded)")
     print(f"   Started: {datetime.now().strftime('%Y-%m-%d %H:%M:%S')}")
     
     # 1. DB 리셋
@@ -988,7 +1087,7 @@ def main():
         print("\n❌ Pipeline failed. Cannot show results.")
         return
     
-    # 3. 모든 DB 테이블 출력 (각 최대 20개)
+    # 3. DB 테이블 출력 (각 최대 20개)
     print("\n" + "="*80)
     print("📋 DATABASE TABLES AFTER PIPELINE (max 20 rows each)")
     print("="*80)
@@ -996,14 +1095,22 @@ def main():
     print_summary_stats()
     print_directory_catalog(limit=20)  # directory_catalog / directory_pattern
     print_file_catalog(limit=20)
-    print_column_metadata(limit=20)
+    print_column_metadata(limit=20)   # 물리 정보 + column_role
+    print_parameter(limit=20)          # semantic 정보
     print_data_dictionary(limit=20)
     print_table_entities(limit=20)
     print_table_relationships(limit=20)
-    print_ontology_subcategories(limit=20)
-    print_semantic_edges(limit=20)
-    print_medical_term_mappings(limit=20)
-    print_cross_table_semantics(limit=20)
+    
+    # ontology_enhancement 결과 테이블 (제외되었으므로 비어있음)
+    # 스킵하거나 참고용으로 표시만 함
+    print("\n" + "="*80)
+    print("ℹ️  ontology_enhancement 테이블들 (제외되어 비어있음)")
+    print("="*80)
+    print_ontology_subcategories(limit=5)
+    print_semantic_edges(limit=5)
+    print_medical_term_mappings(limit=5)
+    print_cross_table_semantics(limit=5)
+    
     print_neo4j_stats()
     
     print("\n" + "="*80)

@@ -2,13 +2,14 @@
 """
 Node modules for LangGraph workflow
 
-10개 노드 아키텍처 (order 기반):
+11개 노드 아키텍처 (order 기반):
 - directory_catalog (100): 디렉토리 레벨 메타데이터 수집 (Rule-based)
 - file_catalog (200): 파일 레벨 메타데이터 추출 및 DB 저장 (Rule-based)
 - schema_aggregation (300): 유니크 컬럼/파일 집계 및 LLM 배치 준비 (Rule-based)
 - file_classification (400): 파일 분류 - metadata vs data (LLM)
+- column_classification (420): 컬럼 역할 분류 + parameter 생성 (LLM + Rule-based)
 - metadata_semantic (500): 메타데이터 파일 분석 및 data_dictionary 추출 (LLM)
-- data_semantic (600): 데이터 파일 컬럼 의미 분석 (LLM)
+- parameter_semantic (600): parameter 의미 분석 + dictionary 매칭 (LLM)
 - directory_pattern (700): 디렉토리 파일명 패턴 분석 (LLM)
 - entity_identification (800): Entity 식별 - row_represents, entity_identifier (LLM)
 - relationship_inference (900): 테이블 간 FK 관계 추론 + Neo4j 3-Level Ontology (LLM)
@@ -20,8 +21,9 @@ from src.agents.nodes.directory_catalog import DirectoryCatalogNode
 from src.agents.nodes.catalog import FileCatalogNode
 from src.agents.nodes.aggregator import SchemaAggregationNode
 from src.agents.nodes.file_classification import FileClassificationNode  # folder
+from src.agents.nodes.column_classification import ColumnClassificationNode  # folder
 from src.agents.nodes.metadata_semantic import MetadataSemanticNode  # folder
-from src.agents.nodes.data_semantic import DataSemanticNode  # folder
+from src.agents.nodes.parameter_semantic import ParameterSemanticNode  # folder (renamed from data_semantic)
 from src.agents.nodes.directory_pattern import DirectoryPatternNode  # folder
 from src.agents.nodes.entity_identification import EntityIdentificationNode  # folder
 from src.agents.nodes.relationship_inference import RelationshipInferenceNode  # folder
@@ -33,8 +35,9 @@ __all__ = [
     "FileCatalogNode",
     "SchemaAggregationNode",
     "FileClassificationNode",
+    "ColumnClassificationNode",
     "MetadataSemanticNode",
-    "DataSemanticNode",
+    "ParameterSemanticNode",
     "DirectoryPatternNode",
     "EntityIdentificationNode",
     "RelationshipInferenceNode",

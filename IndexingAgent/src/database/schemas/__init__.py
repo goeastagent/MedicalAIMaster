@@ -6,6 +6,7 @@ DDL (Data Definition Language) 스키마 정의
 - catalog.py: file_catalog, column_metadata
 - dictionary.py: data_dictionary
 - directory.py: directory_catalog
+- parameter.py: parameter (논리적 파라미터 - Wide/Long format 통합)
 - ontology_core.py: table_entities, table_relationships (entity_identification / relationship_inference)
 - ontology_enhancement.py: ontology_subcategories, semantic_edges, medical_term_mappings, cross_table_semantics
 """
@@ -19,6 +20,11 @@ from .catalog import (
 
 from .dictionary import (
     CREATE_DATA_DICTIONARY_SQL,
+)
+
+from .parameter import (
+    CREATE_PARAMETER_SQL,
+    CREATE_PARAMETER_UPDATE_TRIGGER_SQL,
 )
 
 from .directory import (
@@ -48,6 +54,9 @@ __all__ = [
     'CREATE_UPDATE_TRIGGER_SQL',
     # Dictionary
     'CREATE_DATA_DICTIONARY_SQL',
+    # Parameter
+    'CREATE_PARAMETER_SQL',
+    'CREATE_PARAMETER_UPDATE_TRIGGER_SQL',
     # Directory
     'CREATE_DIRECTORY_CATALOG_SQL',
     'ADD_FILE_CATALOG_DIR_FK_SQL',

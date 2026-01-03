@@ -58,167 +58,47 @@ class DirectoryPatternNode(BaseNode, LLMMixin, DatabaseMixin):
         """
         Query directories from directory_catalog (DB)
         
+        Uses: DirectoryRepository.get_directories_for_analysis()
+        
         Data source: directory_catalog table (populated by previous step)
         - filename_samples: collected during directory scan
         - file_extensions: counted during scan
         - dir_type: classified during scan
         """
-        conn = self.get_connection()
-        cursor = conn.cursor()
-        
-        cursor.execute("""
-            SELECT dir_id, dir_path, dir_name, file_count, 
-                   file_extensions, filename_samples, dir_type
-            FROM directory_catalog
-            WHERE file_count >= %s
-              AND filename_pattern IS NULL
-            ORDER BY file_count DESC
-        """, (DirectoryPatternConfig.MIN_FILES_FOR_PATTERN,))
-        
-        directories = []
-        for row in cursor.fetchall():
-            samples = row[5] if row[5] else []
-            # LLM에 전달할 샘플 수 제한
-            limited_samples = samples[:DirectoryPatternConfig.MAX_SAMPLES_PER_DIR]
+        try:
+            directories = self.directory_repo.get_directories_for_analysis(
+                min_files=DirectoryPatternConfig.MIN_FILES_FOR_PATTERN
+            )
             
-            directories.append({
-                "dir_id": str(row[0]),
-                "dir_path": row[1],
-                "dir_name": row[2],
-                "file_count": row[3],
-                "file_extensions": row[4] if row[4] else {},
-                "filename_samples": limited_samples,
-                "dir_type": row[6]
-            })
-        
-        return directories
+            # LLM에 전달할 샘플 수 제한
+            for d in directories:
+                samples = d.get('filename_samples', [])
+                d['filename_samples'] = samples[:DirectoryPatternConfig.MAX_SAMPLES_PER_DIR]
+            
+            return directories
+        except Exception as e:
+            self.log(f"❌ Error getting directories: {e}")
+            return []
     
     def _collect_data_dictionary(self) -> Dict[str, Any]:
         """
         Collect data dictionary from DB (previous steps results)
         
-        Data source: 
+        Uses: DirectoryRepository.get_data_dictionary_for_pattern()
         - file_catalog: primary_entity, entity_identifier_column
-        - column_metadata: semantic_name, description, concept_category
+        - column_metadata + parameter: semantic_name, description, concept_category
         
         NO file reading - all from DB
         """
-        conn = self.get_connection()
-        cursor = conn.cursor()
-        
-        cursor.execute("""
-            SELECT 
-                fc.file_name,
-                fc.primary_entity,
-                fc.entity_identifier_column,
-                cm.original_name,
-                cm.semantic_name,
-                cm.description,
-                cm.value_distribution
-            FROM file_catalog fc
-            JOIN column_metadata cm ON fc.file_id = cm.file_id
-            WHERE fc.is_metadata = FALSE
-              AND (cm.description IS NOT NULL OR cm.semantic_name IS NOT NULL)
-            ORDER BY fc.file_name, cm.col_id
-        """)
-        
-        # Group by table
-        tables = {}
-        for row in cursor.fetchall():
-            file_name = row[0]
-            if file_name not in tables:
-                tables[file_name] = {
-                    "primary_entity": row[1],
-                    "entity_identifier": row[2],
-                    "columns": []
-                }
-            
-            # value_distribution에서 샘플 값 추출
-            value_dist = row[6] if row[6] else {}
-            examples = value_dist.get('samples', []) if isinstance(value_dist, dict) else []
-            
-            tables[file_name]["columns"].append({
-                "name": row[3],
-                "type": row[4],
-                "description": row[5],
-                "examples": examples
-            })
-        
-        return tables
+        return self.directory_repo.get_data_dictionary_for_pattern()
     
     def _collect_data_dictionary_simple(self) -> Dict[str, Any]:
         """
         Data Dictionary 간단 버전 - 이전 단계 결과가 없어도 동작
         
-        column_metadata에서 직접 컬럼 정보 수집
+        Uses: DirectoryRepository.get_data_dictionary_simple()
         """
-        conn = self.get_connection()
-        cursor = conn.cursor()
-        
-        dict_entries = {}
-        
-        # data_dictionary 테이블이 있으면 조회
-        try:
-            cursor.execute("""
-                SELECT 
-                    parameter_key,
-                    parameter_desc,
-                    parameter_unit,
-                    source_file_name
-                FROM data_dictionary
-                ORDER BY parameter_key
-            """)
-            
-            for row in cursor.fetchall():
-                key = row[0]
-                if key not in dict_entries:
-                    dict_entries[key] = {
-                        "description": row[1],
-                        "unit": row[2],
-                        "source": row[3]
-                    }
-        except Exception as e:
-            self.log(f"⚠️ data_dictionary table not available: {e}", indent=1)
-            conn.rollback()
-        
-        # column_metadata에서 ID 관련 컬럼 수집
-        cursor.execute("""
-            SELECT DISTINCT
-                fc.file_name,
-                cm.original_name,
-                cm.data_type,
-                cm.value_distribution
-            FROM file_catalog fc
-            JOIN column_metadata cm ON fc.file_id = cm.file_id
-            WHERE fc.is_metadata = FALSE
-              AND (
-                  LOWER(cm.original_name) LIKE '%%id%%' 
-                  OR LOWER(cm.original_name) LIKE '%%case%%'
-                  OR LOWER(cm.original_name) LIKE '%%subject%%'
-              )
-            ORDER BY fc.file_name
-        """)
-        
-        id_columns = {}
-        for row in cursor.fetchall():
-            file_name = row[0]
-            if file_name not in id_columns:
-                id_columns[file_name] = []
-            
-            # value_distribution에서 샘플 추출
-            value_dist = row[3] if row[3] else {}
-            examples = value_dist.get('samples', []) if isinstance(value_dist, dict) else []
-            
-            id_columns[file_name].append({
-                "name": row[1],
-                "type": row[2],
-                "examples": examples
-            })
-        
-        return {
-            "dictionary_entries": dict_entries,
-            "id_columns_by_file": id_columns
-        }
+        return self.directory_repo.get_data_dictionary_simple()
     
     def _batch_directories(self, directories: List[Dict], batch_size: int) -> List[List[Dict]]:
         """디렉토리 목록을 배치로 분할"""
@@ -285,50 +165,20 @@ class DirectoryPatternNode(BaseNode, LLMMixin, DatabaseMixin):
             return []
     
     def _save_pattern_results(self, results: List[Dict]):
-        """Save pattern analysis results to directory_catalog"""
-        conn = self.get_connection()
-        cursor = conn.cursor()
+        """
+        Save pattern analysis results to directory_catalog
         
-        saved_count = 0
-        
-        for r in results:
-            try:
-                cursor.execute("""
-                    UPDATE directory_catalog
-                    SET filename_pattern = %s,
-                        filename_columns = %s,
-                        pattern_confidence = %s,
-                        pattern_reasoning = %s,
-                        pattern_analyzed_at = NOW()
-                    WHERE dir_id = %s
-                """, (
-                    r.get("pattern"),
-                    json.dumps(r.get("columns", [])),
-                    r.get("confidence"),
-                    r.get("reasoning"),
-                    r["dir_id"]
-                ))
-                saved_count += 1
-            except Exception as e:
-                self.log(f"❌ Error saving pattern for dir_id={r.get('dir_id')}: {e}", indent=1)
-                conn.rollback()
-                continue
-        
-        conn.commit()
+        Uses: DirectoryRepository.save_pattern_results()
+        """
+        saved_count = self.directory_repo.save_pattern_results(results)
         self.log(f"💾 Saved {saved_count} pattern results to directory_catalog", indent=1)
     
     def _update_filename_values(self, results: List[Dict]):
         """
         Batch update file_catalog.filename_values
         
-        Uses PostgreSQL regex to extract values from file_name column (already in DB)
-        NO file system access - pure DB operation
-        
-        Note: regexp_matches is a set-returning function, so we use substring instead
+        Uses: FileRepository.update_filename_values_by_pattern()
         """
-        conn = self.get_connection()
-        cursor = conn.cursor()
-        
         updated_total = 0
         
         for r in results:
@@ -341,63 +191,12 @@ class DirectoryPatternNode(BaseNode, LLMMixin, DatabaseMixin):
             if not pattern_regex:
                 continue
             
-            for col in r["columns"]:
-                col_name = col.get("name")
-                if not col_name:
-                    continue
-                    
-                col_type = col.get("type", "text")
-                
-                try:
-                    # PostgreSQL substring을 사용하여 첫 번째 캡처 그룹 추출
-                    # substring(file_name from 'pattern')은 첫 번째 캡처 그룹 반환
-                    if col_type == "integer":
-                        # 정수형 캐스팅
-                        cursor.execute("""
-                            UPDATE file_catalog
-                            SET filename_values = CASE 
-                                WHEN file_name ~ %s THEN
-                                    COALESCE(filename_values, '{}'::jsonb) || 
-                                    jsonb_build_object(%s, substring(file_name from %s)::integer)
-                                ELSE filename_values
-                            END
-                            WHERE dir_id = %s
-                              AND file_name ~ %s
-                        """, (
-                            pattern_regex,  # CASE WHEN condition
-                            col_name,       # jsonb key
-                            pattern_regex,  # substring pattern (extracts first capture group)
-                            dir_id,         # WHERE dir_id
-                            pattern_regex   # WHERE file_name ~
-                        ))
-                    else:
-                        # 텍스트형
-                        cursor.execute("""
-                            UPDATE file_catalog
-                            SET filename_values = CASE 
-                                WHEN file_name ~ %s THEN
-                                    COALESCE(filename_values, '{}'::jsonb) || 
-                                    jsonb_build_object(%s, substring(file_name from %s))
-                                ELSE filename_values
-                            END
-                            WHERE dir_id = %s
-                              AND file_name ~ %s
-                        """, (
-                            pattern_regex,
-                            col_name,
-                            pattern_regex,
-                            dir_id,
-                            pattern_regex
-                        ))
-                    
-                    updated_total += cursor.rowcount
-                    
-                except Exception as e:
-                    self.log(f"❌ Error updating filename_values for dir_id={dir_id}, col={col_name}: {e}", indent=1)
-                    conn.rollback()
-                    continue
-            
-            conn.commit()
+            updated = self.file_repo.update_filename_values_by_pattern(
+                dir_id=dir_id,
+                pattern_regex=pattern_regex,
+                columns=r["columns"]
+            )
+            updated_total += updated
         
         self.log(f"💾 Updated filename_values for {updated_total} files", indent=1)
     
@@ -440,16 +239,23 @@ class DirectoryPatternNode(BaseNode, LLMMixin, DatabaseMixin):
         for d in directories:
             self.log(f"- {d['dir_name']} ({d['file_count']} files, type={d['dir_type']})", indent=2)
         
-        # 2. Data Dictionary 수집 (DB에서)
+        # 2. Data Dictionary 수집 (DB에서) - 두 소스 병합
         self.log("📖 Collecting data dictionary from DB...")
-        data_dictionary = self._collect_data_dictionary()
         
-        if not data_dictionary:
-            # 이전 단계 결과가 없으면 간단 버전 사용
-            self.log("⚠️ No semantic data from previous step, using simple dictionary", indent=1)
-            data_dictionary = self._collect_data_dictionary_simple()
+        # semantic 정보 (parameter 테이블 기반 - 컬럼별 의미)
+        semantic_dict = self._collect_data_dictionary()
         
-        self.log(f"📖 Data dictionary: {len(data_dictionary)} tables/entries", indent=1)
+        # data_dictionary 테이블 기반 정보 (caseid 등 파라미터 정의 포함)
+        simple_dict = self._collect_data_dictionary_simple()
+        
+        # 병합: 두 정보를 모두 LLM에 전달
+        data_dictionary = {
+            "tables": semantic_dict,  # file별 컬럼 semantic 정보
+            **simple_dict  # dictionary_entries (caseid 등), id_columns_by_file
+        }
+        
+        dict_entries_count = len(simple_dict.get('dictionary_entries', {}))
+        self.log(f"📖 Data dictionary: {len(semantic_dict)} tables, {dict_entries_count} dictionary entries", indent=1)
         
         # 3. 배치 처리
         self.log(f"🤖 Analyzing patterns with LLM (batch_size={DirectoryPatternConfig.MAX_DIRS_PER_BATCH})...")

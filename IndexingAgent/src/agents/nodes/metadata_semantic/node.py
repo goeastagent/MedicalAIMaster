@@ -16,7 +16,6 @@ import pandas as pd
 
 from src.agents.state import AgentState
 from src.database import (
-    get_db_manager,
     ensure_dictionary_schema,
     insert_dictionary_entries_batch,
     DictionarySchemaManager,
@@ -26,7 +25,6 @@ from src.agents.models.llm_responses import (
     ColumnRoleMapping,
     MetadataSemanticResult,
 )
-from src.utils.llm_client import get_llm_client
 
 from ...base import BaseNode, LLMMixin, DatabaseMixin
 from ...registry import register_node
@@ -65,9 +63,9 @@ class MetadataSemanticNode(BaseNode, LLMMixin, DatabaseMixin):
             - metadata_semantic_result: 처리 결과 요약
             - data_dictionary_entries: 추출된 모든 엔트리
         """
-        print("\n" + "=" * 60)
-        print("📖 [MetaData Semantic] 메타데이터 분석 및 dictionary 추출")
-        print("=" * 60)
+        self.log("=" * 60)
+        self.log("📖 메타데이터 분석 및 dictionary 추출")
+        self.log("=" * 60)
         
         started_at = datetime.now()
         
@@ -78,12 +76,12 @@ class MetadataSemanticNode(BaseNode, LLMMixin, DatabaseMixin):
         metadata_files = state.get("metadata_files", [])
         
         if not metadata_files:
-            print("   ⚠️ No metadata files to process")
+            self.log("⚠️ No metadata files to process", indent=1)
             return self._create_empty_result("No metadata files")
         
-        print(f"   📂 Metadata files to process: {len(metadata_files)}")
+        self.log(f"📂 Metadata files to process: {len(metadata_files)}", indent=1)
         for f in metadata_files:
-            print(f"      - {f.split('/')[-1]}")
+            self.log(f"- {f.split('/')[-1]}", indent=2)
         
         all_entries = []
         entries_by_file = {}
@@ -92,31 +90,31 @@ class MetadataSemanticNode(BaseNode, LLMMixin, DatabaseMixin):
         
         for file_path in metadata_files:
             file_name = file_path.split('/')[-1]
-            print(f"\n   📄 Processing: {file_name}")
+            self.log(f"📄 Processing: {file_name}", indent=1)
             
             # 1. 파일 상세 정보 조회
             file_info = self._get_metadata_file_details(file_path)
             if not file_info:
-                print(f"      ❌ Failed to get file details")
+                self.log("❌ Failed to get file details", indent=2)
                 continue
             
-            print(f"      Columns: {[c['name'] for c in file_info['columns']]}")
+            self.log(f"Columns: {[c['name'] for c in file_info['columns']]}", indent=2)
             
             # 2. LLM 호출 → 컬럼 역할 추론
-            print(f"      🤖 Calling LLM for column role mapping...")
+            self.log("🤖 Calling LLM for column role mapping...", indent=2)
             column_mapping = self._call_llm_for_column_roles(file_info)
             llm_calls += 1
             
             if not column_mapping:
-                print(f"      ❌ Failed to get column mapping")
+                self.log("❌ Failed to get column mapping", indent=2)
                 continue
             
-            print(f"      ✅ Column roles identified (conf={column_mapping.confidence:.2f}):")
-            print(f"         key: {column_mapping.key_column}")
-            print(f"         desc: {column_mapping.desc_column}")
-            print(f"         unit: {column_mapping.unit_column}")
+            self.log(f"✅ Column roles identified (conf={column_mapping.confidence:.2f}):", indent=2)
+            self.log(f"key: {column_mapping.key_column}", indent=3)
+            self.log(f"desc: {column_mapping.desc_column}", indent=3)
+            self.log(f"unit: {column_mapping.unit_column}", indent=3)
             if column_mapping.extra_columns:
-                print(f"         extra: {column_mapping.extra_columns}")
+                self.log(f"extra: {column_mapping.extra_columns}", indent=3)
             
             # 3. Dictionary 엔트리 추출 (파일 직접 읽기)
             entries = self._extract_from_raw_data(file_info, column_mapping)
@@ -127,15 +125,15 @@ class MetadataSemanticNode(BaseNode, LLMMixin, DatabaseMixin):
             
             if entries:
                 # 4. DB에 저장
-                print(f"      💾 Saving {len(entries)} entries to data_dictionary...")
+                self.log(f"💾 Saving {len(entries)} entries to data_dictionary...", indent=2)
                 inserted = insert_dictionary_entries_batch(entries)
-                print(f"      ✅ Saved {inserted} entries")
+                self.log(f"✅ Saved {inserted} entries", indent=2)
                 
                 all_entries.extend(entries)
                 entries_by_file[file_name] = len(entries)
                 processed_files += 1
             else:
-                print(f"      ⚠️ No entries extracted")
+                self.log("⚠️ No entries extracted", indent=2)
         
         # 결과 요약
         completed_at = datetime.now()
@@ -151,19 +149,19 @@ class MetadataSemanticNode(BaseNode, LLMMixin, DatabaseMixin):
             completed_at=completed_at.isoformat()
         )
         
-        print(f"\n✅ [MetaData Semantic] Complete!")
-        print(f"   📁 Processed files: {processed_files}/{len(metadata_files)}")
-        print(f"   📝 Total entries: {len(all_entries)}")
+        self.log("✅ Complete!")
+        self.log(f"📁 Processed files: {processed_files}/{len(metadata_files)}", indent=1)
+        self.log(f"📝 Total entries: {len(all_entries)}", indent=1)
         for fname, count in entries_by_file.items():
-            print(f"      - {fname}: {count} entries")
-        print(f"   🤖 LLM calls: {llm_calls}")
-        print(f"   ⏱️  Duration: {duration:.1f}s")
-        print("=" * 60 + "\n")
+            self.log(f"- {fname}: {count} entries", indent=2)
+        self.log(f"🤖 LLM calls: {llm_calls}", indent=1)
+        self.log(f"⏱️  Duration: {duration:.1f}s", indent=1)
+        self.log("=" * 60)
         
         # 통계 출력
         schema_manager = DictionarySchemaManager()
         stats = schema_manager.get_stats()
-        print(f"   📊 Data Dictionary Stats: {stats}")
+        self.log(f"📊 Data Dictionary Stats: {stats}", indent=1)
         
         return {
             "metadata_semantic_result": result.model_dump(),
@@ -175,66 +173,50 @@ class MetadataSemanticNode(BaseNode, LLMMixin, DatabaseMixin):
         }
     
     # =========================================================================
-    # File Info Collection
+    # File Info Collection (Using Repository Pattern)
     # =========================================================================
     
     def _get_metadata_file_details(self, file_path: str) -> Optional[Dict[str, Any]]:
-        """metadata 파일의 상세 정보 조회"""
-        db = get_db_manager()
-        conn = db.get_connection()
-        cursor = conn.cursor()
+        """
+        metadata 파일의 상세 정보 조회
         
+        Uses:
+          - FileRepository.get_file_by_path()
+          - ColumnRepository.get_columns_for_classification()
+        """
         try:
-            cursor.execute("""
-                SELECT file_id, file_name, file_path, file_metadata, raw_stats
-                FROM file_catalog
-                WHERE file_path = %s
-            """, (file_path,))
+            # 파일 정보 조회
+            file_info = self.file_repo.get_file_by_path(file_path)
             
-            row = cursor.fetchone()
-            if not row:
-                cursor.execute("""
-                    SELECT file_id, file_name, file_path, file_metadata, raw_stats
-                    FROM file_catalog
-                    WHERE file_name = %s
-                """, (file_path.split('/')[-1],))
-                row = cursor.fetchone()
-            
-            if not row:
+            if not file_info:
                 return None
             
-            file_id, file_name, file_path_db, file_metadata, raw_stats = row
+            file_id = file_info['file_id']
+            file_name = file_info['file_name']
+            file_path_db = file_info['file_path']
             
-            metadata = file_metadata if isinstance(file_metadata, dict) else {}
-            raw = raw_stats if isinstance(raw_stats, dict) else {}
-            row_count = metadata.get('row_count') or raw.get('row_count', 0)
-            sample_rows = raw.get('sample_rows', [])
+            # row_count, sample_rows 추출
+            metadata = file_info.get('file_metadata', {})
+            raw_stats = file_info.get('raw_stats', {})
             
-            cursor.execute("""
-                SELECT original_name, data_type, column_type, value_distribution
-                FROM column_metadata
-                WHERE file_id = %s
-                ORDER BY col_id
-            """, (file_id,))
+            row_count = metadata.get('row_count') or raw_stats.get('row_count', 0)
+            sample_rows = raw_stats.get('sample_rows', [])
+            
+            # 컬럼 정보 조회 (분류용)
+            cols = self.column_repo.get_columns_for_classification(file_id)
             
             columns = []
-            for col_row in cursor.fetchall():
-                col_name, dtype, col_type, value_dist = col_row
-                dist = value_dist if isinstance(value_dist, dict) else {}
-                unique_values = dist.get('unique_values', [])
-                samples = dist.get('samples', [])
-                all_unique = unique_values if unique_values else samples
-                
+            for col in cols:
                 columns.append({
-                    "name": col_name,
-                    "dtype": dtype or "unknown",
-                    "column_type": col_type or "unknown",
-                    "all_unique_values": all_unique,
-                    "n_unique": len(all_unique)
+                    "name": col['name'],
+                    "dtype": col.get('dtype', 'unknown'),
+                    "column_type": col.get('column_type', 'unknown'),
+                    "all_unique_values": col.get('unique_values', []),
+                    "n_unique": col.get('n_unique', 0)
                 })
             
             return {
-                "file_id": str(file_id),
+                "file_id": file_id,
                 "file_name": file_name,
                 "file_path": file_path_db or file_path,
                 "row_count": row_count,
@@ -243,7 +225,7 @@ class MetadataSemanticNode(BaseNode, LLMMixin, DatabaseMixin):
             }
             
         except Exception as e:
-            print(f"   ❌ Error getting metadata file details: {e}")
+            self.log(f"❌ Error getting metadata file details: {e}", indent=1)
             return None
     
     # =========================================================================
@@ -254,9 +236,7 @@ class MetadataSemanticNode(BaseNode, LLMMixin, DatabaseMixin):
         self,
         file_info: Dict[str, Any]
     ) -> Optional[ColumnRoleMapping]:
-        """LLM을 호출하여 컬럼 역할 추론"""
-        llm = get_llm_client()
-        
+        """LLM을 호출하여 컬럼 역할 추론 (LLMMixin 사용)"""
         file_name = file_info['file_name']
         columns = file_info['columns']
         sample_rows = file_info.get('sample_rows', [])
@@ -274,10 +254,10 @@ class MetadataSemanticNode(BaseNode, LLMMixin, DatabaseMixin):
         )
         
         try:
-            data = llm.ask_json(prompt, max_tokens=LLMConfig.MAX_TOKENS)
+            data = self.call_llm_json(prompt, max_tokens=LLMConfig.MAX_TOKENS)
             
             if data.get("error"):
-                print(f"   ❌ LLM returned error: {data.get('error')}")
+                self.log(f"❌ LLM returned error: {data.get('error')}", indent=1)
                 return None
             
             # PromptTemplate의 parse_response 사용
@@ -297,7 +277,7 @@ class MetadataSemanticNode(BaseNode, LLMMixin, DatabaseMixin):
             return result
             
         except Exception as e:
-            print(f"   ❌ LLM call error: {e}")
+            self.log(f"❌ LLM call error: {e}", indent=1)
             return None
     
     def _build_columns_info_text(self, columns: List[Dict[str, Any]]) -> str:
@@ -378,7 +358,7 @@ class MetadataSemanticNode(BaseNode, LLMMixin, DatabaseMixin):
                 elif ext in ['xlsx', 'xls']:
                     df = pd.read_excel(file_path)
                 else:
-                    print(f"   ⚠️ Unsupported file type: {ext}")
+                    self.log(f"⚠️ Unsupported file type: {ext}", indent=1)
                     return []
                 
                 for _, row in df.iterrows():
@@ -411,10 +391,10 @@ class MetadataSemanticNode(BaseNode, LLMMixin, DatabaseMixin):
                         'llm_confidence': column_mapping.confidence
                     })
                 
-                print(f"      📄 Extracted {len(entries)} entries from file")
+                self.log(f"📄 Extracted {len(entries)} entries from file", indent=2)
                 
         except Exception as e:
-            print(f"   ❌ Error reading file: {e}")
+            self.log(f"❌ Error reading file: {e}", indent=1)
         
         return entries
     
@@ -436,7 +416,7 @@ class MetadataSemanticNode(BaseNode, LLMMixin, DatabaseMixin):
         extra_cols = column_mapping.extra_columns
         
         if not key_col or key_col not in col_values:
-            print(f"   ⚠️ Key column '{key_col}' not found in file")
+            self.log(f"⚠️ Key column '{key_col}' not found in file", indent=1)
             return []
         
         sample_rows = file_info.get('sample_rows', [])
@@ -525,16 +505,8 @@ class MetadataSemanticNode(BaseNode, LLMMixin, DatabaseMixin):
         node = cls()
         
         if metadata_files is None:
-            db = get_db_manager()
-            conn = db.get_connection()
-            cursor = conn.cursor()
-            
-            cursor.execute("""
-                SELECT file_path FROM file_catalog 
-                WHERE is_metadata = true 
-                ORDER BY file_name
-            """)
-            metadata_files = [row[0] for row in cursor.fetchall()]
+            # DatabaseMixin의 file_repo 사용
+            metadata_files = node.file_repo.get_metadata_files()
         
         state = {"metadata_files": metadata_files}
         return node.execute(state)

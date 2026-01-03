@@ -13,6 +13,11 @@ Indexing Agent는 의료 데이터 파일(CSV, Signal 등)을 분석하여:
 - LLM이 최종 판단 (의미 해석, 관계 추론)
 - 불확실할 때는 사람에게 질문 (Human-in-the-Loop)
 
+### ⚠️ 현재 테스트 상태
+- **테스트 범위**: Phase 1~3 (directory_catalog → relationship_inference)
+- **제외된 노드**: `ontology_enhancement` (Phase 4)
+- 테스트 시 `build_agent(exclude_nodes=["ontology_enhancement"])`로 실행
+
 ---
 
 ## 🔄 전체 워크플로우 아키텍처
@@ -22,8 +27,8 @@ Indexing Agent는 의료 데이터 파일(CSV, Signal 등)을 분석하여:
 ┃                                   입력: 의료 데이터 디렉토리                             ┃
 ┃                          (CSV, .vital, Signal Files, Metadata Files)                    ┃
 ┗━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━┛
-                                              │
-                                              ▼
+                                             │
+                                             ▼
 ┏━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━┓
 ┃                          PHASE 1: 메타데이터 수집 (Rule-based)                          ┃
 ┃━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━┃
@@ -53,8 +58,8 @@ Indexing Agent는 의료 데이터 파일(CSV, Signal 등)을 분석하여:
 ┃   └───────────────────────────────┘                                                     ┃
 ┃                                                                                         ┃
 ┗━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━┛
-                                              │
-                                              ▼
+                                             │
+                                             ▼
 ┏━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━┓
 ┃                          PHASE 2: 의미 분석 (LLM-based)                                 ┃
 ┃━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━┃
@@ -67,6 +72,14 @@ Indexing Agent는 의료 데이터 파일(CSV, Signal 등)을 분석하여:
 ┃                   │                                                                     ┃
 ┃                   ▼                                                                     ┃
 ┃   ┌───────────────────────────────┐     ┌────────────────────────────────────────────┐  ┃
+┃   │ [420] column_classification 🤖│────▶│ PostgreSQL: column_metadata UPDATE         │  ┃
+┃   │  • 컬럼 역할 분류 (LLM)       │     │  • column_role (ColumnRole enum)           │  ┃
+┃   │  • parameter 생성 (Rule)      │     │                                            │  ┃
+┃   │  • Wide/Long format 처리      │     │ PostgreSQL: parameter (NEW!)               │  ┃
+┃   └───────────────────────────────┘     │  • param_key, source_type                  │  ┃
+┃                   │                     │  • source_column_id, file_id               │  ┃
+┃                   ▼                     └────────────────────────────────────────────┘  ┃
+┃   ┌───────────────────────────────┐     ┌────────────────────────────────────────────┐  ┃
 ┃   │ [500] metadata_semantic 🤖   │────▶│ PostgreSQL: data_dictionary                │  ┃
 ┃   │  • metadata 파일 파싱         │     │  • parameter_key (예: "HR", "SBP")         │  ┃
 ┃   │  • key-desc-unit 컬럼 식별    │     │  • parameter_desc (예: "Heart Rate")       │  ┃
@@ -75,8 +88,8 @@ Indexing Agent는 의료 데이터 파일(CSV, Signal 등)을 분석하여:
 ┃                   │                     └────────────────────────────────────────────┘  ┃
 ┃                   ▼                                                                     ┃
 ┃   ┌───────────────────────────────┐     ┌────────────────────────────────────────────┐  ┃
-┃   │ [600] data_semantic 🤖       │────▶│ PostgreSQL: column_metadata UPDATE         │  ┃
-┃   │  • data 파일 컬럼 의미 분석   │     │  • semantic_name (표준화된 이름)           │  ┃
+┃   │ [600] parameter_semantic 🤖  │────▶│ PostgreSQL: parameter UPDATE               │  ┃
+┃   │  • parameter 의미 분석        │     │  • semantic_name (표준화된 이름)           │  ┃
 ┃   │  • data_dictionary 매칭       │     │  • unit (측정 단위)                        │  ┃
 ┃   │  • concept_category 추론      │     │  • concept_category (개념 카테고리)        │  ┃
 ┃   └───────────────────────────────┘     │  • dict_entry_id (dictionary FK)           │  ┃
@@ -92,8 +105,8 @@ Indexing Agent는 의료 데이터 파일(CSV, Signal 등)을 분석하여:
 ┃                                         └────────────────────────────────────────────┘  ┃
 ┃                                                                                         ┃
 ┗━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━┛
-                                              │
-                                              ▼
+                                             │
+                                             ▼
 ┏━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━┓
 ┃                          PHASE 3: 관계 추론 (LLM + Neo4j)                               ┃
 ┃━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━┃
@@ -122,10 +135,10 @@ Indexing Agent는 의료 데이터 파일(CSV, Signal 등)을 분석하여:
 ┃                                         └────────────────────────────────────────────┘  ┃
 ┃                                                                                         ┃
 ┗━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━┛
-                                              │
-                                              ▼
+                                             │
+                                             ▼
 ┏━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━┓
-┃                          PHASE 4: 온톨로지 강화 (LLM + Neo4j)                           ┃
+┃                    PHASE 4: 온톨로지 강화 (LLM + Neo4j) ⏸️ 현재 테스트 제외            ┃
 ┃━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━┃
 ┃                                                                                         ┃
 ┃   ┌───────────────────────────────┐     ┌────────────────────────────────────────────┐  ┃
@@ -134,8 +147,8 @@ Indexing Agent는 의료 데이터 파일(CSV, Signal 등)을 분석하여:
 ┃   │  • Semantic Edges 추론        │     │                                            │  ┃
 ┃   │  • Medical Term Mapping       │     │ PostgreSQL: semantic_edges                 │  ┃
 ┃   │  • Cross-table Semantics      │     │  • source_parameter, target_parameter      │  ┃
-┃   └───────────────────────────────┘     │  • relationship_type (DERIVED_FROM 등)     │  ┃
-┃                                         │                                            │  ┃
+┃   │  ⏸️ 현재 테스트 제외          │     │  • relationship_type (DERIVED_FROM 등)     │  ┃
+┃   └───────────────────────────────┘     │                                            │  ┃
 ┃                                         │ PostgreSQL: medical_term_mappings          │  ┃
 ┃                                         │  • parameter_key                           │  ┃
 ┃                                         │  • snomed_code/name, loinc_code/name       │  ┃
@@ -154,8 +167,8 @@ Indexing Agent는 의료 데이터 파일(CSV, Signal 등)을 분석하여:
 ┃                                         └────────────────────────────────────────────┘  ┃
 ┃                                                                                         ┃
 ┗━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━┛
-                                              │
-                                              ▼
+                                             │
+                                             ▼
 ┏━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━┓
 ┃                                        최종 출력                                        ┃
 ┃━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━┃
@@ -165,15 +178,15 @@ Indexing Agent는 의료 데이터 파일(CSV, Signal 등)을 분석하여:
 ┃   │ directory_catalog          │                │         ┌──────────────┐           │  ┃
 ┃   │ file_catalog               │                │         │  RowEntity   │           │  ┃
 ┃   │ column_metadata            │                │         │  (surgery)   │           │  ┃
-┃   │ data_dictionary            │                │         └───────┬──────┘           │  ┃
-┃   │ table_entities             │                │     LINKS_TO    │   HAS_CONCEPT    │  ┃
-┃   │ table_relationships        │                │        ┌────────┼────────┐         │  ┃
-┃   │ ontology_subcategories     │                │        ▼        ▼        ▼         │  ┃
-┃   │ semantic_edges             │                │   ┌─────────┐┌───────┐┌────────┐   │  ┃
-┃   │ medical_term_mappings      │                │   │RowEntity││Category ││ SubCat │   │  ┃
-┃   │ cross_table_semantics      │                │   │(lab)    ││(Vitals)  ││(Cardio)│   │  ┃
-┃   └────────────────────────────┘                │   └─────────┘└────┬────┘└────────┘   │  ┃
-┃                                                 │                   │ CONTAINS        │  ┃
+┃   │ parameter (NEW!)           │                │         └───────┬──────┘           │  ┃
+┃   │ data_dictionary            │                │     LINKS_TO    │   HAS_CONCEPT    │  ┃
+┃   │ table_entities             │                │        ┌────────┼────────┐         │  ┃
+┃   │ table_relationships        │                │        ▼        ▼        ▼         │  ┃
+┃   │ ontology_subcategories     │                │   ┌─────────┐┌───────┐┌────────┐   │  ┃
+┃   │ semantic_edges             │                │   │RowEntity││Category ││ SubCat │   │  ┃
+┃   │ medical_term_mappings      │                │   │(lab)    ││(Vitals)  ││(Cardio)│   │  ┃
+┃   │ cross_table_semantics      │                │   └─────────┘└────┬────┘└────────┘   │  ┃
+┃   └────────────────────────────┘                │                   │ CONTAINS        │  ┃
 ┃                                                 │                   ▼                 │  ┃
 ┃                                                 │             ┌───────────┐           │  ┃
 ┃                                                 │             │ Parameter │           │  ┃
@@ -229,8 +242,10 @@ LLM을 활용하여 데이터의 의미를 분석하고 풍부한 시맨틱 정�
 | Node | Order | 결과물 (DB) | 주요 필드 |
 |------|-------|-------------|-----------|
 | file_classification | 400 | `file_catalog` UPDATE | is_metadata, llm_confidence |
+| column_classification | 420 | `column_metadata` UPDATE | column_role (ColumnRole enum) |
+| | | `parameter` (NEW!) | param_key, source_type, source_column_id, file_id |
 | metadata_semantic | 500 | `data_dictionary` | parameter_key, parameter_desc, parameter_unit, extra_info |
-| data_semantic | 600 | `column_metadata` UPDATE | semantic_name, unit, concept_category, dict_entry_id |
+| parameter_semantic | 600 | `parameter` UPDATE | semantic_name, unit, concept_category, dict_entry_id |
 | directory_pattern | 700 | `directory_catalog` UPDATE | filename_pattern, filename_columns |
 | | | `file_catalog` UPDATE | filename_values |
 
@@ -241,14 +256,34 @@ SELECT parameter_key, parameter_desc, parameter_unit FROM data_dictionary;
 -- sbp         | Systolic Blood Pressure             | mmHg
 -- spo2        | Peripheral Oxygen Saturation        | %
 
--- column_metadata (data_semantic 결과)
-SELECT original_name, semantic_name, concept_category, unit FROM column_metadata;
--- hr          | Heart Rate           | Vitals              | bpm
--- caseid      | Case Identifier      | Identifier          | NULL
+-- parameter 예시 (column_classification + parameter_semantic 결과)
+SELECT param_key, source_type, semantic_name, concept_category, unit FROM parameter;
+-- hr          | column_name   | Heart Rate           | Vitals              | bpm
+-- caseid      | column_name   | Case Identifier      | Identifier          | NULL
+-- SpO2        | column_value  | Oxygen Saturation    | Vitals              | %
 
 -- directory_catalog (directory_pattern 결과)
 SELECT dir_path, filename_pattern, filename_columns FROM directory_catalog;
 -- /data/vital_files | {caseid:integer}.vital | [{"name": "caseid", "type": "integer"}]
+```
+
+#### Parameter 테이블 구조
+
+`parameter` 테이블은 Wide-format과 Long-format 데이터를 모두 지원합니다:
+
+```
+Wide-format (source_type='column_name'):
+┌─────────┬─────┬──────┬─────┐
+│ caseid  │ HR  │ SpO2 │ BP  │  → 컬럼명이 parameter로 추출
+└─────────┴─────┴──────┴─────┘
+
+Long-format (source_type='column_value'):
+┌─────────┬──────┬───────┐
+│ caseid  │ name │ value │  → name 컬럼의 unique values가 parameter로 추출
+├─────────┼──────┼───────┤
+│ 1       │ HR   │ 72    │
+│ 1       │ SpO2 │ 98    │
+└─────────┴──────┴───────┘
 ```
 
 ---
@@ -330,7 +365,9 @@ JOIN file_catalog t ON tr.target_file_id = t.file_id;
 
 ---
 
-### 🔷 PHASE 4: 온톨로지 강화 (LLM + Neo4j)
+### 🔷 PHASE 4: 온톨로지 강화 (LLM + Neo4j) ⏸️ 현재 테스트 제외
+
+> ⚠️ **현재 테스트에서 제외됨**: `ontology_enhancement` 노드는 Phase 3까지의 테스트 완료 후 활성화 예정
 
 3-Level 온톨로지를 확장하여 더 풍부한 지식 그래프를 구축합니다.
 
@@ -391,13 +428,14 @@ SELECT source_column, target_column, relationship_type FROM cross_table_semantic
 
 ## 📊 전체 DB 스키마 요약
 
-### PostgreSQL 테이블 (10개)
+### PostgreSQL 테이블 (11개)
 
 | 테이블 | 생성 노드 | 주요 용도 |
 |--------|-----------|----------|
 | `directory_catalog` | directory_catalog → directory_pattern | 디렉토리 메타데이터 + 파일명 패턴 |
 | `file_catalog` | file_catalog → file_classification | 파일 메타데이터 + 분류 + 파일명 값 |
-| `column_metadata` | file_catalog → data_semantic | 컬럼 메타데이터 + 시맨틱 정보 |
+| `column_metadata` | file_catalog → column_classification | 컬럼 메타데이터 + 역할 분류 |
+| `parameter` | column_classification → parameter_semantic | 논리적 파라미터 (Wide/Long 통합) |
 | `data_dictionary` | metadata_semantic | 파라미터 정의 사전 (key-desc-unit) |
 | `table_entities` | entity_identification | 테이블 Entity 정의 |
 | `table_relationships` | relationship_inference | 테이블 간 FK 관계 |
@@ -434,6 +472,7 @@ SELECT source_column, target_column, relationship_type FROM cross_table_semantic
 
 ### 📏 = Rule-based (LLM 미사용)
 ### 🤖 = LLM 사용
+### 🤖+📏 = LLM + Rule-based Hybrid
 
 | Node | Type | LLM 질문 예시 | 출력 |
 |------|------|--------------|------|
@@ -441,8 +480,9 @@ SELECT source_column, target_column, relationship_type FROM cross_table_semantic
 | file_catalog | 📏 | - | 파일/컬럼 메타데이터 |
 | schema_aggregation | 📏 | - | 집계 데이터 |
 | file_classification | 🤖 | "이 파일이 metadata인가 data인가?" | is_metadata, confidence |
+| column_classification | 🤖+📏 | "이 컬럼의 역할은?" | column_role, parameter 생성 |
 | metadata_semantic | 🤖 | "어떤 컬럼이 key/desc/unit인가?" | data_dictionary 엔트리 |
-| data_semantic | 🤖 | "이 컬럼의 의미와 카테고리는?" | semantic_name, concept_category |
+| parameter_semantic | 🤖 | "이 parameter의 의미와 카테고리는?" | semantic_name, concept_category |
 | directory_pattern | 🤖 | "파일명에서 어떤 필드를 추출?" | filename_pattern |
 | entity_identification | 🤖 | "테이블의 각 행은 무엇을 나타내나?" | row_represents |
 | relationship_inference | 🤖 | "테이블 간 FK 관계는?" | relationships |
@@ -487,11 +527,13 @@ IndexingAgent/
 │   │   ├── models/                      # Pydantic 모델 (LLM 응답 스키마)
 │   │   │   ├── __init__.py
 │   │   │   ├── base.py                  # 공통 베이스 모델
+│   │   │   ├── enums.py                 # ColumnRole, SourceType 등 Enum 정의
 │   │   │   ├── llm_responses.py         # LLM 응답 모델들
 │   │   │   └── state_schemas.py         # State 스키마
 │   │   ├── prompts/                     # 프롬프트 관리
 │   │   │   ├── __init__.py
 │   │   │   ├── base.py                  # PromptTemplate, MultiPromptTemplate
+│   │   │   ├── column_classification.py # column_classification 프롬프트
 │   │   │   └── generator.py             # OutputFormatGenerator
 │   │   └── nodes/
 │   │       │
@@ -506,11 +548,14 @@ IndexingAgent/
 │   │       │   ├── __init__.py
 │   │       │   ├── node.py
 │   │       │   └── prompts.py
+│   │       ├── column_classification/   # [420] 컬럼 역할 분류 + parameter 생성
+│   │       │   ├── __init__.py
+│   │       │   └── node.py              # 프롬프트는 prompts/column_classification.py
 │   │       ├── metadata_semantic/       # [500] 메타데이터 의미 분석
 │   │       │   ├── __init__.py
 │   │       │   ├── node.py
 │   │       │   └── prompts.py
-│   │       ├── data_semantic/           # [600] 데이터 의미 분석
+│   │       ├── parameter_semantic/      # [600] Parameter 의미 분석 (구 data_semantic)
 │   │       │   ├── __init__.py
 │   │       │   ├── node.py
 │   │       │   └── prompts.py
@@ -539,21 +584,25 @@ IndexingAgent/
 │   │   │   ├── catalog.py               # file_catalog, column_metadata
 │   │   │   ├── directory.py             # directory_catalog
 │   │   │   ├── dictionary.py            # data_dictionary
+│   │   │   ├── parameter.py             # parameter (NEW!)
 │   │   │   ├── ontology_core.py         # table_entities, table_relationships
 │   │   │   └── ontology_enhancement.py  # subcategories, edges, mappings
 │   │   ├── repositories/                # CRUD 로직
 │   │   │   ├── base.py
 │   │   │   ├── column_repository.py
 │   │   │   ├── dictionary_repository.py
+│   │   │   ├── directory_repository.py
 │   │   │   ├── entity_repository.py
 │   │   │   ├── file_repository.py
-│   │   │   └── ontology_repository.py
+│   │   │   ├── ontology_repository.py
+│   │   │   └── parameter_repository.py  # parameter CRUD (NEW!)
 │   │   └── managers/                    # 스키마 매니저
 │   │       ├── base.py
 │   │       ├── catalog.py
 │   │       ├── dictionary.py
 │   │       ├── directory.py
-│   │       └── ontology.py
+│   │       ├── ontology.py
+│   │       └── parameter.py             # parameter 스키마 관리 (NEW!)
 │   │
 │   ├── processors/                      # 파일 처리기
 │   │   ├── base.py                      # BaseDataProcessor
@@ -586,11 +635,15 @@ IndexingAgent/
 |----------|------|------|
 | 📏 Rule-based | 단일 파일 (`node.py`) | LLM 미사용, 규칙 기반 로직 |
 | 🤖 LLM-based | 폴더 (`node.py` + `prompts.py`) | LLM 프롬프트 분리 관리 |
+| 🤖+📏 Hybrid | 폴더 (`node.py` + 프롬프트) | LLM 분류 + Rule-based 후처리 |
 
 **LLM 노드 폴더 구조:**
 - `__init__.py`: 노드와 프롬프트 클래스 export
 - `node.py`: 노드 로직 (BaseNode 상속, execute 구현)
 - `prompts.py`: PromptTemplate 상속, 프롬프트 정의
+
+**예외:**
+- `column_classification`: 프롬프트가 `prompts/column_classification.py`에 위치
 
 ---
 
@@ -602,8 +655,9 @@ IndexingAgent/
 |-------------|------|----------|
 | `DirectoryCatalogConfig` | directory_catalog | FILENAME_SAMPLE_SIZE, SAMPLE_STRATEGY |
 | `SchemaAggregationConfig` | schema_aggregation | BATCH_SIZE |
+| `ColumnClassificationConfig` | column_classification | COLUMN_BATCH_SIZE, CONFIDENCE_THRESHOLD |
 | `MetadataSemanticConfig` | metadata_semantic | COLUMN_BATCH_SIZE, CONCEPT_CATEGORIES |
-| `DataSemanticConfig` | data_semantic | COLUMN_BATCH_SIZE, CONFIDENCE_THRESHOLD |
+| `DataSemanticConfig` | parameter_semantic | COLUMN_BATCH_SIZE, CONFIDENCE_THRESHOLD |
 | `DirectoryPatternConfig` | directory_pattern | MAX_DIRS_PER_BATCH, MIN_FILES_FOR_PATTERN |
 | `EntityIdentificationConfig` | entity_identification | TABLE_BATCH_SIZE, MAX_COLUMNS_PER_TABLE |
 | `RelationshipInferenceConfig` | relationship_inference | FK_CANDIDATE_CONCEPTS, NEO4J_ENABLED |
@@ -614,8 +668,8 @@ IndexingAgent/
 ```python
 class LLMConfig:
     ACTIVE_PROVIDER = "openai"  # or "anthropic"
-    OPENAI_MODEL = "gpt-4o-2024-08-06"
-    ANTHROPIC_MODEL = "claude-3-5-sonnet-20241022"
+    OPENAI_MODEL = "gpt-5.2-2025-12-11"
+    ANTHROPIC_MODEL = "claude-opus-4-5-20251101"
     TEMPERATURE = 0.0  # 분석 정확도 위해 0
     MAX_TOKENS = 4096
 ```
@@ -643,31 +697,21 @@ NEO4J_PASSWORD=password
 4. **Dual Storage**: PostgreSQL (정형) + Neo4j (그래프) 병렬 저장
 5. **Progressive Enhancement**: 단계별로 온톨로지가 점진적으로 풍부해짐
 6. **NodeRegistry 패턴**: 동적으로 노드 추가/제거 가능
+7. **Wide/Long Format 통합**: `parameter` 테이블로 두 형식의 파라미터를 통합 관리
 
 ---
 
-## ⚠️ 알려진 제한사항
+## 📝 변경 이력
 
-### Long-format 데이터 처리
-
-현재 시스템은 **Long-format CSV**의 파라미터를 완전히 추출하지 못합니다:
-
-```
-Wide-format (지원됨):
-┌─────────┬─────┬──────┬─────┐
-│ caseid  │ HR  │ SpO2 │ BP  │  → 컬럼명이 파라미터
-└─────────┴─────┴──────┴─────┘
-
-Long-format (부분 지원):
-┌─────────┬──────┬───────┐
-│ caseid  │ name │ value │  → name 컬럼의 값들이 파라미터
-├─────────┼──────┼───────┤
-│ 1       │ HR   │ 72    │
-│ 1       │ SpO2 │ 98    │
-└─────────┴──────┴───────┘
-```
-
-`name` 컬럼의 unique values는 `value_distribution`에 저장되지만, 이를 온톨로지 파라미터로 자동 변환하는 기능은 아직 구현되지 않았습니다.
+### v2.0 (Current)
+- **column_classification** 노드 추가 (order 420)
+  - 컬럼 역할 분류 (LLM) + parameter 생성 (Rule-based)
+  - `ColumnRole` enum 도입
+- **data_semantic** → **parameter_semantic** 이름 변경
+  - `column_metadata` 대신 `parameter` 테이블 분석
+- **parameter 테이블** 신규
+  - Wide-format과 Long-format 파라미터 통합
+  - `source_type`: 'column_name' | 'column_value'
 
 ---
 

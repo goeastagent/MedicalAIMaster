@@ -31,6 +31,13 @@ from .generator import OutputFormatGenerator, generate_output_format
 # Phase 1.3 완료
 from .base import PromptTemplate, MultiPromptTemplate
 
+# Column Classification 프롬프트
+from .column_classification import (
+    ColumnClassificationPrompt,
+    build_column_info_for_prompt,
+    build_columns_info_batch,
+)
+
 __all__ = [
     # Generator
     "OutputFormatGenerator",
@@ -38,5 +45,9 @@ __all__ = [
     # Base Classes
     "PromptTemplate",
     "MultiPromptTemplate",
+    # Column Classification
+    "ColumnClassificationPrompt",
+    "build_column_info_for_prompt",
+    "build_columns_info_batch",
 ]
 

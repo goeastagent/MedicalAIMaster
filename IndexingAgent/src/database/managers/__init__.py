@@ -6,6 +6,7 @@ Schema Managers
 - BaseSchemaManager: 추상 베이스 클래스
 - CatalogSchemaManager: file_catalog, column_metadata 관리
 - DictionarySchemaManager: data_dictionary 관리
+- ParameterSchemaManager: parameter 관리 (Wide/Long format 통합)
 - DirectorySchemaManager: directory_catalog 관리
 - OntologySchemaManager: ontology 관련 테이블들 관리
 """
@@ -13,6 +14,7 @@ Schema Managers
 from .base import BaseSchemaManager, init_schema, ensure_schema
 from .catalog import CatalogSchemaManager, init_catalog_schema, ensure_catalog_schema
 from .dictionary import DictionarySchemaManager, init_dictionary_schema, ensure_dictionary_schema
+from .parameter import ParameterSchemaManager, init_parameter_schema, ensure_parameter_schema
 from .directory import DirectorySchemaManager, init_directory_schema, ensure_directory_schema
 from .ontology import OntologySchemaManager, init_ontology_schema, ensure_ontology_schema
 
@@ -29,6 +31,10 @@ __all__ = [
     'DictionarySchemaManager',
     'init_dictionary_schema',
     'ensure_dictionary_schema',
+    # Parameter
+    'ParameterSchemaManager',
+    'init_parameter_schema',
+    'ensure_parameter_schema',
     # Directory
     'DirectorySchemaManager',
     'init_directory_schema',

@@ -197,8 +197,9 @@ def get_db_snapshot() -> Dict[str, Any]:
     tables_info = [
         ("directory_catalog", ["dir_id", "dir_name", "dir_type", "file_count", "filename_pattern"]),
         ("file_catalog", ["file_id", "file_name", "processor_type", "is_metadata", "filename_values"]),
-        ("column_metadata", ["col_id", "file_id", "original_name", "semantic_name", "concept_category", "dict_entry_id"]),
-        ("data_dictionary", ["dict_id", "parameter_key", "parameter_desc", "parameter_unit"]),
+        ("column_metadata", ["col_id", "file_id", "original_name", "column_role", "data_type"]),
+        ("parameter", ["param_id", "file_id", "param_key", "source_type", "semantic_name", "unit"]),
+        ("data_dictionary", ["entry_id", "parameter_key", "parameter_desc", "parameter_unit"]),
         ("table_entities", ["entity_id", "file_id", "row_represents", "entity_identifier", "confidence"]),
         ("table_relationships", ["rel_id", "source_file_id", "target_file_id", "source_column", "target_column", "cardinality"]),
         ("ontology_subcategories", ["id", "parent_category", "subcategory_name"]),
@@ -363,14 +364,17 @@ def run_node_with_debug(node_name: str, state: Dict[str, Any]) -> Dict[str, Any]
     # 노드 실행
     try:
         start_time = datetime.now()
-        result_state = node(state)
+        node_output = node(state)
         end_time = datetime.now()
         duration = (end_time - start_time).total_seconds()
         
         print(f"\n✅ Node [{node_name}] completed in {duration:.2f}s")
         
+        # 노드 출력을 기존 state에 merge (노드는 partial state만 반환)
+        result_state = {**state, **node_output}
+        
         # 노드 결과 저장
-        node_result_keys = [key for key in result_state.keys() if key not in state or state[key] != result_state[key]]
+        node_result_keys = [key for key in node_output.keys() if key not in state or state[key] != node_output[key]]
         DEBUG_STORAGE.node_results[node_name] = {
             "duration_seconds": duration,
             "updated_keys": node_result_keys,
@@ -379,7 +383,7 @@ def run_node_with_debug(node_name: str, state: Dict[str, Any]) -> Dict[str, Any]
         # 주요 결과 출력
         print(f"\n📋 State keys updated by [{node_name}]:")
         for key in node_result_keys[:15]:
-            value = result_state.get(key)
+            value = node_output.get(key)
             if isinstance(value, list):
                 print(f"   - {key}: list with {len(value)} items")
             elif isinstance(value, dict):
@@ -475,11 +479,13 @@ def reset_database():
         DictionarySchemaManager,
         OntologySchemaManager,
         DirectorySchemaManager,
+        ParameterSchemaManager,
     )
     
     for manager_cls, name in [
         (OntologySchemaManager, "Ontology"),
         (DictionarySchemaManager, "Dictionary"),
+        (ParameterSchemaManager, "Parameter"),
         (CatalogSchemaManager, "Catalog"),
         (DirectorySchemaManager, "Directory"),
     ]:
@@ -494,6 +500,7 @@ def reset_database():
         (DirectorySchemaManager, "Directory"),
         (CatalogSchemaManager, "Catalog"),
         (DictionarySchemaManager, "Dictionary"),
+        (ParameterSchemaManager, "Parameter"),
         (OntologySchemaManager, "Ontology"),
     ]:
         try:
@@ -644,8 +651,9 @@ def run_debug_pipeline(until_node: str = None, only_node: str = None):
         "file_catalog",           # 200 - 📏 Rule-based
         "schema_aggregation",     # 300 - 📏 Rule-based
         "file_classification",    # 400 - 🤖 LLM
+        "column_classification",  # 420 - 🤖 LLM (NEW: column role + parameter creation)
         "metadata_semantic",      # 500 - 🤖 LLM
-        "data_semantic",          # 600 - 🤖 LLM
+        "parameter_semantic",     # 600 - 🤖 LLM (renamed from data_semantic)
         "directory_pattern",      # 700 - 🤖 LLM
         "entity_identification",  # 800 - 🤖 LLM
         "relationship_inference", # 900 - 🤖 LLM + Neo4j

@@ -217,6 +217,16 @@ class MetadataSemanticConfig(BaseLLMNodeConfig):
 Phase5Config = MetadataSemanticConfig
 
 
+class ColumnClassificationConfig(BaseLLMNodeConfig):
+    """[column_classification] 컬럼 역할 분류 설정"""
+    
+    # --- 1. 컬럼 배치 크기 ---
+    COLUMN_BATCH_SIZE = int(os.getenv("COL_CLASS_COLUMN_BATCH_SIZE", "20"))
+    
+    # --- 2. Confidence 설정 ---
+    CONFIDENCE_THRESHOLD = float(os.getenv("COL_CLASS_CONFIDENCE_THRESHOLD", "0.7"))
+
+
 class DataSemanticConfig(BaseLLMNodeConfig):
     """[data_semantic] 데이터 시맨틱 분석 설정"""
     

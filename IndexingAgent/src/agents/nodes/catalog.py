@@ -59,9 +59,9 @@ class FileCatalogNode(BaseNode, DatabaseMixin):
         Returns:
             업데이트된 상태 (file_catalog_result, catalog_file_ids, logs)
         """
-        print("\n" + "="*80)
-        print("📦 [File Catalog] 메타데이터 추출 시작")
-        print("="*80)
+        self.log("=" * 80)
+        self.log("📦 메타데이터 추출 시작")
+        self.log("=" * 80)
         
         input_files = state.get("input_files", [])
         
@@ -73,7 +73,7 @@ class FileCatalogNode(BaseNode, DatabaseMixin):
                 "error_message": "No input files provided"
             }
         
-        print(f"   📂 처리할 파일: {len(input_files)}개\n")
+        self.log(f"📂 처리할 파일: {len(input_files)}개", indent=1)
         
         # 파일 처리 실행
         result = self._process_files(
@@ -100,10 +100,10 @@ class FileCatalogNode(BaseNode, DatabaseMixin):
                 if not r["success"]:
                     logs.append(f"      - {os.path.basename(r['file_path'])}: {r['error']}")
         
-        print(f"\n✅ [File Catalog] 완료: {result['processed_files']}개 처리, {result['skipped_files']}개 스킵, {result['failed_files']}개 실패")
+        self.log(f"✅ 완료: {result['processed_files']}개 처리, {result['skipped_files']}개 스킵, {result['failed_files']}개 실패")
         if file_ids:
             short_ids = [fid[:8] for fid in file_ids]
-            print(f"   📋 File IDs: {short_ids}")
+            self.log(f"📋 File IDs: {short_ids}", indent=1)
         
         return {
             "logs": logs,
@@ -143,7 +143,7 @@ class FileCatalogNode(BaseNode, DatabaseMixin):
         
         for i, file_path in enumerate(file_paths):
             if verbose and (i + 1) % 100 == 0:
-                print(f"[File Catalog] Processing {i + 1}/{total_files}...")
+                self.log(f"Processing {i + 1}/{total_files}...")
             
             file_result = self._process_single_file(file_path, skip_unchanged, verbose)
             results.append(file_result)
@@ -160,7 +160,7 @@ class FileCatalogNode(BaseNode, DatabaseMixin):
                 failed_files += 1
         
         if verbose:
-            print(f"[File Catalog] Complete: {processed_files} processed, "
+            self.log(f"Complete: {processed_files} processed, "
                   f"{skipped_files} skipped, {failed_files} failed")
         
         success_rate = f"{(processed_files + skipped_files) / total_files * 100:.1f}%" if total_files > 0 else "0%"
@@ -203,7 +203,7 @@ class FileCatalogNode(BaseNode, DatabaseMixin):
             if existing_id:
                 short_id = existing_id[:8]
                 if verbose:
-                    print(f"   ⏭️ [{short_id}] {filename} (skipped: unchanged)")
+                    self.log(f"⏭️ [{short_id}] {filename} (skipped: unchanged)", indent=1)
                 return {
                     "file_path": file_path,
                     "success": True,
@@ -217,7 +217,7 @@ class FileCatalogNode(BaseNode, DatabaseMixin):
         processor = self._get_processor(file_path)
         if not processor:
             if verbose:
-                print(f"   ❌ [--------] {filename} (no processor)")
+                self.log(f"❌ [--------] {filename} (no processor)", indent=1)
             return {
                 "file_path": file_path,
                 "success": False,
@@ -235,7 +235,7 @@ class FileCatalogNode(BaseNode, DatabaseMixin):
             
             if "error" in metadata:
                 if verbose:
-                    print(f"   ❌ [--------] {filename} ({metadata['error']})")
+                    self.log(f"❌ [--------] {filename} ({metadata['error']})", indent=1)
                 return {
                     "file_path": file_path,
                     "success": False,
@@ -263,7 +263,7 @@ class FileCatalogNode(BaseNode, DatabaseMixin):
             # 5. 결과 출력
             short_id = file_id[:8]
             if verbose:
-                print(f"   ✅ [{short_id}] {filename} ({column_count} columns)")
+                self.log(f"✅ [{short_id}] {filename} ({column_count} columns)", indent=1)
             
             return {
                 "file_path": file_path,
@@ -277,7 +277,7 @@ class FileCatalogNode(BaseNode, DatabaseMixin):
         except Exception as e:
             db.get_connection().rollback()
             if verbose:
-                print(f"   ❌ [--------] {filename} ({str(e)})")
+                self.log(f"❌ [--------] {filename} ({str(e)})", indent=1)
             return {
                 "file_path": file_path,
                 "success": False,
@@ -321,7 +321,7 @@ class FileCatalogNode(BaseNode, DatabaseMixin):
                     file_paths.append(file_path)
         
         if verbose:
-            print(f"[File Catalog] Found {len(file_paths)} processable files in {directory}")
+            self.log(f"Found {len(file_paths)} processable files in {directory}")
         
         return self._process_files(file_paths, skip_unchanged, verbose)
     

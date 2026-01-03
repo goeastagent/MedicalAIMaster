@@ -6,6 +6,7 @@ Provides reusable functionality:
 - LLMMixin: LLM client integration with retry logic
 - DatabaseMixin: Database connection management
 - LoggingMixin: Enhanced logging capabilities
+- Neo4jMixin: Neo4j graph database connection management
 """
 
 from typing import Dict, Any, Optional, List, Type
@@ -159,17 +160,31 @@ class LLMMixin:
 
 class DatabaseMixin:
     """
-    데이터베이스 연결 관리
+    데이터베이스 연결 관리 및 Repository 접근
     
     사용법:
         class MyNode(BaseNode, DatabaseMixin):
             def execute(self, state):
+                # Repository 사용 (권장)
+                files = self.file_repo.get_data_files_with_details()
+                params = self.parameter_repo.get_parameters_by_concept()
+                
+                # 직접 쿼리 사용 (비권장, 복잡한 쿼리에만)
                 with self.get_connection() as conn:
                     cursor = conn.cursor()
                     cursor.execute("SELECT ...")
     """
     
     _db_manager = None
+    
+    # Repository 캐시 (lazy initialization)
+    _file_repo = None
+    _column_repo = None
+    _parameter_repo = None
+    _dictionary_repo = None
+    _entity_repo = None
+    _ontology_repo = None
+    _directory_repo = None
     
     @property
     def db_manager(self):
@@ -178,6 +193,70 @@ class DatabaseMixin:
             from src.database import get_db_manager
             self._db_manager = get_db_manager()
         return self._db_manager
+    
+    # =========================================================================
+    # Repository Properties (Lazy Initialization)
+    # =========================================================================
+    
+    @property
+    def file_repo(self):
+        """FileRepository 인스턴스"""
+        if self._file_repo is None:
+            from src.database.repositories import FileRepository
+            self._file_repo = FileRepository(self.db_manager)
+        return self._file_repo
+    
+    @property
+    def column_repo(self):
+        """ColumnRepository 인스턴스"""
+        if self._column_repo is None:
+            from src.database.repositories import ColumnRepository
+            self._column_repo = ColumnRepository(self.db_manager)
+        return self._column_repo
+    
+    @property
+    def parameter_repo(self):
+        """ParameterRepository 인스턴스"""
+        if self._parameter_repo is None:
+            from src.database.repositories import ParameterRepository
+            self._parameter_repo = ParameterRepository(self.db_manager)
+        return self._parameter_repo
+    
+    @property
+    def dictionary_repo(self):
+        """DictionaryRepository 인스턴스"""
+        if self._dictionary_repo is None:
+            from src.database.repositories import DictionaryRepository
+            self._dictionary_repo = DictionaryRepository(self.db_manager)
+        return self._dictionary_repo
+    
+    @property
+    def entity_repo(self):
+        """EntityRepository 인스턴스"""
+        if self._entity_repo is None:
+            from src.database.repositories import EntityRepository
+            self._entity_repo = EntityRepository(self.db_manager)
+        return self._entity_repo
+    
+    @property
+    def ontology_repo(self):
+        """OntologyRepository 인스턴스"""
+        if self._ontology_repo is None:
+            from src.database.repositories import OntologyRepository
+            self._ontology_repo = OntologyRepository(self.db_manager)
+        return self._ontology_repo
+    
+    @property
+    def directory_repo(self):
+        """DirectoryRepository 인스턴스"""
+        if self._directory_repo is None:
+            from src.database.repositories import DirectoryRepository
+            self._directory_repo = DirectoryRepository(self.db_manager)
+        return self._directory_repo
+    
+    # =========================================================================
+    # Database Connection
+    # =========================================================================
     
     def get_connection(self):
         """
@@ -342,3 +421,85 @@ class LoggingMixin:
         """로그 버퍼 초기화"""
         self._log_buffer = []
 
+
+# =============================================================================
+# Neo4jMixin
+# =============================================================================
+
+class Neo4jMixin:
+    """
+    Neo4j 그래프 데이터베이스 연결 관리
+    
+    사용법:
+        class MyNode(BaseNode, Neo4jMixin):
+            def execute(self, state):
+                driver = self.neo4j_driver
+                if driver:
+                    with driver.session(database=Neo4jConfig.DATABASE) as session:
+                        session.run("MATCH ...")
+                
+                # 작업 완료 후 드라이버 정리 (선택적)
+                self.close_neo4j()
+    """
+    
+    _neo4j_driver = None
+    
+    @property
+    def neo4j_driver(self):
+        """
+        Neo4j 드라이버 (lazy initialization)
+        
+        Returns:
+            neo4j.Driver 인스턴스 또는 None (연결 실패 시)
+        """
+        if self._neo4j_driver is None:
+            try:
+                from neo4j import GraphDatabase
+                from src.config import Neo4jConfig
+                
+                self._neo4j_driver = GraphDatabase.driver(
+                    Neo4jConfig.URI,
+                    auth=(Neo4jConfig.USER, Neo4jConfig.PASSWORD)
+                )
+                self._neo4j_driver.verify_connectivity()
+            except Exception as e:
+                if hasattr(self, 'log'):
+                    self.log(f"Neo4j connection failed: {e}", "⚠️", indent=1)
+                return None
+        return self._neo4j_driver
+    
+    def close_neo4j(self):
+        """
+        Neo4j 드라이버 연결 종료
+        
+        노드 실행 완료 후 명시적으로 호출하거나,
+        finally 블록에서 호출하여 리소스 정리
+        """
+        if self._neo4j_driver is not None:
+            try:
+                self._neo4j_driver.close()
+            except Exception:
+                pass
+            self._neo4j_driver = None
+    
+    def neo4j_session(self, database: Optional[str] = None):
+        """
+        Neo4j 세션 컨텍스트 매니저
+        
+        Args:
+            database: 데이터베이스 이름 (None이면 Config에서 읽음)
+        
+        Returns:
+            세션 컨텍스트 매니저 또는 None
+            
+        Usage:
+            with self.neo4j_session() as session:
+                session.run("MATCH ...")
+        """
+        driver = self.neo4j_driver
+        if driver is None:
+            return None
+        
+        from src.config import Neo4jConfig
+        db_name = database or Neo4jConfig.DATABASE
+        return driver.session(database=db_name)
