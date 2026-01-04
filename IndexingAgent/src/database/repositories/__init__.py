@@ -10,6 +10,7 @@ Repository 패턴 - 데이터 액세스 로직 캡슐화
 - EntityRepository: table_entities, table_relationships
 - OntologyRepository: ontology_enhancement 온톨로지 테이블들
 - DirectoryRepository: directory_catalog 관련 조회/저장
+- FileGroupRepository: file_group 관련 조회/저장 (file-based sharding 지원)
 """
 
 from .base import BaseRepository
@@ -20,6 +21,7 @@ from .parameter_repository import ParameterRepository
 from .entity_repository import EntityRepository
 from .ontology_repository import OntologyRepository
 from .directory_repository import DirectoryRepository
+from .file_group_repository import FileGroupRepository
 
 __all__ = [
     "BaseRepository",
@@ -30,5 +32,6 @@ __all__ = [
     "EntityRepository",
     "OntologyRepository",
     "DirectoryRepository",
+    "FileGroupRepository",
 ]
 

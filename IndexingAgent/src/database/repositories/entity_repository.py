@@ -191,6 +191,87 @@ class EntityRepository(BaseRepository):
             print(f"[EntityRepository] Error saving entities: {e}")
             raise
     
+    def bulk_save_group_entities(
+        self,
+        group_id: str,
+        row_represents: str,
+        entity_identifier_key: str,
+        confidence: float,
+        reasoning: str
+    ) -> int:
+        """
+        그룹 내 모든 파일에 대해 table_entities 행 일괄 생성 (전파)
+        
+        filename_values에서 entity_identifier_key를 추출하여 entity_identifier로 사용
+        
+        Args:
+            group_id: 파일 그룹 ID
+            row_represents: 행이 나타내는 것 (예: 'surgical_case_vital_signs')
+            entity_identifier_key: filename_values에서 추출할 키 (예: 'caseid')
+            confidence: LLM 신뢰도
+            reasoning: LLM 판단 근거
+        
+        Returns:
+            생성/업데이트된 행 수
+        
+        Example:
+            bulk_save_group_entities(
+                group_id='abc-123',
+                row_represents='surgical_case_vital_signs',
+                entity_identifier_key='caseid',
+                confidence=0.95,
+                reasoning='Each file contains vital signs for one surgical case'
+            )
+            
+            → 6,388 rows in table_entities:
+              - 1.vital: entity_identifier = '1'
+              - 2.vital: entity_identifier = '2'
+              - ...
+              - 6388.vital: entity_identifier = '6388'
+        """
+        conn, cursor = self._get_cursor()
+        
+        try:
+            # INSERT ... SELECT로 일괄 생성
+            cursor.execute("""
+                INSERT INTO table_entities (
+                    file_id, row_represents, entity_identifier,
+                    confidence, reasoning, llm_analyzed_at
+                )
+                SELECT 
+                    file_id,
+                    %s,                                    -- row_represents
+                    filename_values->>%s,                  -- entity_identifier (from filename_values)
+                    %s,                                    -- confidence
+                    %s,                                    -- reasoning
+                    NOW()                                  -- llm_analyzed_at
+                FROM file_catalog
+                WHERE group_id = %s
+                ON CONFLICT (file_id)
+                DO UPDATE SET
+                    row_represents = EXCLUDED.row_represents,
+                    entity_identifier = EXCLUDED.entity_identifier,
+                    confidence = EXCLUDED.confidence,
+                    reasoning = EXCLUDED.reasoning,
+                    llm_analyzed_at = NOW(),
+                    updated_at = NOW()
+            """, (
+                row_represents,
+                entity_identifier_key,
+                confidence,
+                reasoning,
+                group_id
+            ))
+            
+            count = cursor.rowcount
+            conn.commit()
+            return count
+            
+        except Exception as e:
+            conn.rollback()
+            print(f"[EntityRepository] Error bulk saving group entities: {e}")
+            raise
+    
     def find_shared_columns(
         self, 
         tables: List[Dict[str, Any]]

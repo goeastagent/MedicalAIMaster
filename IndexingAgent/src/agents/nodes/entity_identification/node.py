@@ -24,8 +24,9 @@ from ...models.llm_responses import (
 from ...base import BaseNode, LLMMixin, DatabaseMixin
 from ...registry import register_node
 from src.database import OntologySchemaManager
+from src.database.repositories import FileGroupRepository
 from src.config import EntityIdentificationConfig, LLMConfig
-from .prompts import EntityIdentificationPrompt
+from .prompts import EntityIdentificationPrompt, GroupEntityPrompt
 
 
 @register_node
@@ -52,6 +53,204 @@ class EntityIdentificationNode(BaseNode, LLMMixin, DatabaseMixin):
     
     # 프롬프트 클래스 연결
     prompt_class = EntityIdentificationPrompt
+    group_prompt_class = GroupEntityPrompt
+    
+    def __init__(self):
+        super().__init__()
+        self._group_repo: Optional[FileGroupRepository] = None
+    
+    def _get_group_repo(self) -> FileGroupRepository:
+        """FileGroupRepository 싱글톤 반환"""
+        if self._group_repo is None:
+            self._group_repo = FileGroupRepository()
+        return self._group_repo
+    
+    # ═══════════════════════════════════════════════════════════════════════════
+    # Phase 1: 그룹 Entity 분석
+    # ═══════════════════════════════════════════════════════════════════════════
+    
+    def _analyze_group_entity(self, group: Dict[str, Any]) -> Optional[Dict[str, Any]]:
+        """
+        그룹의 샘플 파일로 Entity 분석
+        
+        Args:
+            group: 그룹 정보 (group_id, group_name, grouping_criteria 등)
+        
+        Returns:
+            {
+                'row_represents': str,
+                'entity_identifier_source': str,  # 'filename' or 'content'
+                'entity_identifier_key': str,     # 'caseid'
+                'confidence': float,
+                'reasoning': str,
+                'sample_file_ids': list
+            }
+            또는 None (분석 실패)
+        """
+        group_id = group['group_id']
+        group_name = group['group_name']
+        criteria = group.get('grouping_criteria', {})
+        file_count = group.get('file_count', 0)
+        sample_file_ids = group.get('sample_file_ids', [])
+        
+        self.log(f"📦 Analyzing group: {group_name} ({file_count} files)", indent=1)
+        
+        # 샘플 파일 선택
+        group_repo = self._get_group_repo()
+        
+        if sample_file_ids:
+            # 기존 샘플 파일 사용
+            sample_file_id = sample_file_ids[0]
+            sample_file = self.file_repo.get_file_by_id(sample_file_id)
+        else:
+            # 그룹에서 샘플 파일 선택
+            sample_files = group_repo.get_sample_files_for_analysis(group_id, sample_size=1)
+            if not sample_files:
+                self.log(f"⚠️ No sample files for group {group_name}", indent=2)
+                return None
+            sample_file = sample_files[0]
+            sample_file_id = sample_file['file_id']
+        
+        if not sample_file:
+            self.log(f"⚠️ Sample file not found for group {group_name}", indent=2)
+            return None
+        
+        sample_file_path = sample_file.get('file_path')
+        self.log(f"🎯 Sample file: {sample_file_path.split('/')[-1] if sample_file_path else 'unknown'}", indent=2)
+        
+        # 샘플 파일의 컬럼 정보 로드
+        files_info = self._load_data_files_with_columns([sample_file_path])
+        if not files_info:
+            self.log(f"⚠️ No column info for sample file", indent=2)
+            return None
+        
+        sample_info = files_info[0]
+        
+        # 그룹 컨텍스트 빌드
+        group_context = self._build_group_entity_context(
+            group_name=group_name,
+            file_count=file_count,
+            criteria=criteria,
+            sample_info=sample_info
+        )
+        
+        # LLM 호출
+        prompt = self.group_prompt_class.build(group_context=group_context)
+        
+        try:
+            response = self.call_llm_json(prompt)
+            
+            if not response or response.get('error'):
+                self.log(f"❌ LLM error: {response.get('error') if response else 'No response'}", indent=2)
+                return None
+            
+            # 응답 파싱
+            row_represents = response.get('row_represents', 'unknown')
+            entity_source = response.get('entity_identifier_source', 'filename')
+            entity_key = response.get('entity_identifier_key')
+            confidence = float(response.get('confidence', 0.0))
+            reasoning = response.get('reasoning', '')
+            
+            # pattern_columns에서 entity_key 추출 (fallback)
+            if not entity_key:
+                pattern_columns = criteria.get('pattern_columns', [])
+                if pattern_columns:
+                    entity_key = pattern_columns[0].get('name')
+            
+            self.log(f"✅ row_represents: {row_represents}", indent=2)
+            self.log(f"✅ entity_identifier: {entity_source}/{entity_key}", indent=2)
+            self.log(f"✅ confidence: {confidence:.2f}", indent=2)
+            
+            return {
+                'row_represents': row_represents,
+                'entity_identifier_source': entity_source,
+                'entity_identifier_key': entity_key,
+                'confidence': confidence,
+                'reasoning': reasoning,
+                'sample_file_ids': [sample_file_id]
+            }
+            
+        except Exception as e:
+            self.log(f"❌ LLM call failed: {e}", indent=2)
+            return None
+    
+    def _build_group_entity_context(
+        self,
+        group_name: str,
+        file_count: int,
+        criteria: Dict,
+        sample_info: Dict
+    ) -> str:
+        """
+        그룹 Entity 분석용 LLM 컨텍스트 빌드
+        """
+        lines = []
+        
+        # 그룹 정보
+        lines.append("## File Group Information")
+        lines.append(f"- Group Name: {group_name}")
+        lines.append(f"- Total Files: {file_count}")
+        lines.append(f"- Extensions: {criteria.get('extensions', [])}")
+        
+        # 패턴 정보
+        pattern_regex = criteria.get('pattern_regex')
+        pattern_columns = criteria.get('pattern_columns', [])
+        if pattern_regex:
+            lines.append(f"- Filename Pattern: {pattern_regex}")
+            if pattern_columns:
+                cols_str = ', '.join([c.get('name', '?') for c in pattern_columns])
+                lines.append(f"- Pattern Columns: {cols_str}")
+        
+        # 샘플 파일 정보
+        lines.append("")
+        lines.append("## Sample File")
+        lines.append(f"- File Name: {sample_info.get('file_name', 'unknown')}")
+        lines.append(f"- Row Count: {sample_info.get('row_count', 0):,}")
+        
+        # filename_values
+        filename_values = sample_info.get('filename_values', {})
+        if filename_values:
+            lines.append("- Filename-extracted values:")
+            for key, value in filename_values.items():
+                lines.append(f"  - {key}: {value}")
+        
+        # 컬럼 정보
+        columns = sample_info.get('columns', [])
+        if columns:
+            lines.append("")
+            lines.append("## Sample File Columns")
+            
+            # identifier 컬럼 먼저
+            id_cols = [c for c in columns if c.get('column_role') == 'identifier']
+            param_cols = [c for c in columns if c.get('column_role') == 'parameter_name']
+            other_cols = [c for c in columns if c.get('column_role') not in ('identifier', 'parameter_name')]
+            
+            if id_cols:
+                lines.append("Identifier columns:")
+                for col in id_cols:
+                    unique = col.get('unique_count')
+                    lines.append(f"  - {col['original_name']} 🔑 (unique: {unique:,})" if unique else f"  - {col['original_name']} 🔑")
+            
+            if param_cols:
+                lines.append("Parameter columns (first 10):")
+                for col in param_cols[:10]:
+                    semantic = col.get('semantic_name') or col['original_name']
+                    lines.append(f"  - {col['original_name']} ({semantic})")
+                if len(param_cols) > 10:
+                    lines.append(f"  ... and {len(param_cols) - 10} more")
+            
+            if other_cols:
+                lines.append("Other columns (first 5):")
+                for col in other_cols[:5]:
+                    lines.append(f"  - {col['original_name']} [{col.get('column_type', '-')}]")
+                if len(other_cols) > 5:
+                    lines.append(f"  ... and {len(other_cols) - 5} more")
+        
+        return "\n".join(lines)
+    
+    # ═══════════════════════════════════════════════════════════════════════════
+    # Phase 2: 비그룹 파일 분석 (기존 로직)
+    # ═══════════════════════════════════════════════════════════════════════════
     
     def _load_data_files_with_columns(self, data_files: List[str]) -> List[Dict[str, Any]]:
         """
@@ -318,113 +517,141 @@ class EntityIdentificationNode(BaseNode, LLMMixin, DatabaseMixin):
     
     def execute(self, state: Dict[str, Any]) -> Dict[str, Any]:
         """
-        Entity Identification 실행
+        Entity Identification 실행 (v2)
         
-        데이터 파일의 행이 무엇을 나타내는지(row_represents)와
-        고유 식별자 컬럼(entity_identifier)을 식별합니다.
+        수정된 로직:
+        Phase 1: 그룹화된 파일 처리 (그룹 단위 분석 + 전파)
+        Phase 2: 비그룹 파일 처리 (기존 개별 분석)
         """
         started_at = datetime.now().isoformat()
         
-        # 1. 데이터 파일 목록 가져오기
-        data_files = state.get('data_files', [])
-        
-        if not data_files:
-            self.log("ℹ️  No data files to analyze")
-            return {
-                "entity_identification_result": EntityIdentificationResult(
-                    started_at=started_at,
-                    completed_at=datetime.now().isoformat()
-                ).model_dump(),
-                "table_entity_results": []
-            }
-        
-        self.log(f"📁 Data files to analyze: {len(data_files)}")
-        for f in data_files[:5]:
-            self.log(f"- {f}", indent=1)
-        if len(data_files) > 5:
-            self.log(f"... and {len(data_files) - 5} more", indent=1)
-        
-        # 2. Ontology 스키마 초기화
+        # Ontology 스키마 초기화
         schema_manager = OntologySchemaManager()
         schema_manager.create_tables()
         
-        # 3. 데이터 파일과 컬럼 정보 로드
-        self.log("📥 Loading data files with column info...")
-        files_info = self._load_data_files_with_columns(data_files)
-        
-        if not files_info:
-            self.log("⚠️  No file info loaded from database")
-            return {
-                "entity_identification_result": EntityIdentificationResult(
-                    total_tables=len(data_files),
-                    started_at=started_at,
-                    completed_at=datetime.now().isoformat()
-                ).model_dump(),
-                "table_entity_results": []
-            }
-        
-        self.log(f"✅ Loaded {len(files_info)} files with column info", indent=1)
-        
-        # 4. LLM 호출 (배치 처리)
-        self.log("🤖 Calling LLM for entity identification...")
-        
-        all_results: List[TableEntityResult] = []
+        # 통계 초기화
+        groups_processed = 0
+        group_files_propagated = 0
+        ungrouped_files_processed = 0
         total_llm_calls = 0
+        all_results: List[TableEntityResult] = []
         
-        # 배치 크기에 따라 분할
-        batch_size = EntityIdentificationConfig.TABLE_BATCH_SIZE
-        for i in range(0, len(files_info), batch_size):
-            batch = files_info[i:i + batch_size]
-            batch_num = i // batch_size + 1
-            total_batches = (len(files_info) + batch_size - 1) // batch_size
-            
-            self.log(f"📦 Batch {batch_num}/{total_batches} ({len(batch)} tables)", indent=1)
-            
-            results, llm_calls = self._call_llm_for_entity_identification(batch)
-            all_results.extend(results)
-            total_llm_calls += llm_calls
-            
-            self.log(f"✅ Got {len(results)} results", indent=2)
+        # ═══════════════════════════════════════════════════════════════════════════
+        # Phase 1: 그룹화된 파일 처리
+        # ═══════════════════════════════════════════════════════════════════════════
+        self.log("=" * 50)
+        self.log("📦 Phase 1: Processing file groups...")
         
-        # 5. DB 저장
-        self.log("💾 Saving to table_entities...")
-        saved_count = self._save_table_entities(files_info, all_results)
-        self.log(f"✅ Saved {saved_count} table entities", indent=1)
+        group_repo = self._get_group_repo()
+        groups = group_repo.get_groups_for_entity_analysis()
         
-        # 6. 통계 계산
+        if groups:
+            self.log(f"📦 Found {len(groups)} groups to analyze", indent=1)
+            
+            for group in groups:
+                group_result = self._analyze_group_entity(group)
+                total_llm_calls += 1
+                
+                if group_result:
+                    groups_processed += 1
+                    
+                    # file_group 테이블 업데이트
+                    group_repo.update_group_analysis(
+                        group_id=group['group_id'],
+                        row_represents=group_result['row_represents'],
+                        entity_identifier_source=group_result['entity_identifier_source'],
+                        entity_identifier_key=group_result['entity_identifier_key'],
+                        confidence=group_result['confidence'],
+                        reasoning=group_result['reasoning'],
+                        sample_file_ids=group_result.get('sample_file_ids')
+                    )
+                    
+                    # 그룹 내 모든 파일에 table_entities 전파
+                    propagated = self.entity_repo.bulk_save_group_entities(
+                        group_id=group['group_id'],
+                        row_represents=group_result['row_represents'],
+                        entity_identifier_key=group_result['entity_identifier_key'],
+                        confidence=group_result['confidence'],
+                        reasoning=group_result['reasoning']
+                    )
+                    group_files_propagated += propagated
+                    
+                    self.log(f"✅ {group['group_name']}: {group_result['row_represents']} → {propagated} files", indent=2)
+                else:
+                    self.log(f"⚠️ {group['group_name']}: Analysis failed", indent=2)
+        else:
+            self.log("⚠️ No groups to analyze", indent=1)
+        
+        # ═══════════════════════════════════════════════════════════════════════════
+        # Phase 2: 비그룹 파일 처리 (기존 로직)
+        # ═══════════════════════════════════════════════════════════════════════════
+        self.log("=" * 50)
+        self.log("📄 Phase 2: Processing ungrouped files...")
+        
+        ungrouped_files = self.file_repo.get_ungrouped_data_files()
+        
+        if ungrouped_files:
+            self.log(f"📄 Found {len(ungrouped_files)} ungrouped files to analyze", indent=1)
+            
+            # 파일 정보 로드
+            files_info = self._load_data_files_with_columns(ungrouped_files)
+            
+            if files_info:
+                # 배치 처리
+                batch_size = EntityIdentificationConfig.TABLE_BATCH_SIZE
+                for i in range(0, len(files_info), batch_size):
+                    batch = files_info[i:i + batch_size]
+                    batch_num = i // batch_size + 1
+                    total_batches = (len(files_info) + batch_size - 1) // batch_size
+                    
+                    self.log(f"📦 Batch {batch_num}/{total_batches} ({len(batch)} tables)", indent=2)
+                    
+                    results, llm_calls = self._call_llm_for_entity_identification(batch)
+                    all_results.extend(results)
+                    total_llm_calls += llm_calls
+                
+                # DB 저장
+                saved_count = self._save_table_entities(files_info, all_results)
+                ungrouped_files_processed = saved_count
+                self.log(f"✅ Saved {saved_count} table entities", indent=2)
+        else:
+            self.log("⚠️ No ungrouped files to analyze", indent=1)
+        
+        # ═══════════════════════════════════════════════════════════════════════════
+        # 결과 요약
+        # ═══════════════════════════════════════════════════════════════════════════
+        completed_at = datetime.now().isoformat()
+        
+        # 통계 계산
         entities_identified = sum(1 for r in all_results if r.row_represents != 'unknown')
         identifiers_found = sum(1 for r in all_results if r.entity_identifier is not None)
         high_conf = sum(1 for r in all_results if r.confidence >= EntityIdentificationConfig.CONFIDENCE_THRESHOLD)
         low_conf = sum(1 for r in all_results if r.confidence < EntityIdentificationConfig.CONFIDENCE_THRESHOLD)
         
-        # 7. 결과 출력
-        self.log(f"Total tables: {len(files_info)}", indent=1)
-        self.log(f"Analyzed: {len(all_results)}", indent=1)
-        self.log(f"Entities identified: {entities_identified}", indent=1)
-        self.log(f"With unique identifier: {identifiers_found}", indent=1)
-        self.log(f"High confidence (≥{EntityIdentificationConfig.CONFIDENCE_THRESHOLD}): {high_conf}", indent=1)
-        self.log(f"Low confidence: {low_conf}", indent=1)
-        self.log(f"LLM calls: {total_llm_calls}", indent=1)
+        self.log("=" * 50)
+        self.log("📊 Summary:")
+        self.log(f"📦 Groups processed: {groups_processed}", indent=1)
+        self.log(f"📁 Group files propagated: {group_files_propagated}", indent=1)
+        self.log(f"📄 Ungrouped files processed: {ungrouped_files_processed}", indent=1)
+        self.log(f"🤖 LLM calls: {total_llm_calls}", indent=1)
+        self.log(f"🎯 High confidence: {high_conf}", indent=1)
         
-        # 상세 결과 출력
-        self.log("📋 Entity Results:")
-        for result in all_results:
-            identifier_str = result.entity_identifier or "(none)"
-            conf_emoji = "🟢" if result.confidence >= EntityIdentificationConfig.CONFIDENCE_THRESHOLD else "🟡"
-            self.log(f"{conf_emoji} {result.file_name}", indent=1)
-            self.log(f"row_represents: {result.row_represents}", indent=2)
-            self.log(f"entity_identifier: {identifier_str}", indent=2)
-            self.log(f"confidence: {result.confidence:.2f}", indent=2)
-        
-        # 8. 결과 반환
-        completed_at = datetime.now().isoformat()
+        # 결과 출력 (비그룹 파일만)
+        if all_results:
+            self.log("📋 Ungrouped Entity Results:")
+            for result in all_results[:10]:  # 최대 10개만
+                identifier_str = result.entity_identifier or "(none)"
+                conf_emoji = "🟢" if result.confidence >= EntityIdentificationConfig.CONFIDENCE_THRESHOLD else "🟡"
+                self.log(f"{conf_emoji} {result.file_name}: {result.row_represents} [{identifier_str}]", indent=1)
+            if len(all_results) > 10:
+                self.log(f"... and {len(all_results) - 10} more", indent=1)
         
         phase_result = EntityIdentificationResult(
-            total_tables=len(files_info),
-            tables_analyzed=len(all_results),
-            entities_identified=entities_identified,
-            identifiers_found=identifiers_found,
-            high_confidence=high_conf,
+            total_tables=groups_processed + ungrouped_files_processed,
+            tables_analyzed=groups_processed + len(all_results),
+            entities_identified=groups_processed + entities_identified,
+            identifiers_found=groups_processed + identifiers_found,
+            high_confidence=groups_processed + high_conf,
             low_confidence=low_conf,
             llm_calls=total_llm_calls,
             started_at=started_at,
@@ -433,7 +660,13 @@ class EntityIdentificationNode(BaseNode, LLMMixin, DatabaseMixin):
         
         return {
             "entity_identification_result": phase_result.model_dump(),
-            "table_entity_results": [r.model_dump() for r in all_results]
+            "table_entity_results": [r.model_dump() for r in all_results],
+            "groups_processed": groups_processed,
+            "group_files_propagated": group_files_propagated,
+            "logs": [
+                f"🎯 [Entity Identification] Groups: {groups_processed} ({group_files_propagated} files), "
+                f"Ungrouped: {ungrouped_files_processed}, LLM calls: {total_llm_calls}"
+            ]
         }
     
     @classmethod

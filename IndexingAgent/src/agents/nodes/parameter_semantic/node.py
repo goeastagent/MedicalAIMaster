@@ -94,27 +94,35 @@ class ParameterSemanticNode(BaseNode, LLMMixin, DatabaseMixin):
     
     def _get_parameters_to_analyze(self, data_files: List[str]) -> List[Dict]:
         """
-        semantic 분석이 필요한 parameter 조회
+        semantic 분석이 필요한 parameter 조회 (파일 레벨 + 그룹 레벨)
         
         Args:
             data_files: 데이터 파일 경로 목록
         
         Returns:
-            Parameter 정보 리스트
+            Parameter 정보 리스트 (파일 레벨 + 그룹 레벨 합산)
         """
         _, param_repo, _ = self._get_repositories()
         file_repo, _, _ = self._get_repositories()
         
+        all_parameters = []
+        
         try:
-            # 파일 경로로 file_id 조회
+            # 1. 파일 레벨 파라미터 조회
             files_data = file_repo.get_files_by_paths(data_files)
             file_ids = [f['file_id'] for f in files_data]
             
-            if not file_ids:
-                return []
+            if file_ids:
+                file_params = param_repo.get_parameters_without_semantic(file_ids)
+                all_parameters.extend(file_params)
             
-            # semantic 미분석 parameter 조회
-            return param_repo.get_parameters_without_semantic(file_ids)
+            # 2. 그룹 레벨 파라미터 조회 (file_id=NULL, group_id!=NULL)
+            group_params = param_repo.get_group_parameters_without_semantic()
+            if group_params:
+                all_parameters.extend(group_params)
+                self.log(f"   Including {len(group_params)} group-level parameters", indent=0)
+            
+            return all_parameters
             
         except Exception as e:
             self.log(f"⚠️ Error loading parameters: {e}", indent=1)
@@ -301,6 +309,7 @@ class ParameterSemanticNode(BaseNode, LLMMixin, DatabaseMixin):
                         dict_entry_id=dict_id,
                         dict_match_status=status,
                         match_confidence=result.match_confidence,
+                        llm_confidence=result.match_confidence,  # LLM이 제공하는 신뢰도
                         llm_reasoning=result.reasoning
                     )
                 except Exception as e:

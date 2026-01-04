@@ -83,6 +83,10 @@ class SourceType(str, Enum):
     # Long-format: 컬럼 값에서 추출 (key 컬럼의 unique values가 파라미터)
     COLUMN_VALUE = 'column_value'
     
+    # Group-common: 파일 그룹에 공통된 파라미터 (그룹 내 모든 파일이 공유)
+    # 예: .vital 파일 6388개가 모두 공유하는 "Solar8000/HR" 파라미터
+    GROUP_COMMON = 'group_common'
+    
     @classmethod
     def values(cls) -> List[str]:
         """모든 값 목록 반환"""

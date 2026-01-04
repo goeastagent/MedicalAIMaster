@@ -186,6 +186,26 @@ class FileRepository(BaseRepository):
         
         return [row[0] for row in rows]
     
+    def get_ungrouped_data_files(self) -> List[str]:
+        """
+        그룹에 속하지 않은 data 파일 경로 목록 조회
+        
+        [420] column_classification 노드에서 사용
+        - is_metadata = false
+        - group_id IS NULL
+        
+        Returns:
+            파일 경로 리스트
+        """
+        rows = self._execute_query("""
+            SELECT file_path FROM file_catalog 
+            WHERE is_metadata = false 
+              AND group_id IS NULL
+            ORDER BY file_name
+        """, fetch="all")
+        
+        return [row[0] for row in rows]
+    
     def get_data_files_with_details(self) -> List[Dict[str, Any]]:
         """
         [R5] is_metadata=false인 파일들의 상세 정보 조회
@@ -226,6 +246,38 @@ class FileRepository(BaseRepository):
         """, fetch="all")
         
         return [str(row[0]) for row in rows]
+    
+    def get_files_by_dir_id(self, dir_id: str) -> List[Dict[str, Any]]:
+        """
+        특정 디렉토리의 파일 목록 조회
+        
+        [250] file_grouping_prep 노드에서 사용
+        
+        Args:
+            dir_id: 디렉토리 ID
+        
+        Returns:
+            파일 정보 리스트
+        """
+        rows = self._execute_query("""
+            SELECT file_id, file_name, file_extension, 
+                   file_size_bytes, filename_values, group_id
+            FROM file_catalog
+            WHERE dir_id = %s
+            ORDER BY file_name
+        """, (dir_id,), fetch="all")
+        
+        return [
+            {
+                "file_id": str(row[0]),
+                "file_name": row[1],
+                "file_extension": row[2],
+                "file_size_bytes": row[3],
+                "filename_values": self._parse_json_field(row[4]),
+                "group_id": str(row[5]) if row[5] else None
+            }
+            for row in rows
+        ]
     
     def get_file_count(self) -> int:
         """전체 파일 수 조회"""
@@ -353,6 +405,86 @@ class FileRepository(BaseRepository):
         except Exception as e:
             conn.rollback()
             print(f"[FileRepository] Error updating filename_values: {e}")
+        
+        return updated_total
+    
+    def update_filename_values_by_group_pattern(
+        self,
+        group_id: str,
+        pattern_regex: str,
+        columns: List[Dict[str, Any]]
+    ) -> int:
+        """
+        그룹 내 모든 파일에 패턴을 적용하여 filename_values 업데이트
+        
+        Args:
+            group_id: 파일 그룹 ID
+            pattern_regex: 파일명 추출 정규식 (PostgreSQL regex)
+            columns: 추출할 컬럼 정보
+                [{"name": "caseid", "position": 1, "type": "integer"}, ...]
+        
+        Returns:
+            업데이트된 총 파일 수
+        """
+        conn, cursor = self._get_cursor()
+        updated_total = 0
+        
+        try:
+            for col in columns:
+                col_name = col.get("name")
+                position = col.get("position", 1)
+                if not col_name:
+                    continue
+                
+                col_type = col.get("type", "text")
+                
+                # PostgreSQL의 regexp_match 사용하여 특정 그룹 추출
+                # position은 1-indexed이지만 배열 인덱싱은 1-indexed임
+                if col_type == "integer":
+                    cursor.execute("""
+                        UPDATE file_catalog
+                        SET filename_values = CASE 
+                            WHEN file_name ~ %s THEN
+                                COALESCE(filename_values, '{}'::jsonb) || 
+                                jsonb_build_object(%s, (regexp_match(file_name, %s))[%s]::integer)
+                            ELSE filename_values
+                        END
+                        WHERE group_id = %s
+                          AND file_name ~ %s
+                    """, (
+                        pattern_regex,
+                        col_name,
+                        pattern_regex,
+                        position,
+                        group_id,
+                        pattern_regex
+                    ))
+                else:
+                    cursor.execute("""
+                        UPDATE file_catalog
+                        SET filename_values = CASE 
+                            WHEN file_name ~ %s THEN
+                                COALESCE(filename_values, '{}'::jsonb) || 
+                                jsonb_build_object(%s, (regexp_match(file_name, %s))[%s])
+                            ELSE filename_values
+                        END
+                        WHERE group_id = %s
+                          AND file_name ~ %s
+                    """, (
+                        pattern_regex,
+                        col_name,
+                        pattern_regex,
+                        position,
+                        group_id,
+                        pattern_regex
+                    ))
+                
+                updated_total += cursor.rowcount
+            
+            conn.commit()
+        except Exception as e:
+            conn.rollback()
+            print(f"[FileRepository] Error updating filename_values by group: {e}")
         
         return updated_total
 

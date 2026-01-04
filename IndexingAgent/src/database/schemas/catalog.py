@@ -47,6 +47,9 @@ CREATE TABLE IF NOT EXISTS file_catalog (
     llm_confidence FLOAT,                 -- LLM 분석 확신도
     llm_analyzed_at TIMESTAMP,            -- LLM 분석 완료 시간
     
+    -- [file_group] 파일 그룹 연결 (file-based sharding 지원)
+    group_id UUID,                        -- file_group FK (테이블 생성 순서상 나중에 FK 추가)
+    
     -- 메타
     created_at TIMESTAMP DEFAULT NOW()
 );
@@ -59,6 +62,7 @@ CREATE INDEX IF NOT EXISTS idx_file_catalog_type ON file_catalog (processor_type
 CREATE INDEX IF NOT EXISTS idx_file_catalog_semantic ON file_catalog (semantic_type);
 CREATE INDEX IF NOT EXISTS idx_file_catalog_domain ON file_catalog (domain);
 CREATE INDEX IF NOT EXISTS idx_file_catalog_dir ON file_catalog (dir_id);
+CREATE INDEX IF NOT EXISTS idx_file_catalog_group ON file_catalog (group_id);
 """
 
 CREATE_COLUMN_METADATA_SQL = """

@@ -7,6 +7,7 @@ DDL (Data Definition Language) 스키마 정의
 - dictionary.py: data_dictionary
 - directory.py: directory_catalog
 - parameter.py: parameter (논리적 파라미터 - Wide/Long format 통합)
+- file_group.py: file_group (파일 그룹 관리 - file-based sharding 지원)
 - ontology_core.py: table_entities, table_relationships (entity_identification / relationship_inference)
 - ontology_enhancement.py: ontology_subcategories, semantic_edges, medical_term_mappings, cross_table_semantics
 """
@@ -31,6 +32,13 @@ from .directory import (
     CREATE_DIRECTORY_CATALOG_SQL,
     ADD_FILE_CATALOG_DIR_FK_SQL,
     CREATE_DIRECTORY_UPDATE_TRIGGER_SQL,
+)
+
+from .file_group import (
+    CREATE_FILE_GROUP_SQL,
+    ADD_FILE_CATALOG_GROUP_FK_SQL,
+    ADD_PARAMETER_GROUP_FK_SQL,
+    CREATE_FILE_GROUP_UPDATE_TRIGGER_SQL,
 )
 
 from .ontology_core import (
@@ -61,6 +69,11 @@ __all__ = [
     'CREATE_DIRECTORY_CATALOG_SQL',
     'ADD_FILE_CATALOG_DIR_FK_SQL',
     'CREATE_DIRECTORY_UPDATE_TRIGGER_SQL',
+    # File Group
+    'CREATE_FILE_GROUP_SQL',
+    'ADD_FILE_CATALOG_GROUP_FK_SQL',
+    'ADD_PARAMETER_GROUP_FK_SQL',
+    'CREATE_FILE_GROUP_UPDATE_TRIGGER_SQL',
     # Ontology Core
     'CREATE_ONTOLOGY_COLUMN_METADATA_SQL',
     'CREATE_TABLE_ENTITIES_SQL',

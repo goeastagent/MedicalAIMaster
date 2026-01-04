@@ -50,12 +50,20 @@ class AgentState(TypedDict):
     file_catalog_result: Optional[Dict[str, Any]]  # 파일 메타데이터 추출 결과
     catalog_file_ids: List[str]  # 처리된 모든 파일의 file_id (UUID 문자열)
     
+    # --- [file_grouping_prep] Result --- NEW!
+    grouping_prep_result: Optional[Dict[str, Any]]  # 그룹핑 준비 결과 요약
+    directories_for_grouping: List[Dict[str, Any]]  # LLM 입력용 디렉토리 정보
+    
     # --- [schema_aggregation] Result ---
     schema_aggregation_result: Optional[Dict[str, Any]]  # 스키마 집계 결과
     unique_columns: List[Dict[str, Any]]  # 유니크 컬럼 리스트
     unique_files: List[Dict[str, Any]]  # 유니크 파일 리스트
     column_batches: List[List[Dict[str, Any]]]  # 컬럼 LLM 배치
     file_batches: List[List[Dict[str, Any]]]  # 파일 LLM 배치
+    
+    # --- [file_grouping] Result --- NEW!
+    file_grouping_result: Optional[Dict[str, Any]]  # 그룹핑 결과 요약
+    file_groups: List[Dict[str, Any]]  # 생성된 그룹 정보
     
     # --- [file_classification] Result ---
     file_classification_result: Optional[Dict[str, Any]]  # 파일 분류 결과

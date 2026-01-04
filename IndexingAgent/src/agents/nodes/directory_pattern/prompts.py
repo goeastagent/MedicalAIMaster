@@ -113,3 +113,157 @@ Analyze the filename patterns for each directory and match extractable values to
         }
     ]
 
+
+class GroupPatternPrompt(PromptTemplate):
+    """
+    Group Pattern 프롬프트
+    
+    파일 그룹의 샘플 파일명에서 패턴을 분석하고 값을 추출합니다.
+    [700] directory_pattern 노드에서 그룹화된 파일 처리에 사용됩니다.
+    """
+    
+    name = "group_pattern"
+    response_model = None  # 복잡한 구조로 Pydantic 미사용
+    
+    system_role = """You are a filename pattern analysis expert for research datasets.
+Your task is to analyze sample filenames from a file group and:
+1. Identify the naming pattern
+2. Extract meaningful values (IDs, dates, versions, etc.)
+3. Generate a regex pattern for automated extraction
+4. Match extracted values to known data columns when possible"""
+    
+    task_description = """Analyze the sample filenames from this file group and extract meaningful patterns and values.
+Focus on identifying:
+- Entity identifiers (case IDs, patient IDs, subject IDs, record IDs)
+- Temporal information (dates, timestamps, versions)
+- Categorical information (types, categories, conditions)"""
+    
+    context_template = """## File Group Information
+- Group Name: {group_name}
+- Total Files in Group: {file_count}
+- File Extensions: {extensions}
+
+## Sample Filenames (representative subset)
+{sample_filenames}
+
+## Data Dictionary (Reference for matching)
+{data_dictionary}
+
+## Task
+1. Analyze the filename pattern in these samples
+2. Extract values from each sample filename
+3. Generate a regex pattern that can extract these values from ALL files in the group
+4. Match extracted columns to the data dictionary if possible"""
+    
+    rules = [
+        "pattern_regex MUST be a valid Python/PostgreSQL regex",
+        "Use capturing groups () for each value to extract",
+        "position is 1-indexed (first group = 1)",
+        "Escape special regex characters properly (\\\\. for literal dot)",
+        "sample_extractions should show actual values extracted from each sample",
+        "If pattern doesn't apply to ALL samples, set confidence lower",
+        "matched_column should be null if no match in data dictionary",
+    ]
+    
+    custom_output_format = """{
+    "has_pattern": "boolean - true if consistent pattern found across samples",
+    "pattern": "string - Human-readable pattern like '{caseid}.vital'",
+    "pattern_regex": "string - Regex pattern with capturing groups, e.g., '^(\\\\d+)\\\\.vital$'",
+    "pattern_description": "string - Explanation of what the pattern represents",
+    "columns": [
+        {
+            "name": "string - Semantic name for this value (e.g., 'caseid', 'subject_id')",
+            "position": "integer - 1-indexed capture group position in regex",
+            "type": "string - 'integer', 'text', 'date', 'uuid'",
+            "matched_column": "string or null - Matching column from data dictionary",
+            "match_confidence": "float (0.0-1.0)",
+            "match_reasoning": "string - Why this matches (or why no match)"
+        }
+    ],
+    "sample_extractions": [
+        {
+            "filename": "string - Sample filename",
+            "values": {"column_name": "extracted_value", ...}
+        }
+    ],
+    "confidence": "float (0.0-1.0) - Overall confidence in the pattern",
+    "reasoning": "string - Explanation of pattern analysis"
+}"""
+    
+    examples = [
+        {
+            "input": """Group: vital_files_caseid, 6388 files, extensions: [.vital]
+Samples: 1.vital, 100.vital, 3249.vital, 5000.vital, 6388.vital
+Data Dictionary: clinical_data.csv has column 'caseid' (integer, patient case ID)""",
+            "output": """{
+    "has_pattern": true,
+    "pattern": "{caseid}.vital",
+    "pattern_regex": "^(\\\\d+)\\\\.vital$",
+    "pattern_description": "Numeric case identifier followed by .vital extension",
+    "columns": [
+        {
+            "name": "caseid",
+            "position": 1,
+            "type": "integer",
+            "matched_column": "caseid",
+            "match_confidence": 0.98,
+            "match_reasoning": "Numeric values match caseid column in clinical_data.csv"
+        }
+    ],
+    "sample_extractions": [
+        {"filename": "1.vital", "values": {"caseid": "1"}},
+        {"filename": "100.vital", "values": {"caseid": "100"}},
+        {"filename": "3249.vital", "values": {"caseid": "3249"}},
+        {"filename": "5000.vital", "values": {"caseid": "5000"}},
+        {"filename": "6388.vital", "values": {"caseid": "6388"}}
+    ],
+    "confidence": 0.98,
+    "reasoning": "All samples follow consistent {number}.vital pattern where number matches caseid in clinical_data"
+}"""
+        },
+        {
+            "input": """Group: eeg_recordings, 150 files, extensions: [.edf]
+Samples: subj_001_ses_01_task_rest.edf, subj_001_ses_02_task_motor.edf, subj_002_ses_01_task_rest.edf
+Data Dictionary: subjects.csv has 'subject_id', sessions.csv has 'session', tasks.csv has 'task_name'""",
+            "output": """{
+    "has_pattern": true,
+    "pattern": "subj_{subject_id}_ses_{session}_task_{task}.edf",
+    "pattern_regex": "^subj_(\\\\d+)_ses_(\\\\d+)_task_([a-z]+)\\\\.edf$",
+    "pattern_description": "EEG recording with subject ID, session number, and task name",
+    "columns": [
+        {
+            "name": "subject_id",
+            "position": 1,
+            "type": "integer",
+            "matched_column": "subject_id",
+            "match_confidence": 0.95,
+            "match_reasoning": "Zero-padded integers match subject_id in subjects.csv"
+        },
+        {
+            "name": "session",
+            "position": 2,
+            "type": "integer",
+            "matched_column": "session",
+            "match_confidence": 0.90,
+            "match_reasoning": "Session numbers match session column in sessions.csv"
+        },
+        {
+            "name": "task",
+            "position": 3,
+            "type": "text",
+            "matched_column": "task_name",
+            "match_confidence": 0.85,
+            "match_reasoning": "Task names (rest, motor) likely match task_name in tasks.csv"
+        }
+    ],
+    "sample_extractions": [
+        {"filename": "subj_001_ses_01_task_rest.edf", "values": {"subject_id": "001", "session": "01", "task": "rest"}},
+        {"filename": "subj_001_ses_02_task_motor.edf", "values": {"subject_id": "001", "session": "02", "task": "motor"}},
+        {"filename": "subj_002_ses_01_task_rest.edf", "values": {"subject_id": "002", "session": "01", "task": "rest"}}
+    ],
+    "confidence": 0.92,
+    "reasoning": "Consistent BIDS-like naming convention with subject, session, and task components"
+}"""
+        }
+    ]
+

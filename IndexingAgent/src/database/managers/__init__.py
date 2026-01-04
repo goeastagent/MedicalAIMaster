@@ -8,6 +8,7 @@ Schema Managers
 - DictionarySchemaManager: data_dictionary 관리
 - ParameterSchemaManager: parameter 관리 (Wide/Long format 통합)
 - DirectorySchemaManager: directory_catalog 관리
+- FileGroupSchemaManager: file_group 관리 (file-based sharding 지원)
 - OntologySchemaManager: ontology 관련 테이블들 관리
 """
 
@@ -16,6 +17,7 @@ from .catalog import CatalogSchemaManager, init_catalog_schema, ensure_catalog_s
 from .dictionary import DictionarySchemaManager, init_dictionary_schema, ensure_dictionary_schema
 from .parameter import ParameterSchemaManager, init_parameter_schema, ensure_parameter_schema
 from .directory import DirectorySchemaManager, init_directory_schema, ensure_directory_schema
+from .file_group import FileGroupSchemaManager, init_file_group_schema, ensure_file_group_schema
 from .ontology import OntologySchemaManager, init_ontology_schema, ensure_ontology_schema
 
 __all__ = [
@@ -39,6 +41,10 @@ __all__ = [
     'DirectorySchemaManager',
     'init_directory_schema',
     'ensure_directory_schema',
+    # File Group
+    'FileGroupSchemaManager',
+    'init_file_group_schema',
+    'ensure_file_group_schema',
     # Ontology
     'OntologySchemaManager',
     'init_ontology_schema',

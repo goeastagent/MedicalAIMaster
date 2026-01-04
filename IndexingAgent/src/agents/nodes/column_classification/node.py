@@ -21,7 +21,7 @@ from datetime import datetime
 
 from src.agents.state import AgentState
 from src.database import FileRepository, ColumnRepository
-from src.database.repositories import ParameterRepository
+from src.database.repositories import ParameterRepository, FileGroupRepository
 from src.config import LLMConfig, ColumnClassificationConfig
 from src.agents.models import (
     ColumnRole,
@@ -63,6 +63,7 @@ class ColumnClassificationNode(BaseNode, LLMMixin, DatabaseMixin):
         self._file_repo: Optional[FileRepository] = None
         self._column_repo: Optional[ColumnRepository] = None
         self._param_repo: Optional[ParameterRepository] = None
+        self._group_repo: Optional[FileGroupRepository] = None
     
     # =========================================================================
     # Main Execution
@@ -72,8 +73,12 @@ class ColumnClassificationNode(BaseNode, LLMMixin, DatabaseMixin):
         """
         컬럼 역할 분류 및 parameter 생성
         
+        수정된 로직:
+        1. 그룹에 속한 파일들 → 그룹 단위로 처리 (샘플 1개만 분석)
+        2. 그룹에 속하지 않은 파일들 → 기존 로직대로 개별 처리
+        
         Args:
-            state: AgentState (data_files 필요)
+            state: AgentState (data_files, file_groups 필요)
         
         Returns:
             업데이트된 상태:
@@ -85,117 +90,80 @@ class ColumnClassificationNode(BaseNode, LLMMixin, DatabaseMixin):
         
         started_at = datetime.now()
         
-        # data_files에서 처리할 파일 경로들
-        data_files = state.get("data_files", [])
-        
-        if not data_files:
-            self.log("⚠️ No data files to process", indent=1)
-            return self._create_empty_result("No data files to process")
-        
-        self.log(f"📂 Files to process: {len(data_files)}", indent=1)
-        
         # 초기화
         total_columns = 0
         columns_by_role: Dict[str, int] = {}
         parameters_created = 0
         parameters_from_column_name = 0
         parameters_from_column_value = 0
+        parameters_from_group = 0
         llm_calls = 0
         batches_processed = 0
+        groups_processed = 0
+        ungrouped_files_processed = 0
         
         # Config
         batch_size = ColumnClassificationConfig.COLUMN_BATCH_SIZE
         
-        # 각 파일별 처리
-        for file_path in data_files:
-            file_name = file_path.split('/')[-1]
-            self.log(f"📄 Processing: {file_name}", indent=1)
-            
-            # 1. 파일의 컬럼 정보 수집
-            columns_info = self._get_columns_info_for_file(file_path)
-            
-            if not columns_info:
-                self.log(f"⚠️ No columns found for {file_name}", indent=2)
-                continue
-            
-            n_cols = len(columns_info)
-            self.log(f"📊 Columns: {n_cols}", indent=2)
-            total_columns += n_cols
-            
-            # 2. 배치 분할 (컬럼 수가 많으면)
-            batches = [columns_info[i:i+batch_size] for i in range(0, n_cols, batch_size)]
-            
-            if len(batches) > 1:
-                self.log(f"📦 Splitting into {len(batches)} batches (batch_size={batch_size})", indent=2)
-            
-            # 3. 배치별 LLM 호출
-            for batch_idx, batch_cols in enumerate(batches):
-                if len(batches) > 1:
-                    self.log(f"🔄 Batch {batch_idx + 1}/{len(batches)} ({len(batch_cols)} columns)", indent=2)
-                
-                # LLM 호출
-                classifications = self._call_llm_for_classification(batch_cols, file_name)
-                llm_calls += 1
-                batches_processed += 1
-                
-                if not classifications:
-                    self.log(f"❌ LLM classification failed for batch {batch_idx + 1}", indent=3)
-                    continue
-                
-                # 4. 결과 처리 (배치별로 즉시 DB 업데이트)
-                for clf in classifications:
-                    role = clf.column_role
-                    columns_by_role[role] = columns_by_role.get(role, 0) + 1
-                    
-                    # 4a. column_metadata.column_role 업데이트
-                    self._update_column_role(
-                        file_path=file_path,
-                        column_name=clf.column_name,
-                        column_role=clf.column_role,
-                        reasoning=clf.reasoning
-                    )
-                    
-                    # 4b. parameter 테이블 생성 (rule-based 후처리)
-                    if clf.is_parameter_name:
-                        # Wide-format: 컬럼명 → parameter
-                        self._create_parameter_from_column_name(
-                            file_path=file_path,
-                            column_name=clf.column_name
-                        )
-                        parameters_created += 1
-                        parameters_from_column_name += 1
-                        self.log(f"📌 {clf.column_name} → parameter (column_name)", indent=3)
-                    
-                    elif clf.is_parameter_container:
-                        # Long-format: 컬럼의 전체 unique values → parameter(s)
-                        # LLM 응답의 parameters가 아닌, DB에서 조회한 전체 unique_values 사용
-                        col_info = next(
-                            (c for c in batch_cols if c['name'] == clf.column_name), 
-                            None
-                        )
-                        if col_info:
-                            all_unique_values = col_info.get('unique_values', [])
-                            for param_key in all_unique_values:
-                                self._create_parameter_from_column_value(
-                                    file_path=file_path,
-                                    container_column=clf.column_name,
-                                    param_key=str(param_key)  # 값을 문자열로 변환
-                                )
-                                parameters_created += 1
-                                parameters_from_column_value += 1
-                            self.log(f"📌 {clf.column_name} → {len(all_unique_values)} parameters (column_values)", indent=3)
-                
-                if len(batches) > 1:
-                    self.log(f"✅ Classified {len(classifications)} columns in batch", indent=3)
-            
-            self.log(f"✅ Classified {n_cols} columns total", indent=2)
+        # =====================================================================
+        # Phase 1: 그룹에 속한 파일들 처리 (그룹 단위)
+        # =====================================================================
+        file_groups = state.get("file_groups", [])
         
-        # 4. 결과 요약
+        if file_groups:
+            self.log(f"📦 Processing {len(file_groups)} file groups...", indent=1)
+            
+            for group in file_groups:
+                group_result = self._process_group(group, batch_size)
+                
+                if group_result:
+                    groups_processed += 1
+                    total_columns += group_result['columns']
+                    parameters_from_group += group_result['parameters']
+                    parameters_created += group_result['parameters']
+                    llm_calls += group_result['llm_calls']
+                    batches_processed += group_result['batches']
+                    
+                    # columns_by_role 병합
+                    for role, count in group_result.get('columns_by_role', {}).items():
+                        columns_by_role[role] = columns_by_role.get(role, 0) + count
+        
+        # =====================================================================
+        # Phase 2: 그룹에 속하지 않은 파일들 처리 (개별)
+        # =====================================================================
+        ungrouped_files = self._get_file_repo().get_ungrouped_data_files()
+        
+        if ungrouped_files:
+            self.log(f"📄 Processing {len(ungrouped_files)} ungrouped files...", indent=1)
+            
+            for file_path in ungrouped_files:
+                file_result = self._process_single_file(file_path, batch_size)
+                
+                if file_result:
+                    ungrouped_files_processed += 1
+                    total_columns += file_result['columns']
+                    parameters_from_column_name += file_result.get('params_from_name', 0)
+                    parameters_from_column_value += file_result.get('params_from_value', 0)
+                    parameters_created += file_result['parameters']
+                    llm_calls += file_result['llm_calls']
+                    batches_processed += file_result['batches']
+                    
+                    # columns_by_role 병합
+                    for role, count in file_result.get('columns_by_role', {}).items():
+                        columns_by_role[role] = columns_by_role.get(role, 0) + count
+        
+        if not file_groups and not ungrouped_files:
+            self.log("⚠️ No files to process", indent=1)
+            return self._create_empty_result("No files to process")
+        
+        # =====================================================================
+        # 결과 요약
+        # =====================================================================
         completed_at = datetime.now()
         duration = (completed_at - started_at).total_seconds()
         
         result = ColumnClassificationResult(
-            total_files=len(data_files),
+            total_files=groups_processed + ungrouped_files_processed,
             total_columns=total_columns,
             columns_by_role=columns_by_role,
             parameters_created=parameters_created,
@@ -207,11 +175,14 @@ class ColumnClassificationNode(BaseNode, LLMMixin, DatabaseMixin):
         )
         
         self.log("✅ Complete!")
+        self.log(f"📦 Groups processed: {groups_processed}", indent=1)
+        self.log(f"📄 Ungrouped files processed: {ungrouped_files_processed}", indent=1)
         self.log(f"📊 Total columns: {total_columns}", indent=1)
         self.log("🏷️  Columns by role:", indent=1)
         for role, count in sorted(columns_by_role.items()):
             self.log(f"- {role}: {count}", indent=2)
         self.log(f"📌 Parameters created: {parameters_created}", indent=1)
+        self.log(f"- from group_common: {parameters_from_group}", indent=2)
         self.log(f"- from column_name: {parameters_from_column_name}", indent=2)
         self.log(f"- from column_value: {parameters_from_column_value}", indent=2)
         self.log(f"📦 Batches processed: {batches_processed}", indent=1)
@@ -221,8 +192,8 @@ class ColumnClassificationNode(BaseNode, LLMMixin, DatabaseMixin):
         return {
             "column_classification_result": result.model_dump(),
             "logs": [
-                f"🔍 [Column Classification] Classified {total_columns} columns, "
-                f"created {parameters_created} parameters"
+                f"🔍 [Column Classification] Processed {groups_processed} groups + "
+                f"{ungrouped_files_processed} files, created {parameters_created} parameters"
             ]
         }
     
@@ -248,10 +219,246 @@ class ColumnClassificationNode(BaseNode, LLMMixin, DatabaseMixin):
             self._param_repo = ParameterRepository()
         return self._param_repo
     
+    def _get_group_repo(self) -> FileGroupRepository:
+        """FileGroupRepository 싱글톤 반환"""
+        if self._group_repo is None:
+            self._group_repo = FileGroupRepository()
+        return self._group_repo
+    
     # =========================================================================
     # Column Info Collection
     # =========================================================================
     
+    def _process_group(self, group: Dict[str, Any], batch_size: int) -> Optional[Dict[str, Any]]:
+        """
+        파일 그룹 단위로 컬럼 분류 및 parameter 생성
+        
+        그룹의 샘플 파일 1개만 분석하고, 결과는 그룹(group_id) 단위로 저장
+        → 6,388개 파일을 1번만 분석하여 비용 절감
+        
+        Args:
+            group: file_group 정보 (group_id, group_name, sample_file_ids 등)
+            batch_size: LLM 배치 크기
+            
+        Returns:
+            처리 결과 딕셔너리 또는 None
+        """
+        group_id = group.get('group_id')
+        group_name = group.get('group_name', 'Unknown')
+        sample_file_ids = group.get('sample_file_ids', [])
+        
+        self.log(f"📦 Group: {group_name} (files: {group.get('file_count', '?')})", indent=2)
+        
+        # 샘플 파일 선택
+        if not sample_file_ids:
+            # sample_file_ids가 없으면 그룹의 첫 번째 파일 사용
+            group_repo = self._get_group_repo()
+            files_in_group = group_repo.get_files_in_group(str(group_id))
+            if not files_in_group:
+                self.log(f"⚠️ No files in group {group_name}", indent=3)
+                return None
+            sample_file_path = files_in_group[0].get('file_path')
+        else:
+            # sample_file_ids의 첫 번째 파일 사용
+            file_repo = self._get_file_repo()
+            file_info = file_repo.get_file_by_id(str(sample_file_ids[0]))
+            if not file_info:
+                self.log(f"⚠️ Sample file not found for group {group_name}", indent=3)
+                return None
+            sample_file_path = file_info.get('file_path')
+        
+        self.log(f"🎯 Sample file: {sample_file_path.split('/')[-1]}", indent=3)
+        
+        # 샘플 파일의 컬럼 정보 수집
+        columns_info = self._get_columns_info_for_file(sample_file_path)
+        if not columns_info:
+            self.log(f"⚠️ No columns found for sample file", indent=3)
+            return None
+        
+        n_cols = len(columns_info)
+        self.log(f"📊 Columns: {n_cols}", indent=3)
+        
+        # 결과 집계
+        result = {
+            'columns': n_cols,
+            'parameters': 0,
+            'llm_calls': 0,
+            'batches': 0,
+            'columns_by_role': {}
+        }
+        
+        # 배치 분할
+        batches = [columns_info[i:i+batch_size] for i in range(0, n_cols, batch_size)]
+        
+        for batch_idx, batch_cols in enumerate(batches):
+            # LLM 호출
+            classifications = self._call_llm_for_classification(batch_cols, f"[GROUP] {group_name}")
+            result['llm_calls'] += 1
+            result['batches'] += 1
+            
+            if not classifications:
+                continue
+            
+            for clf in classifications:
+                role = clf.column_role
+                result['columns_by_role'][role] = result['columns_by_role'].get(role, 0) + 1
+                
+                # parameter 생성 (group_id 사용)
+                if clf.is_parameter_name:
+                    # Wide-format: 컬럼명 → group parameter
+                    self._create_group_parameter(
+                        group_id=str(group_id),
+                        param_key=clf.column_name,
+                        source_type=SourceType.GROUP_COMMON.value,
+                        source_column=clf.column_name
+                    )
+                    result['parameters'] += 1
+                    self.log(f"📌 {clf.column_name} → group parameter", indent=4)
+                    
+                elif clf.is_parameter_container:
+                    # Long-format: 컬럼 값들 → group parameters
+                    col_info = next(
+                        (c for c in batch_cols if c['name'] == clf.column_name), 
+                        None
+                    )
+                    if col_info:
+                        all_unique_values = col_info.get('unique_values', [])
+                        for param_key in all_unique_values:
+                            self._create_group_parameter(
+                                group_id=str(group_id),
+                                param_key=str(param_key),
+                                source_type=SourceType.GROUP_COMMON.value,
+                                source_column=clf.column_name
+                            )
+                            result['parameters'] += 1
+                        self.log(f"📌 {clf.column_name} → {len(all_unique_values)} group parameters", indent=4)
+        
+        self.log(f"✅ Group processed: {result['parameters']} parameters created", indent=3)
+        return result
+    
+    def _process_single_file(self, file_path: str, batch_size: int) -> Optional[Dict[str, Any]]:
+        """
+        단일 파일의 컬럼 분류 및 parameter 생성 (기존 로직)
+        
+        Args:
+            file_path: 파일 경로
+            batch_size: LLM 배치 크기
+            
+        Returns:
+            처리 결과 딕셔너리 또는 None
+        """
+        file_name = file_path.split('/')[-1]
+        self.log(f"📄 Processing: {file_name}", indent=2)
+        
+        # 파일의 컬럼 정보 수집
+        columns_info = self._get_columns_info_for_file(file_path)
+        if not columns_info:
+            self.log(f"⚠️ No columns found for {file_name}", indent=3)
+            return None
+        
+        n_cols = len(columns_info)
+        self.log(f"📊 Columns: {n_cols}", indent=3)
+        
+        # 결과 집계
+        result = {
+            'columns': n_cols,
+            'parameters': 0,
+            'params_from_name': 0,
+            'params_from_value': 0,
+            'llm_calls': 0,
+            'batches': 0,
+            'columns_by_role': {}
+        }
+        
+        # 배치 분할
+        batches = [columns_info[i:i+batch_size] for i in range(0, n_cols, batch_size)]
+        
+        for batch_idx, batch_cols in enumerate(batches):
+            # LLM 호출
+            classifications = self._call_llm_for_classification(batch_cols, file_name)
+            result['llm_calls'] += 1
+            result['batches'] += 1
+            
+            if not classifications:
+                continue
+            
+            for clf in classifications:
+                role = clf.column_role
+                result['columns_by_role'][role] = result['columns_by_role'].get(role, 0) + 1
+                
+                # column_metadata.column_role 업데이트
+                self._update_column_role(
+                    file_path=file_path,
+                    column_name=clf.column_name,
+                    column_role=clf.column_role,
+                    reasoning=clf.reasoning
+                )
+                
+                # parameter 생성 (file_id 사용 - 기존 로직)
+                if clf.is_parameter_name:
+                    self._create_parameter_from_column_name(
+                        file_path=file_path,
+                        column_name=clf.column_name
+                    )
+                    result['parameters'] += 1
+                    result['params_from_name'] += 1
+                    self.log(f"📌 {clf.column_name} → parameter (column_name)", indent=4)
+                    
+                elif clf.is_parameter_container:
+                    col_info = next(
+                        (c for c in batch_cols if c['name'] == clf.column_name), 
+                        None
+                    )
+                    if col_info:
+                        all_unique_values = col_info.get('unique_values', [])
+                        for param_key in all_unique_values:
+                            self._create_parameter_from_column_value(
+                                file_path=file_path,
+                                container_column=clf.column_name,
+                                param_key=str(param_key)
+                            )
+                            result['parameters'] += 1
+                            result['params_from_value'] += 1
+                        self.log(f"📌 {clf.column_name} → {len(all_unique_values)} parameters", indent=4)
+        
+        self.log(f"✅ File processed: {result['parameters']} parameters", indent=3)
+        return result
+    
+    def _create_group_parameter(
+        self, 
+        group_id: str, 
+        param_key: str, 
+        source_type: str,
+        source_column: str = None  # 참고용 (DB에는 저장 안 함)
+    ) -> None:
+        """
+        그룹 단위 parameter 생성 (file_id=NULL, group_id=group_id)
+        
+        Args:
+            group_id: 파일 그룹 ID
+            param_key: 파라미터 키 (예: "Solar8000/HR")
+            source_type: 출처 타입 (group_common)
+            source_column: 출처 컬럼명 (참고용, DB에는 저장 안 함)
+        """
+        param_repo = self._get_param_repo()
+        group_repo = self._get_group_repo()
+        
+        # 중복 체크
+        existing = param_repo._execute_query("""
+            SELECT param_id FROM parameter 
+            WHERE group_id = %s::uuid AND param_key = %s
+        """, (group_id, param_key), fetch="one")
+        
+        if existing:
+            return  # 이미 존재
+        
+        # parameter 생성 (group_id 사용, source_column_id는 NULL)
+        # INSERT 문이므로 fetch=None으로 명시 (fetchall 호출 방지)
+        param_repo._execute_query("""
+            INSERT INTO parameter (file_id, group_id, param_key, source_type, source_column_id)
+            VALUES (NULL, %s::uuid, %s, %s, NULL)
+        """, (group_id, param_key, source_type), fetch=None)
+
     def _get_columns_info_for_file(self, file_path: str) -> List[Dict[str, Any]]:
         """
         파일의 컬럼 정보 수집

@@ -19,10 +19,12 @@ CREATE TABLE IF NOT EXISTS parameter (
     
     -- =========================================================================
     -- Source 정보 ([420] column_classification에서 채움)
+    -- file_id 또는 group_id 중 하나는 반드시 있어야 함
     -- =========================================================================
     file_id UUID REFERENCES file_catalog(file_id) ON DELETE CASCADE,
+    group_id UUID,                              -- file_group FK (테이블 생성 순서상 나중에 FK 추가)
     param_key VARCHAR(255) NOT NULL,           -- 원본 파라미터명 ("HR", "SpO2", "age")
-    source_type VARCHAR(20) NOT NULL,          -- 'column_name' | 'column_value'
+    source_type VARCHAR(20) NOT NULL,          -- 'column_name' | 'column_value' | 'group_common'
     source_column_id INTEGER REFERENCES column_metadata(col_id) ON DELETE SET NULL,
                                                -- Wide: 해당 컬럼 / Long: key 컬럼
     
@@ -65,12 +67,13 @@ CREATE TABLE IF NOT EXISTS parameter (
     created_at TIMESTAMP DEFAULT NOW(),
     updated_at TIMESTAMP DEFAULT NOW(),
     
-    -- 같은 파일에서 같은 param_key + source_type 조합은 중복 불가
-    UNIQUE(file_id, param_key, source_type)
+    -- file_id 또는 group_id 중 하나는 반드시 있어야 함
+    CONSTRAINT chk_parameter_source CHECK (file_id IS NOT NULL OR group_id IS NOT NULL)
 );
 
 -- 인덱스
 CREATE INDEX IF NOT EXISTS idx_param_file ON parameter (file_id);
+CREATE INDEX IF NOT EXISTS idx_param_group ON parameter (group_id);
 CREATE INDEX IF NOT EXISTS idx_param_key ON parameter (param_key);
 CREATE INDEX IF NOT EXISTS idx_param_source_type ON parameter (source_type);
 CREATE INDEX IF NOT EXISTS idx_param_source_col ON parameter (source_column_id);
@@ -78,6 +81,16 @@ CREATE INDEX IF NOT EXISTS idx_param_category ON parameter (concept_category);
 CREATE INDEX IF NOT EXISTS idx_param_dict ON parameter (dict_entry_id);
 CREATE INDEX IF NOT EXISTS idx_param_match_status ON parameter (dict_match_status);
 CREATE INDEX IF NOT EXISTS idx_param_semantic_null ON parameter (semantic_name) WHERE semantic_name IS NULL;
+
+-- UNIQUE 제약조건 (ON CONFLICT용)
+-- file_id 기반 파라미터 중복 방지
+CREATE UNIQUE INDEX IF NOT EXISTS idx_param_file_key_unique 
+    ON parameter (file_id, param_key, source_type) 
+    WHERE file_id IS NOT NULL;
+-- group_id 기반 파라미터 중복 방지
+CREATE UNIQUE INDEX IF NOT EXISTS idx_param_group_key_unique 
+    ON parameter (group_id, param_key, source_type) 
+    WHERE group_id IS NOT NULL;
 """
 
 # Updated_at 자동 갱신 트리거

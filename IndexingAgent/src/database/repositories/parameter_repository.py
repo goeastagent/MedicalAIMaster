@@ -63,13 +63,15 @@ class ParameterRepository(BaseRepository):
         conn, cursor = self._get_cursor()
         
         try:
+            # Partial unique index 사용 시 WHERE 절 필요
             cursor.execute("""
                 INSERT INTO parameter (
                     file_id, param_key, source_type, source_column_id,
                     occurrence_count, extracted_unit, value_stats,
                     is_identifier
                 ) VALUES (%s, %s, %s, %s, %s, %s, %s, %s)
-                ON CONFLICT (file_id, param_key, source_type) DO UPDATE SET
+                ON CONFLICT (file_id, param_key, source_type) WHERE file_id IS NOT NULL
+                DO UPDATE SET
                     source_column_id = EXCLUDED.source_column_id,
                     occurrence_count = EXCLUDED.occurrence_count,
                     extracted_unit = EXCLUDED.extracted_unit,
@@ -134,13 +136,15 @@ class ParameterRepository(BaseRepository):
         
         try:
             for param in parameters:
+                # Partial unique index 사용 시 WHERE 절 필요
                 cursor.execute("""
                     INSERT INTO parameter (
                         file_id, param_key, source_type, source_column_id,
                         occurrence_count, extracted_unit, value_stats,
                         is_identifier
                     ) VALUES (%s, %s, %s, %s, %s, %s, %s, %s)
-                    ON CONFLICT (file_id, param_key, source_type) DO UPDATE SET
+                    ON CONFLICT (file_id, param_key, source_type) WHERE file_id IS NOT NULL
+                    DO UPDATE SET
                         source_column_id = EXCLUDED.source_column_id,
                         occurrence_count = EXCLUDED.occurrence_count,
                         extracted_unit = EXCLUDED.extracted_unit,
@@ -318,6 +322,53 @@ class ParameterRepository(BaseRepository):
                 "is_identifier": is_id,
                 "file_name": file_name,
                 "file_path": file_path
+            })
+        
+        return result
+    
+    def get_group_parameters_without_semantic(self) -> List[Dict[str, Any]]:
+        """
+        Semantic 분석이 필요한 그룹 레벨 파라미터 조회
+        
+        [600] parameter_semantic 노드에서 사용:
+        - file_id가 NULL이고 group_id가 있는 파라미터
+        - semantic_name이 NULL인 것만
+        
+        Returns:
+            그룹 레벨 파라미터 목록
+        """
+        rows = self._execute_query("""
+            SELECT p.param_id, p.group_id, p.param_key, p.source_type,
+                   p.source_column_id, p.occurrence_count, p.extracted_unit,
+                   p.value_stats, p.is_identifier,
+                   g.group_name
+            FROM parameter p
+            JOIN file_group g ON p.group_id = g.group_id
+            WHERE p.file_id IS NULL
+              AND p.group_id IS NOT NULL
+              AND p.semantic_name IS NULL
+            ORDER BY g.group_name, p.param_id
+        """, fetch="all")
+        
+        result = []
+        for row in (rows or []):
+            (param_id, group_id, param_key, source_type, source_col_id,
+             occ_count, ext_unit, val_stats, is_id, group_name) = row
+            
+            result.append({
+                "param_id": param_id,
+                "group_id": str(group_id) if group_id else None,
+                "file_id": None,  # 그룹 레벨이므로 None
+                "param_key": param_key,
+                "source_type": source_type,
+                "source_column_id": source_col_id,
+                "occurrence_count": occ_count,
+                "extracted_unit": ext_unit,
+                "value_stats": self._parse_json_field(val_stats),
+                "is_identifier": is_id,
+                "group_name": group_name,
+                "file_name": group_name,  # LLM context용
+                "file_path": f"[Group: {group_name}]"  # LLM context용
             })
         
         return result

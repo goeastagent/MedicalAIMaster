@@ -6,11 +6,13 @@ Pipeline Test + Results Viewer (relationship_inference까지)
 현재 테스트는 relationship_inference(900)까지만 실행합니다.
 ontology_enhancement(1000)는 제외되어 있습니다.
 
-실행 Nodes (10-Node Pipeline - ontology_enhancement 제외):
+실행 Nodes (12-Node Pipeline - ontology_enhancement 제외):
 - [directory_catalog]: 디렉토리 구조 분석, 파일명 샘플 수집 (Rule-based)
 - [file_catalog]: 파일/컬럼 물리적 정보 수집 (Rule-based)
 - [schema_aggregation]: 스키마 집계 (Rule-based)
+- [file_grouping_prep]: 디렉토리별 파일 통계/패턴 관찰 (Rule-based) ✨ NEW
 - [file_classification]: 파일을 metadata/data로 분류 (LLM)
+- [file_grouping]: 파일 그룹화 전략 결정 및 그룹 생성 (LLM) ✨ NEW
 - [column_classification]: 컬럼 역할 분류 + parameter 생성 (LLM)
 - [metadata_semantic]: metadata 파일에서 data_dictionary 추출 (LLM)
 - [parameter_semantic]: parameter 테이블 의미 분석 + dictionary 매칭 (LLM)
@@ -22,9 +24,10 @@ ontology_enhancement(1000)는 제외되어 있습니다.
 
 결과 DB Tables:
 - directory_catalog: 디렉토리 메타데이터 + 파일명 패턴
-- file_catalog: 파일 메타데이터 + filename_values
+- file_catalog: 파일 메타데이터 + filename_values + group_id
+- file_group: 파일 그룹 정보 + entity 정보 ✨ NEW
 - column_metadata: 컬럼 물리 정보 + column_role
-- parameter: 파라미터 통합 관리 (Wide/Long format) + semantic 정보
+- parameter: 파라미터 통합 관리 (Wide/Long format) + semantic 정보 + group_id
 - data_dictionary: 파라미터 정의 (key, desc, unit)
 - table_entities: 테이블 Entity 정보
 - table_relationships: FK 관계
@@ -58,14 +61,16 @@ def reset_database():
     
     FK 참조 관계:
     - file_catalog.dir_id → directory_catalog.dir_id
+    - file_catalog.group_id → file_group.group_id
+    - parameter.group_id → file_group.group_id
     - table_entities.file_id → file_catalog.file_id
     - table_relationships.source_file_id/target_file_id → file_catalog.file_id
     - cross_table_semantics.source_file_id/target_file_id → file_catalog.file_id
     - data_dictionary.source_file_id → file_catalog.file_id
     
     순서:
-    - 삭제: FK 참조하는 테이블 먼저 (Ontology → Dictionary → Catalog → Directory)
-    - 생성: FK 참조되는 테이블 먼저 (Directory → Catalog → Dictionary → Ontology)
+    - 삭제: FK 참조하는 테이블 먼저 (Ontology → Dictionary → Catalog → FileGroup → Directory)
+    - 생성: FK 참조되는 테이블 먼저 (Directory → FileGroup → Catalog → Dictionary → Ontology)
     """
     print("\n" + "="*80)
     print("🗑️  Resetting Database...")
@@ -78,6 +83,7 @@ def reset_database():
         DirectorySchemaManager,
         ParameterSchemaManager,
     )
+    from src.database.managers.file_group import FileGroupSchemaManager
     
     # 1. 삭제: FK 참조하는 테이블 먼저 삭제 (역순)
     try:
@@ -109,6 +115,13 @@ def reset_database():
         print(f"⚠️  Error dropping catalog: {e}")
     
     try:
+        file_group_manager = FileGroupSchemaManager()
+        file_group_manager.drop_tables(confirm=True)
+        print("✅ FileGroup tables dropped")
+    except Exception as e:
+        print(f"⚠️  Error dropping file_group: {e}")
+    
+    try:
         directory_manager = DirectorySchemaManager()
         directory_manager.drop_tables(confirm=True)
         print("✅ Directory tables dropped")
@@ -122,6 +135,13 @@ def reset_database():
         print("✅ Directory tables created")
     except Exception as e:
         print(f"⚠️  Error creating directory: {e}")
+    
+    try:
+        file_group_manager = FileGroupSchemaManager()
+        file_group_manager.create_tables()
+        print("✅ FileGroup tables created")
+    except Exception as e:
+        print(f"⚠️  Error creating file_group: {e}")
     
     try:
         catalog_manager = CatalogSchemaManager()
@@ -150,6 +170,27 @@ def reset_database():
         print("✅ Ontology tables created")
     except Exception as e:
         print(f"⚠️  Error creating ontology: {e}")
+    
+    # 3. file_group FK 제약조건 추가 (모든 테이블 생성 후)
+    # file_catalog와 parameter 테이블이 이제 존재하므로 FK 추가 가능
+    try:
+        from src.database.schemas.file_group import (
+            ADD_FILE_CATALOG_GROUP_FK_SQL,
+            ADD_PARAMETER_GROUP_FK_SQL,
+        )
+        from src.database.connection import get_db_manager
+        
+        db = get_db_manager()
+        conn = db.get_connection()
+        cursor = conn.cursor()
+        
+        cursor.execute(ADD_FILE_CATALOG_GROUP_FK_SQL)
+        cursor.execute(ADD_PARAMETER_GROUP_FK_SQL)
+        
+        conn.commit()
+        print("✅ FileGroup FK constraints added")
+    except Exception as e:
+        print(f"⚠️  Error adding file_group FK: {e}")
 
 
 # =============================================================================
@@ -171,8 +212,8 @@ def find_data_files() -> list:
         files.append(str(f))
         print(f"   Found: {f.name}")
     
-    # Vital 파일 스캔 (생체신호 데이터) - 테스트용으로 3개만
-    vital_files = list(DATA_DIR.rglob("*.vital"))[:3]
+    # Vital 파일 스캔 (생체신호 데이터) - 테스트용으로 5개만
+    vital_files = list(DATA_DIR.rglob("*.vital"))[:5]
     for f in vital_files:
         files.append(str(f))
         print(f"   Found: {f.name} (signal)")
@@ -222,10 +263,18 @@ def run_full_pipeline():
         "column_batches": [],
         "file_batches": [],
         
+        # [file_grouping_prep] Result ✨ NEW
+        "grouping_prep_result": None,
+        "directories_for_grouping": [],
+        
         # [file_classification] Result
         "file_classification_result": None,
         "metadata_files": [],
         "data_files": [],
+        
+        # [file_grouping] Result ✨ NEW
+        "file_grouping_result": None,
+        "file_groups": [],
         
         # [column_classification] Result
         "column_classification_result": None,
@@ -243,7 +292,9 @@ def run_full_pipeline():
         
         # [entity_identification] Result
         "entity_identification_result": None,
+        "entity_result": None,
         "table_entity_results": [],
+        "group_files_propagated": 0,
         
         # [relationship_inference] Result
         "relationship_inference_result": None,
@@ -422,7 +473,7 @@ def print_file_catalog(limit: int = 10):
         
         cursor.execute("""
             SELECT fc.file_id, fc.file_name, fc.processor_type, fc.is_metadata, 
-                   fc.semantic_type, dc.dir_name, fc.filename_values
+                   dc.dir_name, fc.group_id, fc.filename_values
             FROM file_catalog fc
             LEFT JOIN directory_catalog dc ON fc.dir_id = dc.dir_id
             ORDER BY fc.file_name
@@ -431,18 +482,19 @@ def print_file_catalog(limit: int = 10):
         
         rows = cursor.fetchall()
         
-        print(f"\n{'File ID':<12} {'File Name':<30} {'Processor':<10} {'Meta?':<6} {'Directory':<20} {'Values'}")
+        print(f"\n{'File ID':<12} {'File Name':<25} {'Proc.':<8} {'Meta?':<5} {'Directory':<15} {'Group':<10} {'Values'}")
         print("-"*100)
         
         for row in rows:
-            file_id, file_name, processor_type, is_meta, semantic, dir_name, filename_values = row
+            file_id, file_name, processor_type, is_meta, dir_name, group_id, filename_values = row
             file_id_short = str(file_id)[:8] + "..."
-            name_short = file_name[:27] + "..." if len(file_name) > 30 else file_name
+            name_short = file_name[:22] + "..." if len(file_name) > 25 else file_name
             is_meta_str = "✓" if is_meta else "-"
-            dir_short = (dir_name or '-')[:17] + "..." if dir_name and len(dir_name) > 20 else (dir_name or '-')
-            values_str = str(filename_values)[:15] if filename_values and filename_values != {} else '-'
+            dir_short = (dir_name or '-')[:12] + "..." if dir_name and len(dir_name) > 15 else (dir_name or '-')
+            group_short = str(group_id)[:8] + "." if group_id else "-"
+            values_str = str(filename_values)[:12] if filename_values and filename_values != {} else '-'
             
-            print(f"{file_id_short:<12} {name_short:<30} {processor_type or '-':<10} {is_meta_str:<6} {dir_short:<20} {values_str}")
+            print(f"{file_id_short:<12} {name_short:<25} {processor_type or '-':<8} {is_meta_str:<5} {dir_short:<15} {group_short:<10} {values_str}")
         
         print(f"\nTotal: {total} files")
         
@@ -453,6 +505,99 @@ def print_file_catalog(limit: int = 10):
         """)
         files_with_values = cursor.fetchone()[0]
         print(f"Files with filename_values: {files_with_values}")
+        
+        # group_id 통계
+        cursor.execute("""
+            SELECT COUNT(*) FROM file_catalog 
+            WHERE group_id IS NOT NULL
+        """)
+        files_with_group = cursor.fetchone()[0]
+        print(f"Files with group_id: {files_with_group}")
+        
+        conn.commit()
+        
+    except Exception as e:
+        conn.rollback()
+        print(f"Error: {e}")
+
+
+def print_file_group(limit: int = 10):
+    """file_group 테이블 출력 ✨ NEW"""
+    conn = get_fresh_connection()
+    cursor = conn.cursor()
+    
+    print("\n" + "="*80)
+    print("📦 TABLE: file_group (파일 그룹핑)")
+    print("="*80)
+    
+    try:
+        cursor.execute("SELECT COUNT(*) FROM file_group")
+        total = cursor.fetchone()[0]
+        
+        cursor.execute("""
+            SELECT group_id, group_name, file_count, status, 
+                   row_represents, entity_identifier_source, entity_identifier_key,
+                   confidence, grouping_criteria
+            FROM file_group
+            ORDER BY file_count DESC
+            LIMIT %s
+        """, (limit,))
+        
+        rows = cursor.fetchall()
+        
+        if not rows:
+            print("\n(No file groups found)")
+        else:
+            print(f"\n{'Group ID':<12} {'Group Name':<25} {'Files':<6} {'Status':<12} {'Row Represents':<25} {'Entity Key':<12} {'Conf.'}")
+            print("-"*110)
+            
+            for row in rows:
+                group_id, group_name, file_count, status, row_rep, entity_src, entity_key, conf, criteria = row
+                group_id_short = str(group_id)[:8] + "..."
+                name_short = group_name[:22] + "..." if len(group_name) > 25 else group_name
+                row_rep_short = (row_rep or '-')[:22] if row_rep else '-'
+                entity_key_short = (entity_key or '-')[:10]
+                conf_str = f"{conf:.2f}" if conf else '-'
+                
+                print(f"{group_id_short:<12} {name_short:<25} {file_count:<6} {status or '-':<12} {row_rep_short:<25} {entity_key_short:<12} {conf_str}")
+        
+        print(f"\nTotal: {total} groups")
+        
+        # 상세 정보 (grouping_criteria)
+        if rows:
+            print("\n📋 Group Details:")
+            cursor.execute("""
+                SELECT group_name, grouping_criteria, reasoning
+                FROM file_group
+                LIMIT 3
+            """)
+            for group_name, criteria, reasoning in cursor.fetchall():
+                print(f"\n   📦 {group_name}")
+                if criteria:
+                    import json
+                    print(f"      Criteria: {json.dumps(criteria, ensure_ascii=False)[:80]}...")
+                if reasoning:
+                    print(f"      Reasoning: {reasoning[:80]}...")
+        
+        # status 통계
+        cursor.execute("""
+            SELECT status, COUNT(*) 
+            FROM file_group 
+            GROUP BY status
+        """)
+        stats = cursor.fetchall()
+        print("\nGroup Status Distribution:")
+        for status, cnt in stats:
+            print(f"   {status or 'null'}: {cnt}")
+        
+        # needs_human_review 통계 (status 기반)
+        cursor.execute("""
+            SELECT COUNT(*) FROM file_group 
+            WHERE status = 'needs_human_review'
+        """)
+        needs_review = cursor.fetchone()[0]
+        if needs_review > 0:
+            print(f"\n⚠️ Groups needing human review: {needs_review}")
         
         conn.commit()
         
@@ -533,31 +678,35 @@ def print_parameter(limit: int = 20):
         total = cursor.fetchone()[0]
         
         cursor.execute("""
-            SELECT fc.file_name, p.param_key, p.source_type, 
-                   p.semantic_name, p.concept_category, p.unit, 
-                   p.dict_match_status
+            SELECT 
+                COALESCE(fc.file_name, fg.group_name) as source_name,
+                p.param_key, p.source_type, 
+                p.semantic_name, p.concept_category, p.unit, 
+                p.dict_match_status,
+                CASE WHEN p.group_id IS NOT NULL THEN 'group' ELSE 'file' END as param_scope
             FROM parameter p
-            JOIN file_catalog fc ON p.file_id = fc.file_id
-            ORDER BY fc.file_name, p.param_id
+            LEFT JOIN file_catalog fc ON p.file_id = fc.file_id
+            LEFT JOIN file_group fg ON p.group_id = fg.group_id
+            ORDER BY source_name, p.param_id
             LIMIT %s
         """, (limit,))
         
         rows = cursor.fetchall()
         
-        print(f"\n{'File':<22} {'Param Key':<15} {'Source':<12} {'Semantic':<18} {'Category':<15} {'Unit':<8} {'Match'}")
-        print("-"*105)
+        print(f"\n{'Source':<20} {'Param Key':<15} {'Src Type':<12} {'Semantic':<15} {'Category':<12} {'Unit':<6} {'Match':<8} {'Scope'}")
+        print("-"*110)
         
         for row in rows:
-            file_name, param_key, source_type, semantic, category, unit, match_status = row
-            file_short = file_name[:19] + "..." if len(file_name) > 22 else file_name
+            source_name, param_key, source_type, semantic, category, unit, match_status, scope = row
+            source_short = (source_name or '-')[:17] + "..." if source_name and len(source_name) > 20 else (source_name or '-')
             key_short = (param_key or '-')[:12]
-            source_short = (source_type or '-')[:10]
-            semantic_short = (semantic or '-')[:15]
-            category_short = (category or '-')[:12]
-            unit_short = (unit or '-')[:6]
-            match_short = (match_status or '-')[:8]
+            source_short_type = (source_type or '-')[:10]
+            semantic_short = (semantic or '-')[:12]
+            category_short = (category or '-')[:10]
+            unit_short = (unit or '-')[:4]
+            match_short = (match_status or '-')[:6]
             
-            print(f"{file_short:<22} {key_short:<15} {source_short:<12} {semantic_short:<18} {category_short:<15} {unit_short:<8} {match_short}")
+            print(f"{source_short:<20} {key_short:<15} {source_short_type:<12} {semantic_short:<15} {category_short:<12} {unit_short:<6} {match_short:<8} {scope}")
         
         print(f"\nTotal: {total} parameters")
         
@@ -571,6 +720,18 @@ def print_parameter(limit: int = 20):
         print("\nSource Type Distribution:")
         for stype, cnt in stats:
             print(f"   {stype or 'null'}: {cnt}")
+        
+        # file vs group 통계
+        cursor.execute("""
+            SELECT 
+                SUM(CASE WHEN file_id IS NOT NULL AND group_id IS NULL THEN 1 ELSE 0 END) as file_params,
+                SUM(CASE WHEN group_id IS NOT NULL THEN 1 ELSE 0 END) as group_params
+            FROM parameter
+        """)
+        file_params, group_params = cursor.fetchone()
+        print(f"\nParameter Scope:")
+        print(f"   File-level: {file_params or 0}")
+        print(f"   Group-level: {group_params or 0}")
         
         # match_status 통계
         cursor.execute("""
@@ -658,7 +819,7 @@ def print_table_entities(limit: int = 10):
         
         cursor.execute("""
             SELECT fc.file_name, te.row_represents, te.entity_identifier, 
-                   te.confidence, te.reasoning
+                   te.confidence, fc.group_id
             FROM table_entities te
             JOIN file_catalog fc ON te.file_id = fc.file_id
             ORDER BY te.confidence DESC
@@ -667,16 +828,29 @@ def print_table_entities(limit: int = 10):
         
         rows = cursor.fetchall()
         
-        print(f"\n{'File':<35} {'Row Represents':<20} {'Identifier':<15} {'Conf.'}")
-        print("-"*80)
+        print(f"\n{'File':<30} {'Row Represents':<25} {'Identifier':<12} {'Conf.':<6} {'Grouped?'}")
+        print("-"*85)
         
         for row in rows:
-            file_name, row_rep, identifier, conf, reasoning = row
-            file_short = file_name[:32] + "..." if len(file_name) > 35 else file_name
+            file_name, row_rep, identifier, conf, group_id = row
+            file_short = file_name[:27] + "..." if len(file_name) > 30 else file_name
+            grouped = "✓" if group_id else "-"
             
-            print(f"{file_short:<35} {row_rep:<20} {identifier or '(none)':<15} {conf:.2f}")
+            print(f"{file_short:<30} {row_rep or '-':<25} {identifier or '(none)':<12} {conf:.2f}  {grouped}")
         
         print(f"\nTotal: {total} entities")
+        
+        # 그룹화된 파일 통계
+        cursor.execute("""
+            SELECT 
+                COUNT(*) as total,
+                COUNT(CASE WHEN fc.group_id IS NOT NULL THEN 1 END) as grouped
+            FROM table_entities te
+            JOIN file_catalog fc ON te.file_id = fc.file_id
+        """)
+        total_entities, grouped_entities = cursor.fetchone()
+        print(f"Entities from grouped files: {grouped_entities or 0}/{total_entities or 0}")
+        
         conn.commit()
         
     except Exception as e:
@@ -1014,6 +1188,7 @@ def print_summary_stats():
     tables = [
         ('directory_catalog', 'Directories (directory_catalog)'),
         ('file_catalog', 'Files'),
+        ('file_group', 'File Groups ✨'),
         ('column_metadata', 'Columns (physical + role)'),
         ('parameter', 'Parameters (semantic)'),
         ('data_dictionary', 'Dictionary Entries'),
@@ -1038,6 +1213,31 @@ def print_summary_stats():
             conn.rollback()  # 에러 후 트랜잭션 정리
             print(f"{display_name:<35} {'ERROR':>10}")
     
+    # file_group 관련 통계
+    try:
+        cursor.execute("""
+            SELECT COUNT(*) FROM file_group 
+            WHERE status = 'confirmed'
+        """)
+        confirmed_groups = cursor.fetchone()[0]
+        print(f"\n{'Confirmed Groups':<35} {confirmed_groups:>10}")
+        
+        cursor.execute("""
+            SELECT COUNT(*) FROM file_catalog 
+            WHERE group_id IS NOT NULL
+        """)
+        grouped_files = cursor.fetchone()[0]
+        print(f"{'Files in Groups':<35} {grouped_files:>10}")
+        
+        cursor.execute("""
+            SELECT COUNT(*) FROM parameter 
+            WHERE group_id IS NOT NULL
+        """)
+        group_params = cursor.fetchone()[0]
+        print(f"{'Group-level Parameters':<35} {group_params:>10}")
+    except Exception as e:
+        conn.rollback()
+    
     # directory_pattern 패턴 분석 통계
     try:
         cursor.execute("""
@@ -1045,7 +1245,7 @@ def print_summary_stats():
             WHERE filename_pattern IS NOT NULL
         """)
         patterns_count = cursor.fetchone()[0]
-        print(f"\n{'Directories with Patterns (directory_pattern)':<45} {patterns_count:>10}")
+        print(f"\n{'Directories with Patterns':<35} {patterns_count:>10}")
         
         cursor.execute("""
             SELECT COUNT(*) FROM file_catalog 
@@ -1095,6 +1295,7 @@ def main():
     print_summary_stats()
     print_directory_catalog(limit=20)  # directory_catalog / directory_pattern
     print_file_catalog(limit=20)
+    print_file_group(limit=20)  # ✨ NEW
     print_column_metadata(limit=20)   # 물리 정보 + column_role
     print_parameter(limit=20)          # semantic 정보
     print_data_dictionary(limit=20)
@@ -1120,4 +1321,3 @@ def main():
 
 if __name__ == "__main__":
     main()
-

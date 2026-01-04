@@ -11,6 +11,7 @@ PostgreSQL 및 Neo4j 연결과 스키마 관리
 │   ├── catalog.py        # file_catalog, column_metadata
 │   ├── dictionary.py     # data_dictionary
 │   ├── directory.py      # directory_catalog
+│   ├── file_group.py     # file_group (file-based sharding 지원)
 │   ├── ontology_core.py  # table_entities, table_relationships
 │   └── ontology_enhancement.py  # subcategories, semantic_edges, etc.
 ├── managers/             # SchemaManager 클래스
@@ -18,12 +19,14 @@ PostgreSQL 및 Neo4j 연결과 스키마 관리
 │   ├── catalog.py        # CatalogSchemaManager
 │   ├── dictionary.py     # DictionarySchemaManager
 │   ├── directory.py      # DirectorySchemaManager
+│   ├── file_group.py     # FileGroupSchemaManager
 │   └── ontology.py       # OntologySchemaManager
 └── repositories/         # Repository 패턴 (조회/저장)
     ├── file_repository.py
     ├── column_repository.py
     ├── dictionary_repository.py
-    └── entity_repository.py
+    ├── entity_repository.py
+    └── file_group_repository.py
 """
 
 # Connection Managers (Singleton)
@@ -48,6 +51,10 @@ from .managers import (
     DirectorySchemaManager,
     init_directory_schema,
     ensure_directory_schema,
+    # File Group
+    FileGroupSchemaManager,
+    init_file_group_schema,
+    ensure_file_group_schema,
     # Ontology
     OntologySchemaManager,
     init_ontology_schema,
@@ -76,6 +83,7 @@ from .repositories import (
     DictionaryRepository,
     EntityRepository,
     OntologyRepository,
+    FileGroupRepository,
 )
 
 __all__ = [
@@ -96,6 +104,7 @@ __all__ = [
     'CatalogSchemaManager',
     'DictionarySchemaManager',
     'DirectorySchemaManager',
+    'FileGroupSchemaManager',
     'OntologySchemaManager',
     'ParameterSchemaManager',
     
@@ -103,11 +112,13 @@ __all__ = [
     'init_catalog_schema',
     'init_dictionary_schema',
     'init_directory_schema',
+    'init_file_group_schema',
     'init_ontology_schema',
     'init_parameter_schema',
     'ensure_catalog_schema',
     'ensure_dictionary_schema',
     'ensure_directory_schema',
+    'ensure_file_group_schema',
     'ensure_ontology_schema',
     'ensure_parameter_schema',
     
@@ -126,4 +137,5 @@ __all__ = [
     'DictionaryRepository',
     'EntityRepository',
     'OntologyRepository',
+    'FileGroupRepository',
 ]

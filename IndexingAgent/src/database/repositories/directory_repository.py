@@ -103,6 +103,36 @@ class DirectoryRepository(BaseRepository):
         
         return self._row_to_dict(row)
     
+    def get_directory_by_name(self, dir_name: str) -> Optional[Dict[str, Any]]:
+        """dir_name으로 단일 디렉토리 조회"""
+        row = self._execute_query("""
+            SELECT dir_id, dir_path, dir_name, file_count, 
+                   file_extensions, filename_samples, dir_type,
+                   filename_pattern, filename_columns
+            FROM directory_catalog
+            WHERE dir_name = %s
+        """, (dir_name,), fetch="one")
+        
+        if not row:
+            return None
+        
+        return self._row_to_dict(row)
+    
+    def get_directory_by_id(self, dir_id: str) -> Optional[Dict[str, Any]]:
+        """dir_id로 단일 디렉토리 조회"""
+        row = self._execute_query("""
+            SELECT dir_id, dir_path, dir_name, file_count, 
+                   file_extensions, filename_samples, dir_type,
+                   filename_pattern, filename_columns
+            FROM directory_catalog
+            WHERE dir_id = %s
+        """, (dir_id,), fetch="one")
+        
+        if not row:
+            return None
+        
+        return self._row_to_dict(row)
+    
     def get_all_directories(self) -> List[Dict[str, Any]]:
         """모든 디렉토리 조회"""
         rows = self._execute_query("""
@@ -114,6 +144,48 @@ class DirectoryRepository(BaseRepository):
         """, fetch="all")
         
         return [self._row_to_dict(row) for row in rows]
+    
+    def get_directories_with_files(self, min_files: int = 1) -> List[Dict[str, Any]]:
+        """
+        파일이 있는 디렉토리 조회 (실제 file_catalog 기준)
+        
+        [250] file_grouping_prep 노드에서 사용
+        
+        Args:
+            min_files: 최소 파일 수 (기본 1)
+        
+        Returns:
+            디렉토리 정보 리스트 (실제 파일 수 포함)
+        """
+        rows = self._execute_query("""
+            SELECT 
+                dc.dir_id,
+                dc.dir_path,
+                dc.dir_name,
+                dc.file_count,
+                dc.file_extensions,
+                dc.filename_samples,
+                COUNT(fc.file_id) as actual_file_count
+            FROM directory_catalog dc
+            LEFT JOIN file_catalog fc ON dc.dir_id = fc.dir_id
+            GROUP BY dc.dir_id, dc.dir_path, dc.dir_name, dc.file_count, 
+                     dc.file_extensions, dc.filename_samples
+            HAVING COUNT(fc.file_id) >= %s
+            ORDER BY COUNT(fc.file_id) DESC
+        """, (min_files,), fetch="all")
+        
+        return [
+            {
+                "dir_id": str(row[0]),
+                "dir_path": row[1],
+                "dir_name": row[2],
+                "file_count": row[3],
+                "file_extensions": self._parse_json_field(row[4]),
+                "filename_samples": row[5] if row[5] else [],
+                "actual_file_count": row[6]
+            }
+            for row in rows
+        ]
     
     def update_pattern_info(
         self,
