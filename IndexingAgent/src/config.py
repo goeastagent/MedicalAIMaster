@@ -166,51 +166,7 @@ class MetadataSemanticConfig(BaseLLMNodeConfig):
     MAX_REVIEW_RETRIES = int(os.getenv("METADATA_SEM_MAX_REVIEW_RETRIES", "3"))
     MIN_LOW_CONF_RATIO = float(os.getenv("METADATA_SEM_MIN_LOW_CONF_RATIO", "0.55"))
     
-    # --- 3. 컨셉 카테고리 ---
-    CONCEPT_CATEGORIES = [
-        "Vital Signs",
-        "Hemodynamics", 
-        "Respiratory",
-        "Neurological",
-        "Demographics",
-        "Identifiers",
-        "Timestamps",
-        "Laboratory:Chemistry",
-        "Laboratory:Hematology",
-        "Laboratory:Coagulation",
-        "Medication",
-        "Anesthesia",
-        "Surgical",
-        "Device/Equipment",
-        "Waveform/Signal",
-        "Other"
-    ]
-    
-    # --- 4. 도메인 카테고리 ---
-    DOMAIN_CATEGORIES = [
-        "Anesthesia",
-        "Surgery",
-        "ICU/Critical Care",
-        "Laboratory",
-        "Cardiology",
-        "Neurology",
-        "Respiratory",
-        "General Clinical",
-        "Administrative",
-        "Reference/Lookup",
-        "Other"
-    ]
-    
-    # --- 5. Semantic Type 형식 ---
-    SEMANTIC_TYPE_DOMAINS = [
-        "Signal",      # Signal:Physiological, Signal:Neurological
-        "Clinical",    # Clinical:Demographics, Clinical:Encounters
-        "Lab",         # Lab:Chemistry, Lab:Hematology
-        "Medication",  # Medication:Administration
-        "Reference",   # Reference:Parameters, Reference:Codes
-        "Surgical",    # Surgical:Procedures
-        "Other"
-    ]
+    # Note: 컨셉 카테고리는 src/agents/models/enums.py의 ConceptCategory ENUM 참조
 
 
 # Backward compatibility alias

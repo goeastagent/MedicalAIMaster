@@ -7,6 +7,7 @@ parameter 테이블의 각 parameter를 분석하고 data_dictionary와 매칭�
 
 from src.agents.prompts import PromptTemplate
 from src.agents.models.llm_responses import ParameterSemanticResult
+from src.agents.models.enums import ConceptCategory
 
 
 # =============================================================================
@@ -55,6 +56,9 @@ Total: {param_count} parameters
 
 {parameters_info}"""
     
+    # ConceptCategory 목록을 동적으로 rules에 포함
+    _concept_rule = ConceptCategory.for_prompt()
+    
     rules = [
         "dict_entry_key MUST be EXACTLY one of the keys from 'EXACT Parameter Keys' (if provided)",
         "Copy the key exactly as shown (including '/' and special characters)",
@@ -63,6 +67,7 @@ Total: {param_count} parameters
         "Use parameter names and statistics to help identify the correct match",
         "Return ONLY valid JSON (no markdown, no explanation)",
         "param_key in response must match the parameter name exactly",
+        _concept_rule,  # ConceptCategory ENUM에서 동적으로 생성
     ]
     
     # Few-shot 예시

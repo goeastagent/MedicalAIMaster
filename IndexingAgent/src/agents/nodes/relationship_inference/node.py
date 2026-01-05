@@ -27,6 +27,7 @@ from ...models.llm_responses import (
 from ...base import BaseNode, LLMMixin, DatabaseMixin, Neo4jMixin
 from ...registry import register_node
 from src.database import OntologySchemaManager
+from src.database.repositories import ParameterRepository
 from src.config import RelationshipInferenceConfig, LLMConfig, Neo4jConfig
 from .prompts import RelationshipInferencePrompt
 
@@ -353,16 +354,15 @@ class RelationshipInferenceNode(BaseNode, LLMMixin, DatabaseMixin, Neo4jMixin):
         
         return count
     
-    def _create_concept_category_nodes(self, driver, tables: List[Dict]) -> int:
-        """Level 2: ConceptCategory 노드 생성"""
+    def _create_concept_category_nodes(self, driver, all_params: List[Dict]) -> int:
+        """Level 2: ConceptCategory 노드 생성 (parameter 테이블 기반)"""
         if not driver:
             return 0
         
         concepts: Set[str] = set()
-        for table in tables:
-            for col in table['columns']:
-                if col['concept_category']:
-                    concepts.add(col['concept_category'])
+        for param in all_params:
+            if param.get('concept'):
+                concepts.add(param['concept'])
         
         count = 0
         with driver.session(database=Neo4jConfig.DATABASE) as session:
@@ -377,36 +377,28 @@ class RelationshipInferenceNode(BaseNode, LLMMixin, DatabaseMixin, Neo4jMixin):
         
         return count
     
-    def _create_parameter_nodes(self, driver, tables: List[Dict]) -> int:
-        """Level 3: Parameter 노드 생성"""
+    def _create_parameter_nodes(self, driver, all_params: List[Dict]) -> int:
+        """Level 3: Parameter 노드 생성 (parameter 테이블 기반, identifier 포함)"""
         if not driver:
             return 0
         
-        seen_keys = set()
-        params = []
-        
-        for table in tables:
-            for col in table['columns']:
-                key = col['original_name']
-                if key not in seen_keys:
-                    seen_keys.add(key)
-                    params.append({
-                        "key": key,
-                        "name": col['semantic_name'] or key,
-                        "unit": col['unit'],
-                        "concept": col['concept_category']
-                    })
-        
         count = 0
         with driver.session(database=Neo4jConfig.DATABASE) as session:
-            for param in params:
+            for param in all_params:
                 try:
                     session.run("""
                         MERGE (p:Parameter {key: $key})
                         SET p.name = $name,
                             p.unit = $unit,
-                            p.concept = $concept
-                    """, param)
+                            p.concept = $concept,
+                            p.is_identifier = $is_identifier
+                    """, {
+                        "key": param['key'],
+                        "name": param['name'],
+                        "unit": param['unit'],
+                        "concept": param['concept'],
+                        "is_identifier": param.get('is_identifier', False)
+                    })
                     count += 1
                 except Exception as e:
                     self.log(f"❌ Error creating Parameter {param['key']}: {e}", indent=2)
@@ -475,18 +467,18 @@ class RelationshipInferenceNode(BaseNode, LLMMixin, DatabaseMixin, Neo4jMixin):
         
         return count
     
-    def _create_contains_edges(self, driver, tables: List[Dict]) -> int:
-        """ConceptCategory → Parameter (CONTAINS) 엣지 생성"""
+    def _create_contains_edges(self, driver, all_params: List[Dict]) -> int:
+        """ConceptCategory → Parameter (CONTAINS) 엣지 생성 (parameter 테이블 기반)"""
         if not driver:
             return 0
         
         concept_to_params: Dict[str, Set[str]] = {}
-        for table in tables:
-            for col in table['columns']:
-                if col['concept_category']:
-                    if col['concept_category'] not in concept_to_params:
-                        concept_to_params[col['concept_category']] = set()
-                    concept_to_params[col['concept_category']].add(col['original_name'])
+        for param in all_params:
+            concept = param.get('concept')
+            if concept:
+                if concept not in concept_to_params:
+                    concept_to_params[concept] = set()
+                concept_to_params[concept].add(param['key'])
         
         count = 0
         with driver.session(database=Neo4jConfig.DATABASE) as session:
@@ -638,16 +630,21 @@ class RelationshipInferenceNode(BaseNode, LLMMixin, DatabaseMixin, Neo4jMixin):
         try:
             self.log("📊 Creating Neo4j nodes and edges...", indent=1)
             
+            # parameter 테이블에서 모든 파라미터를 한 번만 로드 (group_common 포함)
+            param_repo = ParameterRepository()
+            all_params = param_repo.get_all_parameters_for_ontology()
+            self.log(f"✓ Loaded {len(all_params)} parameters from DB", indent=2)
+            
             # Level 1: RowEntity
             stats["row_entity_nodes"] = self._create_row_entity_nodes(driver, tables)
             self.log(f"✓ RowEntity nodes: {stats['row_entity_nodes']}", indent=2)
             
-            # Level 2: ConceptCategory
-            stats["concept_category_nodes"] = self._create_concept_category_nodes(driver, tables)
+            # Level 2: ConceptCategory (parameter 테이블 기반)
+            stats["concept_category_nodes"] = self._create_concept_category_nodes(driver, all_params)
             self.log(f"✓ ConceptCategory nodes: {stats['concept_category_nodes']}", indent=2)
             
-            # Level 3: Parameter
-            stats["parameter_nodes"] = self._create_parameter_nodes(driver, tables)
+            # Level 3: Parameter (parameter 테이블 기반)
+            stats["parameter_nodes"] = self._create_parameter_nodes(driver, all_params)
             self.log(f"✓ Parameter nodes: {stats['parameter_nodes']}", indent=2)
             
             # Edges
@@ -657,7 +654,8 @@ class RelationshipInferenceNode(BaseNode, LLMMixin, DatabaseMixin, Neo4jMixin):
             stats["edges_has_concept"] = self._create_has_concept_edges(driver, tables)
             self.log(f"✓ HAS_CONCEPT edges: {stats['edges_has_concept']}", indent=2)
             
-            stats["edges_contains"] = self._create_contains_edges(driver, tables)
+            # CONTAINS (parameter 테이블 기반)
+            stats["edges_contains"] = self._create_contains_edges(driver, all_params)
             self.log(f"✓ CONTAINS edges: {stats['edges_contains']}", indent=2)
             
             stats["edges_has_column"] = self._create_has_column_edges(driver, tables)

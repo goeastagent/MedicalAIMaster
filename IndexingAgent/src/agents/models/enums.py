@@ -114,3 +114,82 @@ class DictMatchStatus(str, Enum):
         """모든 값 목록 반환"""
         return [e.value for e in cls]
 
+
+class ConceptCategory(str, Enum):
+    """
+    Parameter의 개념 카테고리
+    
+    [parameter_semantic] 노드에서 LLM이 각 parameter에 할당하는 카테고리입니다.
+    Neo4j의 ConceptCategory 노드로 변환됩니다.
+    
+    사용처:
+    - parameter_semantic: LLM이 concept_category 추론 시 이 목록에서 선택
+    - relationship_inference: ConceptCategory 노드 생성
+    - ontology_enhancement: SubCategory 추가
+    """
+    
+    # Vital Signs & Hemodynamics
+    VITAL_SIGNS = 'Vital Signs'
+    HEMODYNAMICS = 'Hemodynamics'
+    
+    # Organ Systems
+    RESPIRATORY = 'Respiratory'
+    NEUROLOGICAL = 'Neurological'
+    
+    # Patient Info
+    DEMOGRAPHICS = 'Demographics'
+    IDENTIFIERS = 'Identifiers'
+    TIMESTAMPS = 'Timestamps'
+    
+    # Laboratory
+    LAB_CHEMISTRY = 'Laboratory:Chemistry'
+    LAB_HEMATOLOGY = 'Laboratory:Hematology'
+    LAB_COAGULATION = 'Laboratory:Coagulation'
+    
+    # Clinical
+    MEDICATION = 'Medication'
+    ANESTHESIA = 'Anesthesia'
+    SURGICAL = 'Surgical'
+    
+    # Technical
+    DEVICE_EQUIPMENT = 'Device/Equipment'
+    WAVEFORM_SIGNAL = 'Waveform/Signal'
+    
+    # Fallback
+    OTHER = 'Other'
+    
+    @classmethod
+    def values(cls) -> List[str]:
+        """모든 카테고리 값 목록 반환"""
+        return [e.value for e in cls]
+    
+    @classmethod
+    def descriptions(cls) -> dict:
+        """각 카테고리의 설명 반환 (LLM 프롬프트용)"""
+        return {
+            cls.VITAL_SIGNS.value: "Heart rate, blood pressure, temperature, SpO2",
+            cls.HEMODYNAMICS.value: "Cardiac output, SVR, CVP, PAP",
+            cls.RESPIRATORY.value: "Respiratory rate, tidal volume, FiO2, PEEP",
+            cls.NEUROLOGICAL.value: "BIS, EEG, ICP, consciousness level",
+            cls.DEMOGRAPHICS.value: "Age, sex, height, weight, BMI",
+            cls.IDENTIFIERS.value: "Case ID, patient ID, subject ID, encounter ID",
+            cls.TIMESTAMPS.value: "Date, time, datetime, duration",
+            cls.LAB_CHEMISTRY.value: "Glucose, creatinine, electrolytes, liver enzymes",
+            cls.LAB_HEMATOLOGY.value: "Hemoglobin, hematocrit, WBC, platelets",
+            cls.LAB_COAGULATION.value: "PT, aPTT, INR, fibrinogen",
+            cls.MEDICATION.value: "Drug names, doses, infusion rates",
+            cls.ANESTHESIA.value: "Anesthetic agents, MAC, sedation scores",
+            cls.SURGICAL.value: "Procedure type, surgical time, blood loss",
+            cls.DEVICE_EQUIPMENT.value: "Device IDs, equipment settings, alarm parameters",
+            cls.WAVEFORM_SIGNAL.value: "ECG, arterial waveform, pleth, raw signals",
+            cls.OTHER.value: "Uncategorized or unknown parameters",
+        }
+    
+    @classmethod
+    def for_prompt(cls) -> str:
+        """LLM 프롬프트에 삽입할 수 있는 형식의 문자열 반환"""
+        lines = ["concept_category MUST be one of the following:"]
+        for cat, desc in cls.descriptions().items():
+            lines.append(f"- '{cat}': {desc}")
+        return "\n".join(lines)
+

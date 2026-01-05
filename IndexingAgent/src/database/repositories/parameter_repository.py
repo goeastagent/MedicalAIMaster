@@ -449,21 +449,21 @@ class ParameterRepository(BaseRepository):
         [R2] Ontology용 전체 파라미터 조회 (중복 제거)
         
         [800] ontology_enhancement 노드의 _load_all_parameters()에서 사용
-        - identifier 제외
+        [900] relationship_inference 노드의 Neo4j 동기화에서 사용
+        - identifier 포함 (Neo4j Parameter 노드에 is_identifier 속성으로 표시)
         - param_key 기준 중복 제거
         
         Returns:
             [
-                {"key": "hr", "name": "Heart Rate", "unit": "bpm", "concept": "Vitals"},
-                {"key": "spo2", "name": "SpO2", "unit": "%", "concept": "Vitals"},
+                {"key": "hr", "name": "Heart Rate", "unit": "bpm", "concept": "Vitals", "is_identifier": False},
+                {"key": "case_id", "name": "Case ID", "unit": None, "concept": "Identifiers", "is_identifier": True},
                 ...
             ]
         """
         rows = self._execute_query("""
             SELECT DISTINCT ON (param_key) 
-                   param_key, semantic_name, unit, concept_category
+                   param_key, semantic_name, unit, concept_category, is_identifier
             FROM parameter
-            WHERE is_identifier = false
             ORDER BY param_key, param_id
         """, fetch="all")
         
@@ -472,9 +472,10 @@ class ParameterRepository(BaseRepository):
                 "key": param_key,
                 "name": sem_name or param_key,
                 "unit": unit,
-                "concept": concept
+                "concept": concept,
+                "is_identifier": is_id
             }
-            for param_key, sem_name, unit, concept in rows
+            for param_key, sem_name, unit, concept, is_id in rows
         ]
     
     # =========================================================================

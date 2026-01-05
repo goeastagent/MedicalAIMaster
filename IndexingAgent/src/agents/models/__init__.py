@@ -5,18 +5,21 @@ Pydantic 모델 패키지
 모든 Pydantic 스키마를 중앙에서 관리합니다.
 
 구조:
-- enums.py: 열거형 타입 (ColumnRole, SourceType, DictMatchStatus)
+- enums.py: 열거형 타입 (ColumnRole, SourceType, DictMatchStatus, ConceptCategory)
 - base.py: 공통 베이스 클래스 (LLMAnalysisBase, PhaseResultBase)
 - state_schemas.py: AgentState 관련 스키마 (ColumnSchema, EntityIdentification, ...)
 - llm_responses.py: Phase별 LLM 응답 스키마
 
 사용 예시:
     from src.agents.models import LLMAnalysisBase, ColumnSchema, FileClassificationItem
-    from src.agents.models import ColumnRole, SourceType
+    from src.agents.models import ColumnRole, SourceType, ConceptCategory
     
     # Enum 사용
     if column_role == ColumnRole.PARAMETER_CONTAINER:
         ...
+    
+    # ConceptCategory 프롬프트 생성
+    prompt_text = ConceptCategory.for_prompt()
     
     # 커스텀 모델 정의
     class MyResult(LLMAnalysisBase):
@@ -33,6 +36,7 @@ from .enums import (
     ColumnRole,
     SourceType,
     DictMatchStatus,
+    ConceptCategory,
 )
 
 # =============================================================================
@@ -113,6 +117,7 @@ __all__ = [
     "ColumnRole",
     "SourceType",
     "DictMatchStatus",
+    "ConceptCategory",
     
     # === base.py ===
     # 헬퍼 함수
