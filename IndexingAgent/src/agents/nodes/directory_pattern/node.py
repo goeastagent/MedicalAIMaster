@@ -431,7 +431,6 @@ class DirectoryPatternNode(BaseNode, LLMMixin, DatabaseMixin):
         Collect data dictionary from DB (previous steps results)
         
         Uses: DirectoryRepository.get_data_dictionary_for_pattern()
-        - file_catalog: primary_entity, entity_identifier_column
         - column_metadata + parameter: semantic_name, description, concept_category
         
         NO file reading - all from DB

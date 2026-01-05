@@ -266,8 +266,6 @@ class DirectoryRepository(BaseRepository):
         Returns:
             {
                 "table_name": {
-                    "primary_entity": str,
-                    "entity_identifier": str,
                     "columns": [{"name": str, "type": str, "description": str, "examples": list}]
                 }
             }
@@ -275,8 +273,6 @@ class DirectoryRepository(BaseRepository):
         rows = self._execute_query("""
             SELECT 
                 fc.file_name,
-                fc.primary_entity,
-                fc.entity_identifier_column,
                 cm.original_name,
                 p.semantic_name,
                 p.description,
@@ -295,18 +291,16 @@ class DirectoryRepository(BaseRepository):
             file_name = row[0]
             if file_name not in tables:
                 tables[file_name] = {
-                    "primary_entity": row[1],
-                    "entity_identifier": row[2],
                     "columns": []
                 }
             
-            value_dist = row[6] if row[6] else {}
+            value_dist = row[4] if row[4] else {}
             examples = value_dist.get('samples', []) if isinstance(value_dist, dict) else []
             
             tables[file_name]["columns"].append({
-                "name": row[3],
-                "type": row[4],
-                "description": row[5],
+                "name": row[1],
+                "type": row[2],
+                "description": row[3],
                 "examples": examples
             })
         

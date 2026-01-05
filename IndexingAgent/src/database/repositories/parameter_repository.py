@@ -4,13 +4,11 @@ ParameterRepository - parameter 테이블 관련 CRUD
 
 parameter 테이블:
 - param_id, file_id, param_key, source_type, source_column_id
-- occurrence_count, extracted_unit, value_stats (Long-format 정보)
 - semantic_name, unit, concept_category, description (LLM 분석 결과)
 - dict_entry_id, dict_match_status, match_confidence (Dictionary 매칭)
 - is_identifier, llm_confidence, llm_reasoning
 """
 
-import json
 from typing import Dict, Any, List, Optional
 from datetime import datetime
 from .base import BaseRepository
@@ -39,9 +37,6 @@ class ParameterRepository(BaseRepository):
         param_key: str,
         source_type: str,
         source_column_id: int = None,
-        occurrence_count: int = None,
-        extracted_unit: str = None,
-        value_stats: dict = None,
         is_identifier: bool = False
     ) -> Optional[int]:
         """
@@ -52,9 +47,6 @@ class ParameterRepository(BaseRepository):
             param_key: 파라미터 키 ("HR", "SpO2" 등)
             source_type: 출처 타입 ('column_name' | 'column_value')
             source_column_id: 출처 컬럼 ID
-            occurrence_count: 출현 횟수 (Long-format)
-            extracted_unit: 추출된 단위 (Long-format)
-            value_stats: 값 통계 (Long-format)
             is_identifier: 식별자 여부
         
         Returns:
@@ -67,15 +59,11 @@ class ParameterRepository(BaseRepository):
             cursor.execute("""
                 INSERT INTO parameter (
                     file_id, param_key, source_type, source_column_id,
-                    occurrence_count, extracted_unit, value_stats,
                     is_identifier
-                ) VALUES (%s, %s, %s, %s, %s, %s, %s, %s)
+                ) VALUES (%s, %s, %s, %s, %s)
                 ON CONFLICT (file_id, param_key, source_type) WHERE file_id IS NOT NULL
                 DO UPDATE SET
                     source_column_id = EXCLUDED.source_column_id,
-                    occurrence_count = EXCLUDED.occurrence_count,
-                    extracted_unit = EXCLUDED.extracted_unit,
-                    value_stats = EXCLUDED.value_stats,
                     is_identifier = EXCLUDED.is_identifier,
                     updated_at = NOW()
                 RETURNING param_id
@@ -84,9 +72,6 @@ class ParameterRepository(BaseRepository):
                 param_key,
                 source_type,
                 source_column_id,
-                occurrence_count,
-                extracted_unit,
-                json.dumps(value_stats) if value_stats else None,
                 is_identifier
             ))
             
@@ -118,9 +103,6 @@ class ParameterRepository(BaseRepository):
                     "param_key": str,
                     "source_type": str,  # 'column_name' | 'column_value'
                     "source_column_id": int (optional),
-                    "occurrence_count": int (optional, Long-format),
-                    "extracted_unit": str (optional, Long-format),
-                    "value_stats": dict (optional),
                     "is_identifier": bool (optional)
                 }
             ]
@@ -140,15 +122,11 @@ class ParameterRepository(BaseRepository):
                 cursor.execute("""
                     INSERT INTO parameter (
                         file_id, param_key, source_type, source_column_id,
-                        occurrence_count, extracted_unit, value_stats,
                         is_identifier
-                    ) VALUES (%s, %s, %s, %s, %s, %s, %s, %s)
+                    ) VALUES (%s, %s, %s, %s, %s)
                     ON CONFLICT (file_id, param_key, source_type) WHERE file_id IS NOT NULL
                     DO UPDATE SET
                         source_column_id = EXCLUDED.source_column_id,
-                        occurrence_count = EXCLUDED.occurrence_count,
-                        extracted_unit = EXCLUDED.extracted_unit,
-                        value_stats = EXCLUDED.value_stats,
                         is_identifier = EXCLUDED.is_identifier,
                         updated_at = NOW()
                 """, (
@@ -156,9 +134,6 @@ class ParameterRepository(BaseRepository):
                     param.get('param_key'),
                     param.get('source_type'),
                     param.get('source_column_id'),
-                    param.get('occurrence_count'),
-                    param.get('extracted_unit'),
-                    json.dumps(param.get('value_stats')) if param.get('value_stats') else None,
                     param.get('is_identifier', False)
                 ))
                 created += 1
@@ -196,7 +171,6 @@ class ParameterRepository(BaseRepository):
         """
         rows = self._execute_query("""
             SELECT param_id, param_key, source_type, source_column_id,
-                   occurrence_count, extracted_unit, value_stats,
                    semantic_name, unit, concept_category, description,
                    dict_entry_id, dict_match_status, match_confidence,
                    is_identifier, llm_confidence, llm_reasoning
@@ -228,8 +202,7 @@ class ParameterRepository(BaseRepository):
         """
         query = """
             SELECT p.param_id, p.file_id, p.param_key, p.source_type,
-                   p.source_column_id, p.occurrence_count, p.extracted_unit,
-                   p.value_stats, p.is_identifier,
+                   p.source_column_id, p.is_identifier,
                    f.file_name, f.file_path
             FROM parameter p
             JOIN file_catalog f ON p.file_id = f.file_id
@@ -251,7 +224,7 @@ class ParameterRepository(BaseRepository):
         result = []
         for row in rows:
             (param_id, fid, param_key, source_type, source_col_id,
-             occ_count, ext_unit, val_stats, is_id, file_name, file_path) = row
+             is_id, file_name, file_path) = row
             
             result.append({
                 "param_id": param_id,
@@ -259,9 +232,6 @@ class ParameterRepository(BaseRepository):
                 "param_key": param_key,
                 "source_type": source_type,
                 "source_column_id": source_col_id,
-                "occurrence_count": occ_count,
-                "extracted_unit": ext_unit,
-                "value_stats": self._parse_json_field(val_stats),
                 "is_identifier": is_id,
                 "file_name": file_name,
                 "file_path": file_path
@@ -293,8 +263,7 @@ class ParameterRepository(BaseRepository):
         
         rows = self._execute_query(f"""
             SELECT p.param_id, p.file_id, p.param_key, p.source_type,
-                   p.source_column_id, p.occurrence_count, p.extracted_unit,
-                   p.value_stats, p.is_identifier,
+                   p.source_column_id, p.is_identifier,
                    f.file_name, f.file_path
             FROM parameter p
             JOIN file_catalog f ON p.file_id = f.file_id
@@ -306,7 +275,7 @@ class ParameterRepository(BaseRepository):
         result = []
         for row in rows:
             (param_id, fid, param_key, source_type, source_col_id,
-             occ_count, ext_unit, val_stats, is_id, file_name, file_path) = row
+             is_id, file_name, file_path) = row
             
             result.append({
                 "param_id": param_id,
@@ -314,9 +283,6 @@ class ParameterRepository(BaseRepository):
                 "param_key": param_key,
                 "source_type": source_type,
                 "source_column_id": source_col_id,
-                "occurrence_count": occ_count,
-                "extracted_unit": ext_unit,
-                "value_stats": self._parse_json_field(val_stats),
                 "is_identifier": is_id,
                 "file_name": file_name,
                 "file_path": file_path
@@ -337,8 +303,7 @@ class ParameterRepository(BaseRepository):
         """
         rows = self._execute_query("""
             SELECT p.param_id, p.group_id, p.param_key, p.source_type,
-                   p.source_column_id, p.occurrence_count, p.extracted_unit,
-                   p.value_stats, p.is_identifier,
+                   p.source_column_id, p.is_identifier,
                    g.group_name
             FROM parameter p
             JOIN file_group g ON p.group_id = g.group_id
@@ -351,7 +316,7 @@ class ParameterRepository(BaseRepository):
         result = []
         for row in (rows or []):
             (param_id, group_id, param_key, source_type, source_col_id,
-             occ_count, ext_unit, val_stats, is_id, group_name) = row
+             is_id, group_name) = row
             
             result.append({
                 "param_id": param_id,
@@ -360,9 +325,6 @@ class ParameterRepository(BaseRepository):
                 "param_key": param_key,
                 "source_type": source_type,
                 "source_column_id": source_col_id,
-                "occurrence_count": occ_count,
-                "extracted_unit": ext_unit,
-                "value_stats": self._parse_json_field(val_stats),
                 "is_identifier": is_id,
                 "group_name": group_name,
                 "file_name": group_name,  # LLM context용
@@ -676,7 +638,6 @@ class ParameterRepository(BaseRepository):
     def _row_to_param_dict(self, row: tuple) -> Dict[str, Any]:
         """DB row를 dict로 변환"""
         (param_id, param_key, source_type, source_col_id,
-         occ_count, ext_unit, val_stats,
          sem_name, unit, category, desc,
          dict_id, match_status, match_conf,
          is_id, llm_conf, llm_reason) = row
@@ -686,9 +647,6 @@ class ParameterRepository(BaseRepository):
             "param_key": param_key,
             "source_type": source_type,
             "source_column_id": source_col_id,
-            "occurrence_count": occ_count,
-            "extracted_unit": ext_unit,
-            "value_stats": self._parse_json_field(val_stats),
             "semantic_name": sem_name,
             "unit": unit,
             "concept_category": category,

@@ -36,13 +36,7 @@ CREATE TABLE IF NOT EXISTS file_catalog (
     -- [directory_pattern node] 파일명에서 추출한 값 (LLM 분석 결과)
     filename_values JSONB,                -- {"caseid": 1, "session": "A"} - 파일명에서 추출한 값
     
-    -- [file_classification node] LLM 분석 결과 (의미론적 정보)
-    semantic_type VARCHAR(100),           -- "Signal:Physiological", "Clinical:Demographics", "Lab:Chemistry"
-    semantic_name VARCHAR(255),           -- 파일의 표준화된 이름
-    file_purpose TEXT,                    -- 파일의 목적/용도 설명
-    primary_entity VARCHAR(100),          -- 각 행이 나타내는 entity (예: "surgery", "patient")
-    entity_identifier_column VARCHAR(100), -- entity 식별자 컬럼명
-    domain VARCHAR(100),                  -- 의료 도메인 (예: "Anesthesia", "Laboratory")
+    -- [file_classification node] LLM 분석 결과
     is_metadata BOOLEAN DEFAULT FALSE,    -- 메타데이터/카탈로그 파일 여부 (데이터 사전, README 등)
     llm_confidence FLOAT,                 -- LLM 분석 확신도
     llm_analyzed_at TIMESTAMP,            -- LLM 분석 완료 시간
@@ -59,8 +53,6 @@ CREATE INDEX IF NOT EXISTS idx_file_catalog_path ON file_catalog (file_path);
 CREATE INDEX IF NOT EXISTS idx_file_catalog_modified ON file_catalog (file_path, file_modified_at);
 CREATE INDEX IF NOT EXISTS idx_file_catalog_meta ON file_catalog USING gin (file_metadata);
 CREATE INDEX IF NOT EXISTS idx_file_catalog_type ON file_catalog (processor_type);
-CREATE INDEX IF NOT EXISTS idx_file_catalog_semantic ON file_catalog (semantic_type);
-CREATE INDEX IF NOT EXISTS idx_file_catalog_domain ON file_catalog (domain);
 CREATE INDEX IF NOT EXISTS idx_file_catalog_dir ON file_catalog (dir_id);
 CREATE INDEX IF NOT EXISTS idx_file_catalog_group ON file_catalog (group_id);
 """

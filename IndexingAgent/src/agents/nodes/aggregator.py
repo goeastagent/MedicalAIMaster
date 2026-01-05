@@ -84,7 +84,6 @@ class SchemaAggregationNode(BaseNode, DatabaseMixin):
         
     FROM file_catalog fc
     LEFT JOIN column_metadata cm ON fc.file_id = cm.file_id
-    WHERE fc.semantic_type IS NULL  -- 아직 분석 안 된 파일만
     GROUP BY fc.file_id, fc.file_name, fc.file_extension, 
              fc.processor_type, fc.file_size_mb, fc.file_metadata
     ORDER BY fc.file_name;

@@ -138,43 +138,18 @@ class ParameterSemanticNode(BaseNode, LLMMixin, DatabaseMixin):
         Returns:
             포맷된 parameter 정보 문자열
         """
-        config = DataSemanticConfig
         lines = []
         
         for param in parameters:
             param_key = param.get('param_key', '')
             source_type = param.get('source_type', '')
             is_identifier = param.get('is_identifier', False)
-            value_stats = param.get('value_stats', {}) or {}
             
             # 기본 정보
             if is_identifier:
                 line = f"- {param_key} (source: {source_type}, role: IDENTIFIER)"
             else:
                 line = f"- {param_key} (source: {source_type})"
-            details = []
-            
-            # 통계 정보 (있으면)
-            if value_stats:
-                if 'min' in value_stats and 'max' in value_stats:
-                    details.append(f"range: [{value_stats['min']}, {value_stats['max']}]")
-                if 'mean' in value_stats:
-                    details.append(f"mean: {value_stats['mean']:.2f}")
-                if 'unique_values' in value_stats:
-                    unique_vals = value_stats['unique_values']
-                    max_show = config.MAX_UNIQUE_VALUES_DISPLAY
-                    if len(unique_vals) <= max_show:
-                        details.append(f"values: {unique_vals}")
-                    else:
-                        details.append(f"values ({len(unique_vals)} unique): {unique_vals[:max_show]}...")
-            
-            # extracted_unit (있으면)
-            if param.get('extracted_unit'):
-                details.append(f"extracted_unit: {param['extracted_unit']}")
-            
-            # 조합
-            if details:
-                line += "\n    " + "\n    ".join(details)
             
             lines.append(line)
         

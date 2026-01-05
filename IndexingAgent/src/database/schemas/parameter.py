@@ -29,13 +29,6 @@ CREATE TABLE IF NOT EXISTS parameter (
                                                -- Wide: 해당 컬럼 / Long: key 컬럼
     
     -- =========================================================================
-    -- Long-format 추가 정보 (source_type='column_value'인 경우)
-    -- =========================================================================
-    occurrence_count INTEGER,                   -- 해당 파라미터 출현 횟수
-    extracted_unit VARCHAR(50),                 -- unit 컬럼에서 추출한 값 (있으면)
-    value_stats JSONB,                          -- {"min": 60, "max": 120, "mean": 75.2}
-    
-    -- =========================================================================
     -- Semantic 정보 ([600] parameter_semantic에서 LLM이 채움)
     -- =========================================================================
     semantic_name VARCHAR(255),                 -- "Heart Rate"

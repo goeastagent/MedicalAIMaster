@@ -137,7 +137,7 @@ entity_identifier가 NULL이면:
    - table_entities 테이블에 entity_identifier 저장하는 부분
 
 3. **테이블 스키마**:
-   - `file_catalog`: `filename_values`, `entity_identifier_column`, `primary_entity`
+   - `file_catalog`: `filename_values`
    - `table_entities`: `entity_identifier`, `row_represents`, `reasoning`
 
 ---

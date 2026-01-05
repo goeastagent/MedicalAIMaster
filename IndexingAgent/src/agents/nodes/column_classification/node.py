@@ -233,11 +233,11 @@ class ColumnClassificationNode(BaseNode, LLMMixin, DatabaseMixin):
         """
         파일 그룹 단위로 컬럼 분류 및 parameter 생성
         
-        그룹의 샘플 파일 1개만 분석하고, 결과는 그룹(group_id) 단위로 저장
-        → 6,388개 파일을 1번만 분석하여 비용 절감
+        그룹 내 모든 파일의 컬럼 합집합을 분석하여 누락 없이 처리
+        → 파일마다 다른 컬럼이 있어도 모두 포함
         
         Args:
-            group: file_group 정보 (group_id, group_name, sample_file_ids 등)
+            group: file_group 정보 (group_id, group_name 등)
             batch_size: LLM 배치 크기
             
         Returns:
@@ -245,38 +245,17 @@ class ColumnClassificationNode(BaseNode, LLMMixin, DatabaseMixin):
         """
         group_id = group.get('group_id')
         group_name = group.get('group_name', 'Unknown')
-        sample_file_ids = group.get('sample_file_ids', [])
         
         self.log(f"📦 Group: {group_name} (files: {group.get('file_count', '?')})", indent=2)
         
-        # 샘플 파일 선택
-        if not sample_file_ids:
-            # sample_file_ids가 없으면 그룹의 첫 번째 파일 사용
-            group_repo = self._get_group_repo()
-            files_in_group = group_repo.get_files_in_group(str(group_id))
-            if not files_in_group:
-                self.log(f"⚠️ No files in group {group_name}", indent=3)
-                return None
-            sample_file_path = files_in_group[0].get('file_path')
-        else:
-            # sample_file_ids의 첫 번째 파일 사용
-            file_repo = self._get_file_repo()
-            file_info = file_repo.get_file_by_id(str(sample_file_ids[0]))
-            if not file_info:
-                self.log(f"⚠️ Sample file not found for group {group_name}", indent=3)
-                return None
-            sample_file_path = file_info.get('file_path')
-        
-        self.log(f"🎯 Sample file: {sample_file_path.split('/')[-1]}", indent=3)
-        
-        # 샘플 파일의 컬럼 정보 수집
-        columns_info = self._get_columns_info_for_file(sample_file_path)
+        # 그룹 내 모든 파일의 컬럼 합집합 수집 (Rule-based)
+        columns_info = self._collect_group_columns_union(str(group_id))
         if not columns_info:
-            self.log(f"⚠️ No columns found for sample file", indent=3)
+            self.log(f"⚠️ No columns found for group {group_name}", indent=3)
             return None
         
         n_cols = len(columns_info)
-        self.log(f"📊 Columns: {n_cols}", indent=3)
+        self.log(f"📊 Unique columns (union): {n_cols}", indent=3)
         
         # 결과 집계
         result = {
@@ -539,6 +518,65 @@ class ColumnClassificationNode(BaseNode, LLMMixin, DatabaseMixin):
             
         except Exception as e:
             self.log(f"❌ Error getting columns info: {e}", indent=2)
+            return []
+    
+    def _collect_group_columns_union(self, group_id: str) -> List[Dict[str, Any]]:
+        """
+        그룹 내 모든 파일의 컬럼을 합집합으로 수집 (Rule-based)
+        
+        각 파일이 서로 다른 컬럼을 가질 수 있으므로,
+        GROUP BY로 유니크 컬럼명을 추출하여 모든 컬럼을 포함시킴.
+        
+        Args:
+            group_id: 파일 그룹 ID
+        
+        Returns:
+            [
+                {
+                    "name": "Solar8000/HR",
+                    "unique_values": [],
+                    "stats": {"dtype": "float64", "file_count": 5},
+                },
+                ...
+            ]
+        """
+        column_repo = self._get_column_repo()
+        
+        try:
+            # SQL로 그룹 내 모든 파일의 유니크 컬럼 조회
+            rows = column_repo._execute_query("""
+                SELECT 
+                    cm.original_name,
+                    COUNT(DISTINCT cm.file_id) as file_count,
+                    MAX(cm.data_type) as data_type,
+                    MAX(cm.column_type) as column_type
+                FROM column_metadata cm
+                JOIN file_catalog fc ON cm.file_id = fc.file_id
+                WHERE fc.group_id = %s::uuid
+                GROUP BY cm.original_name
+                ORDER BY file_count DESC, cm.original_name
+            """, (group_id,), fetch="all")
+            
+            if not rows:
+                return []
+            
+            result = []
+            for row in rows:
+                original_name, file_count, data_type, column_type = row
+                result.append({
+                    "name": original_name,
+                    "unique_values": [],  # signal 데이터는 unique_values 없음
+                    "stats": {
+                        "dtype": data_type or "unknown",
+                        "column_type": column_type,
+                        "file_count": file_count,  # 이 컬럼이 나타나는 파일 수
+                    }
+                })
+            
+            return result
+            
+        except Exception as e:
+            self.log(f"❌ Error collecting group columns union: {e}", indent=2)
             return []
     
     # =========================================================================
