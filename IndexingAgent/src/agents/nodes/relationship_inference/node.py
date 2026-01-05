@@ -13,22 +13,20 @@ Relationship Inference + Neo4j Node
    - Level 3: Parameter (컬럼)
 """
 
-import json
 import time
 from datetime import datetime
-from typing import Dict, List, Any, Optional, Tuple, Set
+from typing import Dict, List, Any, Tuple, Set
 
-from ...state import AgentState
 from ...models.llm_responses import (
     TableRelationship,
-    RelationshipInferenceResponse,
     RelationshipInferenceResult,
 )
 from ...base import BaseNode, LLMMixin, DatabaseMixin, Neo4jMixin
 from ...registry import register_node
-from src.database import OntologySchemaManager
-from src.database.repositories import ParameterRepository, FileGroupRepository
-from src.config import RelationshipInferenceConfig, LLMConfig, Neo4jConfig
+from shared.database import OntologySchemaManager
+from shared.database.repositories import ParameterRepository, FileGroupRepository
+from src.config import RelationshipInferenceConfig
+from shared.config import LLMConfig, Neo4jConfig
 from .prompts import RelationshipInferencePrompt
 
 

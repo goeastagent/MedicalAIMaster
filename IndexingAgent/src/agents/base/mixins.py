@@ -10,7 +10,6 @@ Provides reusable functionality:
 """
 
 from typing import Dict, Any, Optional, List, Type
-import json
 from pydantic import BaseModel
 
 
@@ -37,7 +36,7 @@ class LLMMixin:
     def llm_client(self):
         """LLM 클라이언트 (lazy initialization)"""
         if self._llm_client is None:
-            from src.utils.llm_client import get_llm_client
+            from shared.llm import get_llm_client
             self._llm_client = get_llm_client()
         return self._llm_client
     
@@ -190,7 +189,7 @@ class DatabaseMixin:
     def db_manager(self):
         """DB 매니저 (lazy initialization)"""
         if self._db_manager is None:
-            from src.database import get_db_manager
+            from shared.database import get_db_manager
             self._db_manager = get_db_manager()
         return self._db_manager
     
@@ -202,7 +201,7 @@ class DatabaseMixin:
     def file_repo(self):
         """FileRepository 인스턴스"""
         if self._file_repo is None:
-            from src.database.repositories import FileRepository
+            from shared.database.repositories import FileRepository
             self._file_repo = FileRepository(self.db_manager)
         return self._file_repo
     
@@ -210,7 +209,7 @@ class DatabaseMixin:
     def column_repo(self):
         """ColumnRepository 인스턴스"""
         if self._column_repo is None:
-            from src.database.repositories import ColumnRepository
+            from shared.database.repositories import ColumnRepository
             self._column_repo = ColumnRepository(self.db_manager)
         return self._column_repo
     
@@ -218,7 +217,7 @@ class DatabaseMixin:
     def parameter_repo(self):
         """ParameterRepository 인스턴스"""
         if self._parameter_repo is None:
-            from src.database.repositories import ParameterRepository
+            from shared.database.repositories import ParameterRepository
             self._parameter_repo = ParameterRepository(self.db_manager)
         return self._parameter_repo
     
@@ -226,7 +225,7 @@ class DatabaseMixin:
     def dictionary_repo(self):
         """DictionaryRepository 인스턴스"""
         if self._dictionary_repo is None:
-            from src.database.repositories import DictionaryRepository
+            from shared.database.repositories import DictionaryRepository
             self._dictionary_repo = DictionaryRepository(self.db_manager)
         return self._dictionary_repo
     
@@ -234,7 +233,7 @@ class DatabaseMixin:
     def entity_repo(self):
         """EntityRepository 인스턴스"""
         if self._entity_repo is None:
-            from src.database.repositories import EntityRepository
+            from shared.database.repositories import EntityRepository
             self._entity_repo = EntityRepository(self.db_manager)
         return self._entity_repo
     
@@ -242,7 +241,7 @@ class DatabaseMixin:
     def ontology_repo(self):
         """OntologyRepository 인스턴스"""
         if self._ontology_repo is None:
-            from src.database.repositories import OntologyRepository
+            from shared.database.repositories import OntologyRepository
             self._ontology_repo = OntologyRepository(self.db_manager)
         return self._ontology_repo
     
@@ -250,7 +249,7 @@ class DatabaseMixin:
     def directory_repo(self):
         """DirectoryRepository 인스턴스"""
         if self._directory_repo is None:
-            from src.database.repositories import DirectoryRepository
+            from shared.database.repositories import DirectoryRepository
             self._directory_repo = DirectoryRepository(self.db_manager)
         return self._directory_repo
     
@@ -455,7 +454,7 @@ class Neo4jMixin:
         if self._neo4j_driver is None:
             try:
                 from neo4j import GraphDatabase
-                from src.config import Neo4jConfig
+                from shared.config import Neo4jConfig
                 
                 self._neo4j_driver = GraphDatabase.driver(
                     Neo4jConfig.URI,
@@ -500,6 +499,6 @@ class Neo4jMixin:
         if driver is None:
             return None
         
-        from src.config import Neo4jConfig
+        from shared.config import Neo4jConfig
         db_name = database or Neo4jConfig.DATABASE
         return driver.session(database=db_name)

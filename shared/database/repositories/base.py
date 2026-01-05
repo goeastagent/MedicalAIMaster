@@ -8,7 +8,7 @@ Repository 베이스 클래스
 - 트랜잭션 관리
 """
 
-from typing import Any, List, Dict, Optional, Tuple
+from typing import Any, List, Dict, Tuple
 from abc import ABC
 from ..connection import get_db_manager
 

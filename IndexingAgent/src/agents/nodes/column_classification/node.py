@@ -19,20 +19,19 @@ Workflow:
 from typing import Dict, Any, List, Optional
 from datetime import datetime
 
-from src.agents.state import AgentState
-from src.database import FileRepository, ColumnRepository
-from src.database.repositories import ParameterRepository, FileGroupRepository
-from src.config import LLMConfig, ColumnClassificationConfig
+from shared.database import FileRepository, ColumnRepository
+from shared.database.repositories import ParameterRepository, FileGroupRepository
+from src.config import ColumnClassificationConfig
+from shared.config import LLMConfig
 from src.agents.models import (
     ColumnRole,
     SourceType,
     ColumnClassificationItem,
     ColumnClassificationResult,
 )
-from src.utils.llm_client import get_llm_client
+from shared.llm import get_llm_client
 from src.agents.prompts import (
     ColumnClassificationPrompt,
-    build_column_info_for_prompt,
     build_columns_info_batch,
 )
 
@@ -440,7 +439,6 @@ class ColumnClassificationNode(BaseNode, LLMMixin, DatabaseMixin):
             source_column: 출처 컬럼명 (참고용, DB에는 저장 안 함)
         """
         param_repo = self._get_param_repo()
-        group_repo = self._get_group_repo()
         
         # 중복 체크
         existing = param_repo._execute_query("""

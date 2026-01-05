@@ -1,4 +1,4 @@
-# src/database/connection.py
+# shared/database/connection.py
 """
 PostgreSQL 데이터베이스 연결 관리자
 
@@ -8,7 +8,6 @@ Singleton 패턴으로 구현되어 애플리케이션 전체에서 하나의 �
 
 import os
 import logging
-from typing import Optional
 
 logger = logging.getLogger(__name__)
 

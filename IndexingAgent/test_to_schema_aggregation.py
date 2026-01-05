@@ -203,7 +203,7 @@ def run_pipeline_to_schema_aggregation():
 
 def get_fresh_connection():
     """새로운 DB 커넥션 가져오기"""
-    from src.database.connection import get_db_manager
+    from src.database import get_db_manager
     db = get_db_manager()
     conn = db.get_connection()
     try:

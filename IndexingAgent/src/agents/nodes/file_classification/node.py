@@ -12,14 +12,13 @@ File Classification Node
 from typing import Dict, Any, List
 from datetime import datetime
 
-from src.agents.state import AgentState
-from src.database import FileRepository
-from src.config import LLMConfig
+from shared.database import FileRepository
+from shared.config import LLMConfig
 from src.agents.models.llm_responses import (
     FileClassificationItem,
     FileClassificationResult,
 )
-from src.utils.llm_client import get_llm_client
+from shared.llm import get_llm_client
 
 from ...base import BaseNode, LLMMixin, DatabaseMixin
 from ...registry import register_node

@@ -138,7 +138,7 @@ def reset_neo4j():
     print("=" * 60)
     
     try:
-        from database.neo4j_connection import get_neo4j_connection
+        from src.database import get_neo4j_connection
         
         neo4j = get_neo4j_connection()
         neo4j.connect()

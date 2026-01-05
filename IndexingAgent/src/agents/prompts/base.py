@@ -185,7 +185,7 @@ class PromptTemplate(ABC):
             # 단일 객체 응답
             return cls.response_model.model_validate(data)
             
-        except Exception as e:
+        except Exception:
             # 파싱 실패 시 None 반환 (호출자가 처리)
             return None
     

@@ -21,8 +21,7 @@ from typing import Dict, Any, List, Optional
 from collections import defaultdict
 from datetime import datetime
 
-from src.agents.state import AgentState
-from src.database import (
+from shared.database import (
     get_db_manager,
     DirectorySchemaManager,
     insert_directory,

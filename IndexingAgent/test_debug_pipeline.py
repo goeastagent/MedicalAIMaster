@@ -187,7 +187,7 @@ def patch_llm_client():
 
 def get_db_snapshot() -> Dict[str, Any]:
     """현재 DB 상태의 스냅샷을 가져옴"""
-    from src.database.connection import get_db_manager
+    from src.database import get_db_manager
     
     snapshot = {
         "timestamp": datetime.now().isoformat(),

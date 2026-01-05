@@ -15,17 +15,16 @@ import time
 from datetime import datetime
 from typing import Dict, List, Any, Optional, Tuple
 
-from ...state import AgentState
 from ...models.llm_responses import (
     TableEntityResult,
-    EntityIdentificationResponse,
     EntityIdentificationResult,
 )
 from ...base import BaseNode, LLMMixin, DatabaseMixin
 from ...registry import register_node
-from src.database import OntologySchemaManager
-from src.database.repositories import FileGroupRepository
-from src.config import EntityIdentificationConfig, LLMConfig
+from shared.database import OntologySchemaManager
+from shared.database.repositories import FileGroupRepository
+from src.config import EntityIdentificationConfig
+from shared.config import LLMConfig
 from .prompts import EntityIdentificationPrompt, GroupEntityPrompt
 
 

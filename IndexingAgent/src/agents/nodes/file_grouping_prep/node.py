@@ -21,7 +21,7 @@ from typing import Dict, Any, List, Optional
 from datetime import datetime
 from collections import defaultdict
 
-from src.database.repositories import DirectoryRepository, FileRepository
+from shared.database.repositories import DirectoryRepository, FileRepository
 
 from ...base import BaseNode, DatabaseMixin
 from ...registry import register_node

@@ -69,7 +69,7 @@ class OntologyRepository(BaseRepository):
                     """, (dataset_id, table_name, col_name, 
                           json.dumps(metadata), json.dumps(metadata)))
             conn.commit()
-        except Exception as e:
+        except Exception:
             conn.rollback()
             raise
     
@@ -102,7 +102,7 @@ class OntologyRepository(BaseRepository):
                 count += 1
             conn.commit()
             return count
-        except Exception as e:
+        except Exception:
             conn.rollback()
             raise
     
@@ -153,7 +153,7 @@ class OntologyRepository(BaseRepository):
                 count += 1
             conn.commit()
             return count
-        except Exception as e:
+        except Exception:
             conn.rollback()
             raise
     
@@ -214,7 +214,7 @@ class OntologyRepository(BaseRepository):
                 count += 1
             conn.commit()
             return count
-        except Exception as e:
+        except Exception:
             conn.rollback()
             raise
     
@@ -269,7 +269,7 @@ class OntologyRepository(BaseRepository):
                 count += 1
             conn.commit()
             return count
-        except Exception as e:
+        except Exception:
             conn.rollback()
             raise
     

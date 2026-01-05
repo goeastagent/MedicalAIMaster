@@ -1,11 +1,11 @@
-# src/utils/llm_client.py
+# src/utils/__init__.py
 """
-LLM Client - shared.llm에서 Re-export
+Utils 모듈 - shared.llm에서 Re-export
 
 이 파일은 shared.llm에 정의된 클래스/함수를 re-export합니다.
 기존 import 경로 호환성을 유지하기 위한 목적입니다.
 
-실제 정의: shared/llm/client.py
+실제 정의: shared/llm/
 """
 
 import sys
@@ -16,7 +16,7 @@ _project_root = Path(__file__).parent.parent.parent.parent
 if str(_project_root) not in sys.path:
     sys.path.insert(0, str(_project_root))
 
-# Re-export everything from shared.llm
+# Re-export from shared.llm
 from shared.llm import (
     AbstractLLMClient,
     OpenAIClient,
@@ -42,3 +42,4 @@ __all__ = [
     'get_llm_log_session_dir',
     'LLMRetryConfig',
 ]
+

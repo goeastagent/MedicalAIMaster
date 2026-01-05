@@ -83,7 +83,7 @@ def reset_database():
         DirectorySchemaManager,
         ParameterSchemaManager,
     )
-    from src.database.managers.file_group import FileGroupSchemaManager
+    from src.database import FileGroupSchemaManager
     
     # 1. 삭제: FK 참조하는 테이블 먼저 삭제 (역순)
     try:
@@ -174,11 +174,11 @@ def reset_database():
     # 3. file_group FK 제약조건 추가 (모든 테이블 생성 후)
     # file_catalog와 parameter 테이블이 이제 존재하므로 FK 추가 가능
     try:
-        from src.database.schemas.file_group import (
+        from src.database import (
             ADD_FILE_CATALOG_GROUP_FK_SQL,
             ADD_PARAMETER_GROUP_FK_SQL,
+            get_db_manager,
         )
-        from src.database.connection import get_db_manager
         
         db = get_db_manager()
         conn = db.get_connection()
@@ -386,7 +386,7 @@ def run_full_pipeline():
 
 def get_fresh_connection():
     """새로운 DB 커넥션 가져오기 (트랜잭션 격리)"""
-    from src.database.connection import get_db_manager
+    from src.database import get_db_manager
     db = get_db_manager()
     conn = db.get_connection()
     try:

@@ -12,24 +12,20 @@ Tasks:
 """
 
 from datetime import datetime
-from typing import Dict, List, Any, Optional, Tuple, Set
+from typing import Dict, List, Any, Tuple
 
-from ...state import AgentState
 from ...models.llm_responses import (
     SubCategoryResult,
-    ConceptHierarchyResponse,
     SemanticEdge,
-    SemanticEdgesResponse,
     MedicalTermMapping,
-    MedicalTermResponse,
     CrossTableSemantic,
-    CrossTableResponse,
     OntologyEnhancementResult,
 )
 from ...base import BaseNode, LLMMixin, DatabaseMixin, Neo4jMixin
 from ...registry import register_node
-from src.database import OntologySchemaManager, OntologyRepository
-from src.config import OntologyEnhancementConfig, LLMConfig, Neo4jConfig
+from shared.database import OntologySchemaManager, OntologyRepository
+from src.config import OntologyEnhancementConfig
+from shared.config import LLMConfig, Neo4jConfig
 from .prompts import OntologyEnhancementPrompts
 
 

@@ -1,4 +1,4 @@
-# src/database/managers/__init__.py
+# shared/database/managers/__init__.py
 """
 Schema Managers
 
@@ -50,4 +50,3 @@ __all__ = [
     'init_ontology_schema',
     'ensure_ontology_schema',
 ]
-

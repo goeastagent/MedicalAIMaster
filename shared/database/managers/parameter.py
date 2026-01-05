@@ -13,7 +13,6 @@ from ..schemas.parameter import (
     CREATE_PARAMETER_SQL,
     CREATE_PARAMETER_UPDATE_TRIGGER_SQL,
 )
-from ..connection import get_db_manager
 
 
 class ParameterSchemaManager(BaseSchemaManager):

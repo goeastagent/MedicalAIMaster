@@ -1,4 +1,4 @@
-# src/database/neo4j_connection.py
+# shared/database/neo4j_connection.py
 """
 Neo4j 데이터베이스 연결 관리자
 
@@ -9,7 +9,7 @@ import logging
 from typing import Optional, List, Any
 
 from neo4j import GraphDatabase
-from src.config import Neo4jConfig
+from shared.config import Neo4jConfig
 
 logger = logging.getLogger(__name__)
 

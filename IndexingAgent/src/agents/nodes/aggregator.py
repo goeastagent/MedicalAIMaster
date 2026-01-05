@@ -11,11 +11,10 @@ LLM 배치 호출을 준비합니다.
 - 배치 분할 (config.BATCH_SIZE 단위)
 """
 
-from typing import Dict, Any, List, Optional
+from typing import Dict, Any, List
 from datetime import datetime
 
-from src.agents.state import AgentState
-from src.database.connection import get_db_manager
+from shared.database.connection import get_db_manager
 from src.config import SchemaAggregationConfig, MetadataSemanticConfig
 
 from ..base import BaseNode, DatabaseMixin

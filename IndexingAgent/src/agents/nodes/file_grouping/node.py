@@ -15,8 +15,8 @@ import time
 from datetime import datetime
 from typing import Dict, List, Any, Optional, Tuple
 
-from src.database.repositories import FileRepository, DirectoryRepository, FileGroupRepository
-from src.config import LLMConfig
+from shared.database.repositories import FileRepository, DirectoryRepository, FileGroupRepository
+from shared.config import LLMConfig
 
 from ...base import BaseNode, LLMMixin, DatabaseMixin
 from ...registry import register_node

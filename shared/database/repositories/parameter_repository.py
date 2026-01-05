@@ -10,9 +10,8 @@ parameter 테이블:
 """
 
 from typing import Dict, Any, List, Optional
-from datetime import datetime
 from .base import BaseRepository
-from src.agents.models import SourceType, DictMatchStatus
+from shared.models import DictMatchStatus
 
 
 class ParameterRepository(BaseRepository):

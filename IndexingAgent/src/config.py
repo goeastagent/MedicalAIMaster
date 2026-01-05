@@ -13,92 +13,65 @@ IndexingAgent Configuration
 - OntologyEnhancementConfig: 온톨로지 강화
 
 구조:
-- Neo4jConfig: Neo4j 데이터베이스 설정
-- LLMConfig: LLM Provider 설정
-- BaseLLMNodeConfig: LLM 사용 Node의 공통 설정 (추상)
-- *Config: 각 Node별 설정
+- Neo4jConfig: shared.config에서 import
+- LLMConfig: shared.config에서 import
+- BaseLLMNodeConfig: shared.config에서 import
+- *Config: 각 Node별 설정 (IndexingAgent 전용)
 - ProcessingConfig: 파일 처리 관련 설정
 """
 import os
+import sys
+from pathlib import Path
 from dotenv import load_dotenv
 
 # .env 파일이 있다면 로드
 load_dotenv()
 
+# shared 패키지를 찾을 수 있도록 경로 추가
+_project_root = Path(__file__).parent.parent.parent
+if str(_project_root) not in sys.path:
+    sys.path.insert(0, str(_project_root))
 
 # =============================================================================
-# Database Configuration
+# Shared Configuration (Re-export from shared.config)
 # =============================================================================
+from shared.config import (
+    Neo4jConfig,
+    LLMConfig,
+    BaseLLMNodeConfig,
+    BaseLLMPhaseConfig,  # Backward compatibility
+    BaseNeo4jNodeConfig,
+    BaseNeo4jPhaseConfig,  # Backward compatibility
+)
 
-class Neo4jConfig:
-    """Neo4j 데이터베이스 설정"""
-    URI = os.getenv("NEO4J_URI", "bolt://localhost:7687")
-    USER = os.getenv("NEO4J_USER", "neo4j")
-    PASSWORD = os.getenv("NEO4J_PASSWORD", "password")
-    DATABASE = os.getenv("NEO4J_DATABASE", "neo4j")
-
-
-# =============================================================================
-# LLM Configuration
-# =============================================================================
-
-class LLMConfig:
-    """LLM Provider 설정"""
-    
-    # --- 1. 활성화할 Provider 선택 (openai, anthropic, google 중 택1) ---
-    ACTIVE_PROVIDER = os.getenv("LLM_PROVIDER", "openai").lower() 
-
-    # --- 2. OpenAI 설정 (ChatGPT) ---
-    OPENAI_API_KEY = os.getenv("OPENAI_API_KEY")
-    OPENAI_MODEL = "gpt-5.2-2025-12-11"
-
-    # --- 3. Anthropic 설정 (Claude) ---
-    ANTHROPIC_API_KEY = os.getenv("ANTHROPIC_API_KEY")
-    ANTHROPIC_MODEL = "claude-opus-4-5-20251101"
-
-    # --- 4. 공통 설정 ---
-    TEMPERATURE = 0.0  # 분석 작업이므로 정확성을 위해 0
-    
-    # --- 5. Token 제한 설정 ---
-    MAX_TOKENS = int(os.getenv("LLM_MAX_TOKENS", "4096"))
-    MAX_TOKENS_COLUMN_ANALYSIS = int(os.getenv("LLM_MAX_TOKENS_COLUMN_ANALYSIS", "8192"))
-
-
-# =============================================================================
-# Base Configuration Classes (공통 설정)
-# =============================================================================
-
-class BaseLLMNodeConfig:
-    """
-    LLM을 사용하는 Node의 공통 설정
-    
-    metadata_semantic, data_semantic, entity_identification 등이 상속받아 사용합니다.
-    서브클래스에서 필요시 오버라이드 가능합니다.
-    """
-    # LLM 재시도 설정
-    MAX_RETRIES: int = 3
-    RETRY_DELAY_SECONDS: int = 2
-    
-    # Confidence 임계값 (서브클래스에서 오버라이드)
-    CONFIDENCE_THRESHOLD: float = 0.8
-
-
-# Backward compatibility alias
-BaseLLMPhaseConfig = BaseLLMNodeConfig
-
-
-class BaseNeo4jNodeConfig(BaseLLMNodeConfig):
-    """
-    Neo4j를 사용하는 Node의 공통 설정
-    
-    relationship_inference, ontology_enhancement이 상속받아 사용합니다.
-    """
-    # Neo4j 연결 설정
-    NEO4J_ENABLED: bool = os.getenv("NEO4J_ENABLED", "true").lower() == "true"
-
-
-# Backward compatibility alias
-BaseNeo4jPhaseConfig = BaseNeo4jNodeConfig
+__all__ = [
+    # Re-exported from shared.config
+    'Neo4jConfig',
+    'LLMConfig',
+    'BaseLLMNodeConfig',
+    'BaseLLMPhaseConfig',
+    'BaseNeo4jNodeConfig',
+    'BaseNeo4jPhaseConfig',
+    # IndexingAgent specific configs
+    'DirectoryCatalogConfig',
+    'Phase1Config',
+    'SchemaAggregationConfig',
+    'Phase3Config',
+    'MetadataSemanticConfig',
+    'Phase5Config',
+    'ColumnClassificationConfig',
+    'DataSemanticConfig',
+    'Phase6Config',
+    'DirectoryPatternConfig',
+    'Phase7Config',
+    'EntityIdentificationConfig',
+    'Phase8Config',
+    'RelationshipInferenceConfig',
+    'Phase9Config',
+    'OntologyEnhancementConfig',
+    'Phase10Config',
+    'ProcessingConfig',
+]
 
 
 # =============================================================================

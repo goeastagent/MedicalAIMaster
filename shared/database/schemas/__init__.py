@@ -1,4 +1,4 @@
-# src/database/schemas/__init__.py
+# shared/database/schemas/__init__.py
 """
 DDL (Data Definition Language) 스키마 정의
 
@@ -84,4 +84,3 @@ __all__ = [
     'CREATE_MEDICAL_TERM_MAPPINGS_SQL',
     'CREATE_CROSS_TABLE_SEMANTICS_SQL',
 ]
-

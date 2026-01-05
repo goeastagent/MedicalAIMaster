@@ -21,19 +21,19 @@ import json
 from datetime import datetime
 from typing import Dict, List, Any, Optional, Tuple
 
-from ...state import AgentState
 from ...models.llm_responses import (
     ParameterSemanticResult,
     ParameterSemanticResponse,
 )
 from ...base import BaseNode, LLMMixin, DatabaseMixin
 from ...registry import register_node
-from src.database import (
+from shared.database import (
     FileRepository,
     DictionaryRepository,
 )
-from src.database.repositories import ParameterRepository
-from src.config import DataSemanticConfig, LLMConfig
+from shared.database.repositories import ParameterRepository
+from src.config import DataSemanticConfig
+from shared.config import LLMConfig
 from .prompts import ParameterSemanticPrompt
 
 

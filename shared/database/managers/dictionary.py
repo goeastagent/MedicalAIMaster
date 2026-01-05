@@ -5,7 +5,7 @@ Data Dictionary Schema Manager
 data_dictionary 테이블 관리 + CRUD 함수
 """
 
-from typing import List, Dict, Any, Optional
+from typing import List, Dict, Any
 from .base import BaseSchemaManager, init_schema, ensure_schema
 from ..schemas.dictionary import CREATE_DATA_DICTIONARY_SQL
 from ..connection import get_db_manager

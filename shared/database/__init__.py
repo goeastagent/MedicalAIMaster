@@ -1,30 +1,21 @@
-# src/database/__init__.py
+# shared/database/__init__.py
 """
-Database 모듈 - shared.database에서 Re-export
+Database Module
 
-이 파일은 shared.database에 정의된 모든 클래스/함수를 re-export합니다.
-기존 import 경로 호환성을 유지하기 위한 목적입니다.
-
-실제 정의: shared/database/
+데이터베이스 관련 공유 모듈:
+- connection.py: PostgreSQL 연결 관리 (DatabaseManager)
+- neo4j_connection.py: Neo4j 연결 관리 (Neo4jConnection)
+- schemas/: DDL 스키마 정의
+- managers/: 스키마 생성/삭제 관리
+- repositories/: 데이터 액세스 로직 캡슐화
 """
 
-import sys
-from pathlib import Path
+# Connection managers
+from .connection import DatabaseManager, get_db_manager
+from .neo4j_connection import Neo4jConnection, get_neo4j_connection
 
-# shared 패키지를 찾을 수 있도록 경로 추가
-_project_root = Path(__file__).parent.parent.parent.parent
-if str(_project_root) not in sys.path:
-    sys.path.insert(0, str(_project_root))
-
-# Re-export everything from shared.database
-from shared.database import (
-    # Connection Managers
-    DatabaseManager,
-    get_db_manager,
-    Neo4jConnection,
-    get_neo4j_connection,
-    
-    # Schema DDL
+# Schema DDL
+from .schemas import (
     CREATE_UUID_EXTENSION_SQL,
     CREATE_FILE_CATALOG_SQL,
     CREATE_COLUMN_METADATA_SQL,
@@ -46,39 +37,52 @@ from shared.database import (
     CREATE_SEMANTIC_EDGES_SQL,
     CREATE_MEDICAL_TERM_MAPPINGS_SQL,
     CREATE_CROSS_TABLE_SEMANTICS_SQL,
-    
-    # Schema Managers
+)
+
+# Schema managers
+from .managers import (
+    # Base
     BaseSchemaManager,
     init_schema,
     ensure_schema,
+    # Catalog
     CatalogSchemaManager,
     init_catalog_schema,
     ensure_catalog_schema,
+    # Dictionary
     DictionarySchemaManager,
     init_dictionary_schema,
     ensure_dictionary_schema,
+    # Directory
     DirectorySchemaManager,
     init_directory_schema,
     ensure_directory_schema,
+    # File Group
     FileGroupSchemaManager,
     init_file_group_schema,
     ensure_file_group_schema,
+    # Ontology
     OntologySchemaManager,
     init_ontology_schema,
     ensure_ontology_schema,
+    # Parameter
     ParameterSchemaManager,
     init_parameter_schema,
     ensure_parameter_schema,
-    
-    # CRUD 함수 (하위 호환성)
-    insert_dictionary_entries_batch,
+)
+
+# CRUD 함수 (하위 호환성)
+from .managers.dictionary import insert_dictionary_entries_batch
+from .managers.directory import (
     insert_directory,
     get_directory_by_path,
     get_directory_by_id,
     update_file_catalog_dir_ids,
     get_directories_without_pattern,
-    
-    # Repositories
+)
+
+# Repositories
+from .repositories import (
     BaseRepository,
     FileRepository,
     ColumnRepository,
@@ -91,15 +95,13 @@ from shared.database import (
 )
 
 __all__ = [
-    # PostgreSQL Connection
+    # Connection managers
     'DatabaseManager',
     'get_db_manager',
-    
-    # Neo4j Connection
     'Neo4jConnection',
     'get_neo4j_connection',
     
-    # Schema DDL
+    # Schema DDL (exported for direct use if needed)
     'CREATE_UUID_EXTENSION_SQL',
     'CREATE_FILE_CATALOG_SQL',
     'CREATE_COLUMN_METADATA_SQL',
@@ -127,26 +129,24 @@ __all__ = [
     'init_schema',
     'ensure_schema',
     
-    # Schema Managers
+    # Schema managers
     'CatalogSchemaManager',
-    'DictionarySchemaManager',
-    'DirectorySchemaManager',
-    'FileGroupSchemaManager',
-    'OntologySchemaManager',
-    'ParameterSchemaManager',
-    
-    # Schema 편의 함수
     'init_catalog_schema',
-    'init_dictionary_schema',
-    'init_directory_schema',
-    'init_file_group_schema',
-    'init_ontology_schema',
-    'init_parameter_schema',
     'ensure_catalog_schema',
+    'DictionarySchemaManager',
+    'init_dictionary_schema',
     'ensure_dictionary_schema',
+    'DirectorySchemaManager',
+    'init_directory_schema',
     'ensure_directory_schema',
+    'FileGroupSchemaManager',
+    'init_file_group_schema',
     'ensure_file_group_schema',
+    'OntologySchemaManager',
+    'init_ontology_schema',
     'ensure_ontology_schema',
+    'ParameterSchemaManager',
+    'init_parameter_schema',
     'ensure_parameter_schema',
     
     # CRUD 함수 (하위 호환성)

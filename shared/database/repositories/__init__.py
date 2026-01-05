@@ -1,4 +1,4 @@
-# src/database/repositories/__init__.py
+# shared/database/repositories/__init__.py
 """
 Repository 패턴 - 데이터 액세스 로직 캡슐화
 
@@ -34,4 +34,3 @@ __all__ = [
     "DirectoryRepository",
     "FileGroupRepository",
 ]
-

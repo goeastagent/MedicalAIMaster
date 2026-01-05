@@ -15,9 +15,8 @@ import json
 from typing import Dict, Any, List, Optional
 from datetime import datetime
 
-from src.agents.state import AgentState
 from src.agents.nodes.common import processors
-from src.database import (
+from shared.database import (
     get_db_manager,
     CatalogSchemaManager,
     get_directory_by_path,
@@ -375,7 +374,7 @@ class FileCatalogNode(BaseNode, DatabaseMixin):
             )
             result = cursor.fetchone()
             return str(result[0]) if result else None
-        except Exception as e:
+        except Exception:
             conn.rollback()
             return None
     

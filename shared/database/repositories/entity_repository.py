@@ -14,7 +14,7 @@ table_relationships 테이블:
 - confidence, reasoning
 """
 
-from typing import Dict, Any, List, Optional, Set
+from typing import Dict, Any, List, Optional
 from .base import BaseRepository
 
 

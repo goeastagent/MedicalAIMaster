@@ -1,7 +1,6 @@
 import os
-import numpy as np
 from datetime import datetime, timezone
-from typing import Dict, Any, List, Optional
+from typing import Dict, Any, Optional
 
 # Base Class 임포트
 from .base import BaseDataProcessor
@@ -249,7 +248,6 @@ class SignalProcessor(BaseDataProcessor):
             column_details = {}
             for ch in raw.ch_names:
                 ch_idx = raw.ch_names.index(ch)
-                ch_info = raw.info['chs'][ch_idx]
                 sr = raw.info['sfreq']
                 
                 column_details[ch] = {

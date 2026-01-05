@@ -12,7 +12,6 @@ Note: semantic 정보(semantic_name, unit, concept_category 등)는
 """
 
 from typing import Dict, Any, List, Optional
-from datetime import datetime
 from .base import BaseRepository
 
 

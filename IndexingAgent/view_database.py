@@ -13,7 +13,7 @@ from collections import defaultdict
 
 sys.path.insert(0, os.path.join(os.path.dirname(__file__), 'src'))
 
-from database.connection import get_db_manager
+from src.database import get_db_manager
 
 
 # =============================================================================

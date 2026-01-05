@@ -26,14 +26,13 @@ Directory Pattern Analysis Node
 
 import re
 import json
-from typing import Dict, Any, List, Optional, Tuple
+from typing import Dict, Any, List, Optional
 from datetime import datetime
 
-from ...state import AgentState
 from ...base import BaseNode, LLMMixin, DatabaseMixin
 from ...registry import register_node
 from src.config import DirectoryPatternConfig
-from src.database.repositories import FileGroupRepository
+from shared.database.repositories import FileGroupRepository
 from .prompts import DirectoryPatternPrompt, GroupPatternPrompt
 
 
