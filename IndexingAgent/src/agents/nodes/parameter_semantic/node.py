@@ -144,10 +144,14 @@ class ParameterSemanticNode(BaseNode, LLMMixin, DatabaseMixin):
         for param in parameters:
             param_key = param.get('param_key', '')
             source_type = param.get('source_type', '')
+            is_identifier = param.get('is_identifier', False)
             value_stats = param.get('value_stats', {}) or {}
             
             # 기본 정보
-            line = f"- {param_key} (source: {source_type})"
+            if is_identifier:
+                line = f"- {param_key} (source: {source_type}, role: IDENTIFIER)"
+            else:
+                line = f"- {param_key} (source: {source_type})"
             details = []
             
             # 통계 정보 (있으면)

@@ -50,6 +50,7 @@ class EntityRepository(BaseRepository):
                 {
                     "file_id": str,
                     "file_name": str,
+                    "group_id": str or None,  # FileGroup FK
                     "row_represents": str,
                     "entity_identifier": str,
                     "row_count": int,
@@ -71,7 +72,8 @@ class EntityRepository(BaseRepository):
                 te.row_represents,
                 te.entity_identifier,
                 te.confidence,
-                fc.filename_values
+                fc.filename_values,
+                fc.group_id
             FROM table_entities te
             JOIN file_catalog fc ON te.file_id = fc.file_id
         """
@@ -86,7 +88,7 @@ class EntityRepository(BaseRepository):
         tables = []
         for row in rows:
             (file_id, file_name, file_metadata, row_represents,
-             entity_identifier, confidence, filename_values) = row
+             entity_identifier, confidence, filename_values, group_id) = row
             
             # row_count 추출
             metadata = self._parse_json_field(file_metadata)
@@ -101,6 +103,7 @@ class EntityRepository(BaseRepository):
             tables.append({
                 "file_id": str(file_id),
                 "file_name": file_name,
+                "group_id": str(group_id) if group_id else None,
                 "row_represents": row_represents,
                 "entity_identifier": entity_identifier,
                 "row_count": row_count,

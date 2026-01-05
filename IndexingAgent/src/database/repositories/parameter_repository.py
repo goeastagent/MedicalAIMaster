@@ -217,7 +217,7 @@ class ParameterRepository(BaseRepository):
         
         [600] parameter_semantic 노드에서 사용:
         - semantic_name이 NULL인 파라미터만 조회
-        - is_identifier=false인 것만 (식별자는 semantic 분석 불필요)
+        - identifier도 포함 (LLM이 concept_category='Identifiers' 할당)
         
         Args:
             file_id: 특정 파일만 조회 (None이면 전체)
@@ -234,7 +234,6 @@ class ParameterRepository(BaseRepository):
             FROM parameter p
             JOIN file_catalog f ON p.file_id = f.file_id
             WHERE p.semantic_name IS NULL
-              AND p.is_identifier = false
         """
         params = []
         
@@ -279,7 +278,7 @@ class ParameterRepository(BaseRepository):
         
         [600] parameter_semantic 노드에서 사용:
         - semantic_name이 NULL인 파라미터만 조회
-        - is_identifier=false인 것만 (식별자는 semantic 분석 불필요)
+        - identifier도 포함 (LLM이 concept_category='Identifiers' 할당)
         
         Args:
             file_ids: 파일 ID 목록
@@ -300,7 +299,6 @@ class ParameterRepository(BaseRepository):
             FROM parameter p
             JOIN file_catalog f ON p.file_id = f.file_id
             WHERE p.semantic_name IS NULL
-              AND p.is_identifier = false
               AND p.file_id IN ({placeholders})
             ORDER BY p.file_id, p.param_id
         """, tuple(file_ids), fetch="all")
@@ -476,6 +474,48 @@ class ParameterRepository(BaseRepository):
                 "is_identifier": is_id
             }
             for param_key, sem_name, unit, concept, is_id in rows
+        ]
+    
+    def get_group_common_params_for_neo4j(self) -> List[Dict[str, Any]]:
+        """
+        [R3] Neo4j용 group_common 파라미터 조회
+        
+        [900] relationship_inference 노드에서 HAS_COMMON_PARAM 엣지 생성에 사용
+        - source_type = 'group_common'인 파라미터만 조회
+        - group_id가 있는 것만 (file_group에 속한 것)
+        
+        Returns:
+            [
+                {
+                    "group_id": "uuid",
+                    "group_name": "vital_files",
+                    "param_key": "Solar8000/HR",
+                    "concept_category": "Vital Signs"
+                },
+                ...
+            ]
+        """
+        rows = self._execute_query("""
+            SELECT 
+                p.group_id,
+                g.group_name,
+                p.param_key,
+                p.concept_category
+            FROM parameter p
+            JOIN file_group g ON p.group_id = g.group_id
+            WHERE p.source_type = 'group_common'
+              AND p.group_id IS NOT NULL
+            ORDER BY g.group_name, p.param_key
+        """, fetch="all")
+        
+        return [
+            {
+                "group_id": str(group_id),
+                "group_name": group_name,
+                "param_key": param_key,
+                "concept_category": concept
+            }
+            for group_id, group_name, param_key, concept in (rows or [])
         ]
     
     # =========================================================================

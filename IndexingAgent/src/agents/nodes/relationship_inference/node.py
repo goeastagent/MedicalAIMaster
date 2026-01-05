@@ -27,7 +27,7 @@ from ...models.llm_responses import (
 from ...base import BaseNode, LLMMixin, DatabaseMixin, Neo4jMixin
 from ...registry import register_node
 from src.database import OntologySchemaManager
-from src.database.repositories import ParameterRepository
+from src.database.repositories import ParameterRepository, FileGroupRepository
 from src.config import RelationshipInferenceConfig, LLMConfig, Neo4jConfig
 from .prompts import RelationshipInferencePrompt
 
@@ -601,6 +601,100 @@ class RelationshipInferenceNode(BaseNode, LLMMixin, DatabaseMixin, Neo4jMixin):
         
         return count
     
+    # =========================================================================
+    # FileGroup 노드 및 엣지 (Q2: group_common 파라미터 지원)
+    # =========================================================================
+    
+    def _create_file_group_nodes(self, driver) -> int:
+        """FileGroup 노드 생성 (confirmed 상태의 그룹만)"""
+        if not driver:
+            return 0
+        
+        group_repo = FileGroupRepository()
+        groups = group_repo.get_all_groups(status='confirmed')
+        
+        if not groups:
+            return 0
+        
+        count = 0
+        with driver.session(database=Neo4jConfig.DATABASE) as session:
+            for group in groups:
+                try:
+                    session.run("""
+                        MERGE (fg:FileGroup {group_id: $group_id})
+                        SET fg.name = $name,
+                            fg.file_count = $file_count,
+                            fg.row_represents = $row_represents
+                    """, {
+                        "group_id": str(group['group_id']),
+                        "name": group['group_name'],
+                        "file_count": group.get('file_count', 0),
+                        "row_represents": group.get('row_represents')
+                    })
+                    count += 1
+                except Exception as e:
+                    self.log(f"❌ Error creating FileGroup {group['group_name']}: {e}", indent=2)
+        
+        return count
+    
+    def _create_contains_file_edges(self, driver, tables: List[Dict]) -> int:
+        """FileGroup → RowEntity (CONTAINS_FILE) 엣지 생성"""
+        if not driver:
+            return 0
+        
+        # tables에서 group_id가 있는 파일들만 추출
+        files_with_group = [t for t in tables if t.get('group_id')]
+        
+        if not files_with_group:
+            return 0
+        
+        count = 0
+        with driver.session(database=Neo4jConfig.DATABASE) as session:
+            for table in files_with_group:
+                try:
+                    session.run("""
+                        MATCH (fg:FileGroup {group_id: $group_id})
+                        MATCH (r:RowEntity {file_name: $file_name})
+                        MERGE (fg)-[:CONTAINS_FILE]->(r)
+                    """, {
+                        "group_id": str(table['group_id']),
+                        "file_name": table['file_name']
+                    })
+                    count += 1
+                except Exception as e:
+                    self.log(f"❌ Error creating CONTAINS_FILE: {e}", indent=2)
+        
+        return count
+    
+    def _create_has_common_param_edges(self, driver) -> int:
+        """FileGroup → Parameter (HAS_COMMON_PARAM) 엣지 생성"""
+        if not driver:
+            return 0
+        
+        param_repo = ParameterRepository()
+        group_params = param_repo.get_group_common_params_for_neo4j()
+        
+        if not group_params:
+            return 0
+        
+        count = 0
+        with driver.session(database=Neo4jConfig.DATABASE) as session:
+            for item in group_params:
+                try:
+                    session.run("""
+                        MATCH (fg:FileGroup {group_id: $group_id})
+                        MATCH (p:Parameter {key: $param_key})
+                        MERGE (fg)-[:HAS_COMMON_PARAM]->(p)
+                    """, {
+                        "group_id": item['group_id'],
+                        "param_key": item['param_key']
+                    })
+                    count += 1
+                except Exception as e:
+                    self.log(f"❌ Error creating HAS_COMMON_PARAM: {e}", indent=2)
+        
+        return count
+    
     def _sync_to_neo4j(
         self,
         tables: List[Dict],
@@ -609,13 +703,16 @@ class RelationshipInferenceNode(BaseNode, LLMMixin, DatabaseMixin, Neo4jMixin):
         """Neo4j 전체 동기화 (Neo4jMixin 사용)"""
         stats = {
             "row_entity_nodes": 0,
+            "file_group_nodes": 0,
             "concept_category_nodes": 0,
             "parameter_nodes": 0,
             "edges_links_to": 0,
             "edges_has_concept": 0,
             "edges_contains": 0,
             "edges_has_column": 0,
-            "edges_filename_value": 0
+            "edges_filename_value": 0,
+            "edges_contains_file": 0,
+            "edges_has_common_param": 0
         }
         
         if not RelationshipInferenceConfig.NEO4J_ENABLED:
@@ -635,9 +732,17 @@ class RelationshipInferenceNode(BaseNode, LLMMixin, DatabaseMixin, Neo4jMixin):
             all_params = param_repo.get_all_parameters_for_ontology()
             self.log(f"✓ Loaded {len(all_params)} parameters from DB", indent=2)
             
-            # Level 1: RowEntity
+            # ═══════════════════════════════════════════════════════════════
+            # NODES
+            # ═══════════════════════════════════════════════════════════════
+            
+            # Level 1: RowEntity (개별 파일/테이블)
             stats["row_entity_nodes"] = self._create_row_entity_nodes(driver, tables)
             self.log(f"✓ RowEntity nodes: {stats['row_entity_nodes']}", indent=2)
+            
+            # FileGroup (파일 그룹 - group_common 파라미터 지원)
+            stats["file_group_nodes"] = self._create_file_group_nodes(driver)
+            self.log(f"✓ FileGroup nodes: {stats['file_group_nodes']}", indent=2)
             
             # Level 2: ConceptCategory (parameter 테이블 기반)
             stats["concept_category_nodes"] = self._create_concept_category_nodes(driver, all_params)
@@ -647,22 +752,37 @@ class RelationshipInferenceNode(BaseNode, LLMMixin, DatabaseMixin, Neo4jMixin):
             stats["parameter_nodes"] = self._create_parameter_nodes(driver, all_params)
             self.log(f"✓ Parameter nodes: {stats['parameter_nodes']}", indent=2)
             
-            # Edges
+            # ═══════════════════════════════════════════════════════════════
+            # EDGES
+            # ═══════════════════════════════════════════════════════════════
+            
+            # FK 관계: RowEntity → RowEntity
             stats["edges_links_to"] = self._create_links_to_edges(driver, relationships, tables)
             self.log(f"✓ LINKS_TO edges: {stats['edges_links_to']}", indent=2)
             
+            # RowEntity → ConceptCategory
             stats["edges_has_concept"] = self._create_has_concept_edges(driver, tables)
             self.log(f"✓ HAS_CONCEPT edges: {stats['edges_has_concept']}", indent=2)
             
-            # CONTAINS (parameter 테이블 기반)
+            # ConceptCategory → Parameter (parameter 테이블 기반)
             stats["edges_contains"] = self._create_contains_edges(driver, all_params)
             self.log(f"✓ CONTAINS edges: {stats['edges_contains']}", indent=2)
             
+            # RowEntity → Parameter (column_name 기반)
             stats["edges_has_column"] = self._create_has_column_edges(driver, tables)
             self.log(f"✓ HAS_COLUMN edges: {stats['edges_has_column']}", indent=2)
             
+            # RowEntity → Parameter (filename에서 추출된 값)
             stats["edges_filename_value"] = self._create_filename_value_edges(driver, tables)
             self.log(f"✓ FILENAME_VALUE edges: {stats['edges_filename_value']}", indent=2)
+            
+            # FileGroup → RowEntity (그룹에 속한 파일들)
+            stats["edges_contains_file"] = self._create_contains_file_edges(driver, tables)
+            self.log(f"✓ CONTAINS_FILE edges: {stats['edges_contains_file']}", indent=2)
+            
+            # FileGroup → Parameter (group_common 파라미터)
+            stats["edges_has_common_param"] = self._create_has_common_param_edges(driver)
+            self.log(f"✓ HAS_COMMON_PARAM edges: {stats['edges_has_common_param']}", indent=2)
             
         finally:
             self.close_neo4j()  # Neo4jMixin 사용

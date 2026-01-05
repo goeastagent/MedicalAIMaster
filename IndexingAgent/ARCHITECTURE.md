@@ -44,12 +44,20 @@ Indexing Agent는 의료 데이터 파일(CSV, Signal 등)을 분석하여:
 ┃   ┌───────────────────────────────┐     ┌────────────────────────────────────────────┐  ┃
 ┃   │ [200] file_catalog 📏        │────▶│ PostgreSQL: file_catalog                   │  ┃
 ┃   │  • 파일별 메타데이터 추출     │     │  • file_path, file_size, processor_type    │  ┃
-┃   │  • 컬럼 정보 (타입, 통계)     │     │  • raw_stats (row_count, column_count)     │  ┃
+┃   │  • 컬럼 정보 (타입, 통계)     │     │  • file_metadata (row_count, column_count) │  ┃
 ┃   │  • row count, null count     │     │                                            │  ┃
 ┃   └───────────────────────────────┘     │ PostgreSQL: column_metadata                │  ┃
 ┃                   │                     │  • original_name, column_type, data_type   │  ┃
-┃                   │                     │  • value_distribution                      │  ┃
+┃                   │                     │  • column_info, value_distribution         │  ┃
 ┃                   ▼                     └────────────────────────────────────────────┘  ┃
+┃   ┌───────────────────────────────┐                                                     ┃
+┃   │ [250] file_grouping_prep 📏  │────▶ State Only (LLM 입력 준비)                      ┃
+┃   │  • 디렉토리별 파일 통계 수집  │      • 확장자, 파일명 패턴 관찰                      ┃
+┃   │  • 파일명 패턴 감지           │      • grouping_prep_result                         ┃
+┃   │  • 그룹 후보 식별             │                                                     ┃
+┃   └───────────────────────────────┘                                                     ┃
+┃                   │                                                                     ┃
+┃                   ▼                                                                     ┃
 ┃   ┌───────────────────────────────┐                                                     ┃
 ┃   │ [300] schema_aggregation 📏  │────▶ State Only (LLM 배치 준비)                      ┃
 ┃   │  • 유니크 컬럼명 집계         │      • unique_columns, unique_files                 ┃
@@ -65,6 +73,15 @@ Indexing Agent는 의료 데이터 파일(CSV, Signal 등)을 분석하여:
 ┃━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━┃
 ┃                                                                                         ┃
 ┃   ┌───────────────────────────────┐     ┌────────────────────────────────────────────┐  ┃
+┃   │ [350] file_grouping 🤖       │────▶│ PostgreSQL: file_group                     │  ┃
+┃   │  • 파일 그룹핑 전략 결정      │     │  • group_name, grouping_criteria           │  ┃
+┃   │  • 동일 스키마 파일 그룹화    │     │  • row_represents, entity_identifier_key   │  ┃
+┃   │  • Signal 파일 그룹 생성      │     │  • status ('pending'/'confirmed')          │  ┃
+┃   └───────────────────────────────┘     │                                            │  ┃
+┃                   │                     │ PostgreSQL: file_catalog UPDATE            │  ┃
+┃                   │                     │  • group_id (FK to file_group)             │  ┃
+┃                   ▼                     └────────────────────────────────────────────┘  ┃
+┃   ┌───────────────────────────────┐     ┌────────────────────────────────────────────┐  ┃
 ┃   │ [400] file_classification 🤖 │────▶│ PostgreSQL: file_catalog UPDATE            │  ┃
 ┃   │  • metadata vs data 분류      │     │  • is_metadata (true/false)                │  ┃
 ┃   │  • 파일 목적 추론             │     │  • llm_confidence                          │  ┃
@@ -75,9 +92,10 @@ Indexing Agent는 의료 데이터 파일(CSV, Signal 등)을 분석하여:
 ┃   │ [420] column_classification 🤖│────▶│ PostgreSQL: column_metadata UPDATE         │  ┃
 ┃   │  • 컬럼 역할 분류 (LLM)       │     │  • column_role (ColumnRole enum)           │  ┃
 ┃   │  • parameter 생성 (Rule)      │     │                                            │  ┃
-┃   │  • Wide/Long format 처리      │     │ PostgreSQL: parameter (NEW!)               │  ┃
-┃   └───────────────────────────────┘     │  • param_key, source_type                  │  ┃
-┃                   │                     │  • source_column_id, file_id               │  ┃
+┃   │  • Wide/Long/Signal 처리      │     │ PostgreSQL: parameter (INSERT)             │  ┃
+┃   │  • Group-level parameter 생성 │     │  • param_key, source_type                  │  ┃
+┃   └───────────────────────────────┘     │  • source_column_id, file_id, group_id     │  ┃
+┃                   │                     │  • is_identifier                           │  ┃
 ┃                   ▼                     └────────────────────────────────────────────┘  ┃
 ┃   ┌───────────────────────────────┐     ┌────────────────────────────────────────────┐  ┃
 ┃   │ [500] metadata_semantic 🤖   │────▶│ PostgreSQL: data_dictionary                │  ┃
@@ -91,10 +109,11 @@ Indexing Agent는 의료 데이터 파일(CSV, Signal 등)을 분석하여:
 ┃   │ [600] parameter_semantic 🤖  │────▶│ PostgreSQL: parameter UPDATE               │  ┃
 ┃   │  • parameter 의미 분석        │     │  • semantic_name (표준화된 이름)           │  ┃
 ┃   │  • data_dictionary 매칭       │     │  • unit (측정 단위)                        │  ┃
-┃   │  • concept_category 추론      │     │  • concept_category (개념 카테고리)        │  ┃
-┃   └───────────────────────────────┘     │  • dict_entry_id (dictionary FK)           │  ┃
-┃                   │                     │  • dict_match_status                       │  ┃
-┃                   ▼                     └────────────────────────────────────────────┘  ┃
+┃   │  • concept_category 추론      │     │  • concept_category (ConceptCategory enum) │  ┃
+┃   │  • identifier 처리 (→ Identifiers)│  │  • dict_entry_id (dictionary FK)          │  ┃
+┃   └───────────────────────────────┘     │  • dict_match_status                       │  ┃
+┃                   │                     └────────────────────────────────────────────┘  ┃
+┃                   ▼                                                                     ┃
 ┃   ┌───────────────────────────────┐     ┌────────────────────────────────────────────┐  ┃
 ┃   │ [700] directory_pattern 🤖   │────▶│ PostgreSQL: directory_catalog UPDATE       │  ┃
 ┃   │  • 파일명 패턴 분석           │     │  • filename_pattern (예: "{caseid}.vital") │  ┃
@@ -116,6 +135,7 @@ Indexing Agent는 의료 데이터 파일(CSV, Signal 등)을 분석하여:
 ┃   │  • 테이블별 Entity 식별       │     │  • row_represents (예: "surgery")          │  ┃
 ┃   │  • row_represents 추론        │     │  • entity_identifier (예: "caseid")        │  ┃
 ┃   │  • entity_identifier 컬럼     │     │  • confidence, reasoning                   │  ┃
+┃   │  • Group 단위 처리 지원       │     │  (Long-format: entity_identifier = NULL)   │  ┃
 ┃   └───────────────────────────────┘     └────────────────────────────────────────────┘  ┃
 ┃                   │                                                                     ┃
 ┃                   ▼                                                                     ┃
@@ -124,14 +144,22 @@ Indexing Agent는 의료 데이터 파일(CSV, Signal 등)을 분석하여:
 ┃   │  • 테이블 간 FK 관계 추론     │     │  • source_file_id, target_file_id          │  ┃
 ┃   │  • Cardinality 추론 (1:N)     │     │  • source_column, target_column            │  ┃
 ┃   │  • 3-Level Ontology 구축      │     │  • relationship_type, cardinality          │  ┃
-┃   └───────────────────────────────┘     └────────────────────────────────────────────┘  ┃
-┃                                         ┌────────────────────────────────────────────┐  ┃
-┃                                         │ Neo4j: 3-Level Ontology                    │  ┃
+┃   │  • FileGroup 노드/관계 생성   │     └────────────────────────────────────────────┘  ┃
+┃   └───────────────────────────────┘     ┌────────────────────────────────────────────┐  ┃
+┃                                         │ Neo4j: 3-Level Ontology + FileGroup        │  ┃
+┃                                         │                                            │  ┃
+┃                                         │ Nodes:                                     │  ┃
+┃                                         │  • RowEntity, FileGroup, ConceptCategory   │  ┃
+┃                                         │  • Parameter                               │  ┃
+┃                                         │                                            │  ┃
+┃                                         │ Relationships:                             │  ┃
 ┃                                         │  • (RowEntity)-[:LINKS_TO]->(RowEntity)    │  ┃
 ┃                                         │  • (RowEntity)-[:HAS_CONCEPT]->(Category)  │  ┃
 ┃                                         │  • (Category)-[:CONTAINS]->(Parameter)     │  ┃
 ┃                                         │  • (RowEntity)-[:HAS_COLUMN]->(Parameter)  │  ┃
 ┃                                         │  • (RowEntity)-[:FILENAME_VALUE]->(Param)  │  ┃
+┃                                         │  • (FileGroup)-[:CONTAINS_FILE]->(RowEntity)│ ┃
+┃                                         │  • (FileGroup)-[:HAS_COMMON_PARAM]->(Param)│  ┃
 ┃                                         └────────────────────────────────────────────┘  ┃
 ┃                                                                                         ┃
 ┗━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━┛
@@ -175,29 +203,29 @@ Indexing Agent는 의료 데이터 파일(CSV, Signal 등)을 분석하여:
 ┃                                                                                         ┃
 ┃   📊 PostgreSQL (정형 데이터)                    🧠 Neo4j (지식 그래프)                  ┃
 ┃   ┌────────────────────────────┐                ┌────────────────────────────────────┐  ┃
-┃   │ directory_catalog          │                │         ┌──────────────┐           │  ┃
-┃   │ file_catalog               │                │         │  RowEntity   │           │  ┃
-┃   │ column_metadata            │                │         │  (surgery)   │           │  ┃
-┃   │ parameter (NEW!)           │                │         └───────┬──────┘           │  ┃
-┃   │ data_dictionary            │                │     LINKS_TO    │   HAS_CONCEPT    │  ┃
-┃   │ table_entities             │                │        ┌────────┼────────┐         │  ┃
-┃   │ table_relationships        │                │        ▼        ▼        ▼         │  ┃
-┃   │ ontology_subcategories     │                │   ┌─────────┐┌───────┐┌────────┐   │  ┃
-┃   │ semantic_edges             │                │   │RowEntity││Category ││ SubCat │   │  ┃
-┃   │ medical_term_mappings      │                │   │(lab)    ││(Vitals)  ││(Cardio)│   │  ┃
-┃   │ cross_table_semantics      │                │   └─────────┘└────┬────┘└────────┘   │  ┃
-┃   └────────────────────────────┘                │                   │ CONTAINS        │  ┃
-┃                                                 │                   ▼                 │  ┃
-┃                                                 │             ┌───────────┐           │  ┃
-┃                                                 │             │ Parameter │           │  ┃
-┃                                                 │             │   (HR)    │           │  ┃
-┃                                                 │             └─────┬─────┘           │  ┃
-┃                                                 │                   │ MAPS_TO        │  ┃
-┃                                                 │                   ▼                 │  ┃
-┃                                                 │           ┌─────────────┐           │  ┃
-┃                                                 │           │ MedicalTerm │           │  ┃
-┃                                                 │           │(SNOMED/LOINC)│           │  ┃
-┃                                                 │           └─────────────┘           │  ┃
+┃   │ directory_catalog          │                │       ┌──────────────┐              │  ┃
+┃   │ file_group (NEW!)          │                │       │  FileGroup   │              │  ┃
+┃   │ file_catalog               │                │       │"vital_cases" │              │  ┃
+┃   │ column_metadata            │                │       └───────┬──────┘              │  ┃
+┃   │ parameter                  │                │  CONTAINS_FILE│ HAS_COMMON_PARAM    │  ┃
+┃   │ data_dictionary            │                │        ┌──────┼────────┐            │  ┃
+┃   │ table_entities             │                │        ▼      ▼        ▼            │  ┃
+┃   │ table_relationships        │                │   ┌─────────┐   ┌─────────┐         │  ┃
+┃   │ ontology_subcategories     │                │   │RowEntity│   │Parameter│         │  ┃
+┃   │ semantic_edges             │                │   │"surgery"│   │"HR"     │         │  ┃
+┃   │ medical_term_mappings      │                │   └────┬────┘   └─────────┘         │  ┃
+┃   │ cross_table_semantics      │                │        │ HAS_CONCEPT                │  ┃
+┃   └────────────────────────────┘                │        ▼                            │  ┃
+┃                                                 │   ┌────────────┐                    │  ┃
+┃                                                 │   │ConceptCat  │                    │  ┃
+┃                                                 │   │"Vital Signs"│                    │  ┃
+┃                                                 │   └─────┬──────┘                    │  ┃
+┃                                                 │         │ CONTAINS                  │  ┃
+┃                                                 │         ▼                           │  ┃
+┃                                                 │   ┌───────────┐                     │  ┃
+┃                                                 │   │ Parameter │                     │  ┃
+┃                                                 │   │   "HR"    │                     │  ┃
+┃                                                 │   └───────────┘                     │  ┃
 ┃                                                 └────────────────────────────────────┘  ┃
 ┃                                                                                         ┃
 ┗━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━┛
@@ -214,8 +242,9 @@ Indexing Agent는 의료 데이터 파일(CSV, Signal 등)을 분석하여:
 | Node | Order | 결과물 (DB) | 주요 필드 |
 |------|-------|-------------|-----------|
 | directory_catalog | 100 | `directory_catalog` | dir_path, file_count, file_extensions, filename_samples |
-| file_catalog | 200 | `file_catalog` | file_path, file_size, processor_type, raw_stats |
-| | | `column_metadata` | original_name, column_type, data_type, value_distribution |
+| file_catalog | 200 | `file_catalog` | file_path, file_size, processor_type, file_metadata |
+| | | `column_metadata` | original_name, column_type, data_type, column_info |
+| file_grouping_prep | 250 | (State only) | grouping_prep_result (패턴 관찰 결과) |
 | schema_aggregation | 300 | (State only) | unique_columns, unique_files, column_batches, file_batches |
 
 ```sql
@@ -224,7 +253,7 @@ SELECT dir_path, file_count, file_extensions FROM directory_catalog;
 -- /data/Open_VitalDB/vital_files | 6388 | {"vital": 6388}
 
 -- file_catalog 예시  
-SELECT file_name, processor_type, raw_stats->>'row_count' FROM file_catalog;
+SELECT file_name, processor_type, file_metadata->>'row_count' FROM file_catalog;
 -- clinical_data.csv | tabular | 6388
 
 -- column_metadata 예시
@@ -241,15 +270,21 @@ LLM을 활용하여 데이터의 의미를 분석하고 풍부한 시맨틱 정�
 
 | Node | Order | 결과물 (DB) | 주요 필드 |
 |------|-------|-------------|-----------|
+| file_grouping | 350 | `file_group` | group_name, grouping_criteria, status |
+| | | `file_catalog` UPDATE | group_id (FK) |
 | file_classification | 400 | `file_catalog` UPDATE | is_metadata, llm_confidence |
 | column_classification | 420 | `column_metadata` UPDATE | column_role (ColumnRole enum) |
-| | | `parameter` (NEW!) | param_key, source_type, source_column_id, file_id |
+| | | `parameter` (INSERT) | param_key, source_type, is_identifier |
 | metadata_semantic | 500 | `data_dictionary` | parameter_key, parameter_desc, parameter_unit, extra_info |
 | parameter_semantic | 600 | `parameter` UPDATE | semantic_name, unit, concept_category, dict_entry_id |
 | directory_pattern | 700 | `directory_catalog` UPDATE | filename_pattern, filename_columns |
 | | | `file_catalog` UPDATE | filename_values |
 
 ```sql
+-- file_group 예시 (file_grouping 결과)
+SELECT group_name, file_count, status, row_represents FROM file_group;
+-- vital_case_records | 3 | confirmed | surgical_case_vital_signs_recording
+
 -- data_dictionary 예시 (metadata_semantic 결과)
 SELECT parameter_key, parameter_desc, parameter_unit FROM data_dictionary;
 -- hr          | Heart Rate                          | bpm
@@ -257,10 +292,12 @@ SELECT parameter_key, parameter_desc, parameter_unit FROM data_dictionary;
 -- spo2        | Peripheral Oxygen Saturation        | %
 
 -- parameter 예시 (column_classification + parameter_semantic 결과)
-SELECT param_key, source_type, semantic_name, concept_category, unit FROM parameter;
--- hr          | column_name   | Heart Rate           | Vitals              | bpm
--- caseid      | column_name   | Case Identifier      | Identifier          | NULL
--- SpO2        | column_value  | Oxygen Saturation    | Vitals              | %
+SELECT param_key, source_type, semantic_name, concept_category, unit, is_identifier
+FROM parameter;
+-- hr          | column_name   | Heart Rate           | Vital Signs         | bpm   | false
+-- caseid      | column_name   | Case Identifier      | Identifiers         | NULL  | true
+-- SpO2        | column_value  | Oxygen Saturation    | Vital Signs         | %     | false
+-- Solar8000/HR| group_common  | Heart Rate           | Vital Signs         | bpm   | false
 
 -- directory_catalog (directory_pattern 결과)
 SELECT dir_path, filename_pattern, filename_columns FROM directory_catalog;
@@ -269,22 +306,50 @@ SELECT dir_path, filename_pattern, filename_columns FROM directory_catalog;
 
 #### Parameter 테이블 구조
 
-`parameter` 테이블은 Wide-format과 Long-format 데이터를 모두 지원합니다:
+`parameter` 테이블은 3가지 source_type을 지원합니다:
 
 ```
-Wide-format (source_type='column_name'):
-┌─────────┬─────┬──────┬─────┐
-│ caseid  │ HR  │ SpO2 │ BP  │  → 컬럼명이 parameter로 추출
-└─────────┴─────┴──────┴─────┘
+1. Wide-format (source_type='column_name'):
+   ┌─────────┬─────┬──────┬─────┐
+   │ caseid  │ HR  │ SpO2 │ BP  │  → 컬럼명이 parameter로 추출
+   └─────────┴─────┴──────┴─────┘
 
-Long-format (source_type='column_value'):
-┌─────────┬──────┬───────┐
-│ caseid  │ name │ value │  → name 컬럼의 unique values가 parameter로 추출
-├─────────┼──────┼───────┤
-│ 1       │ HR   │ 72    │
-│ 1       │ SpO2 │ 98    │
-└─────────┴──────┴───────┘
+2. Long-format (source_type='column_value'):
+   ┌─────────┬──────┬───────┐
+   │ caseid  │ name │ value │  → name 컬럼의 unique values가 parameter로 추출
+   ├─────────┼──────┼───────┤
+   │ 1       │ HR   │ 72    │
+   │ 1       │ SpO2 │ 98    │
+   └─────────┴──────┴───────┘
+
+3. Signal-format (source_type='group_common'):
+   ┌──────────────────────────────────────────────────────────────┐
+   │ 0001.vital: Solar8000/HR, Solar8000/SpO2, BIS/BIS, ...       │
+   │ 0002.vital: Solar8000/HR, Solar8000/SpO2, BIS/BIS, ...       │  → 그룹 내 공통 컬럼
+   │ 0009.vital: Solar8000/HR, Solar8000/SpO2, BIS/BIS, ...       │
+   └──────────────────────────────────────────────────────────────┘
+   • file_id = NULL, group_id = {group_uuid}
+   • source_column_id = NULL
 ```
+
+#### ConceptCategory ENUM
+
+LLM이 parameter에 할당하는 concept_category 값:
+
+| Category | 설명 | 예시 |
+|----------|------|------|
+| `Vital Signs` | 활력 징후 | HR, SpO2, BT |
+| `Hemodynamics` | 혈역학 | ABP, CVP, CO |
+| `Respiratory` | 호흡 관련 | RR, ETCO2, FiO2 |
+| `Laboratory` | 검사 결과 | Hb, PLT, BUN |
+| `Demographics` | 인구통계 | Age, Sex, Height |
+| `Identifiers` | 식별자 | caseid, subjectid |
+| `Temporal` | 시간 관련 | timestamp, dt |
+| `Medication` | 약물 | Propofol, Fentanyl |
+| `Procedure` | 시술 관련 | Incision, Operation |
+| `Outcome` | 결과 지표 | Mortality, LOS |
+| `Equipment` | 장비 관련 | Ventilator, BIS |
+| `Other` | 기타 | 분류 불가 |
 
 ---
 
@@ -295,7 +360,7 @@ Long-format (source_type='column_value'):
 | Node | Order | PostgreSQL 결과물 | Neo4j 결과물 |
 |------|-------|-------------------|--------------|
 | entity_identification | 800 | `table_entities` | - |
-| relationship_inference | 900 | `table_relationships` | 3-Level Ontology |
+| relationship_inference | 900 | `table_relationships` | 3-Level Ontology + FileGroup |
 
 #### PostgreSQL 테이블 구조
 
@@ -303,8 +368,9 @@ Long-format (source_type='column_value'):
 -- table_entities (entity_identification 결과)
 SELECT fc.file_name, te.row_represents, te.entity_identifier 
 FROM table_entities te JOIN file_catalog fc ON te.file_id = fc.file_id;
--- clinical_data.csv | surgery     | caseid
--- lab_data.csv      | lab_result  | NULL (복합키)
+-- clinical_data.csv | surgical_case                       | caseid
+-- lab_data.csv      | lab_result                          | NULL (복합키)
+-- 0001.vital        | surgical_case_vital_signs_recording | 1
 
 -- table_relationships (relationship_inference 결과)
 SELECT 
@@ -313,54 +379,73 @@ SELECT
 FROM table_relationships tr
 JOIN file_catalog s ON tr.source_file_id = s.file_id
 JOIN file_catalog t ON tr.target_file_id = t.file_id;
--- clinical_data.csv | lab_data.csv | caseid | caseid | 1:N
+-- lab_data.csv  | clinical_data.csv | caseid              | caseid | N:1
+-- 0001.vital    | clinical_data.csv | caseid (from filename) | caseid | N:1
 ```
 
-#### Neo4j 3-Level Ontology
+#### Neo4j 3-Level Ontology + FileGroup
 
 ```cypher
+-- Level 0: FileGroup (파일 그룹)
+(:FileGroup {name: "vital_case_records", file_count: 3})
+
 -- Level 1: RowEntity (테이블이 나타내는 Entity)
 (:RowEntity {name: "surgery", source_table: "clinical_data.csv"})
 (:RowEntity {name: "lab_result", source_table: "lab_data.csv"})
 
 -- Level 2: ConceptCategory (개념 그룹)
-(:ConceptCategory {name: "Vitals"})
+(:ConceptCategory {name: "Vital Signs"})
 (:ConceptCategory {name: "Demographics"})
-(:ConceptCategory {name: "Identifier"})
+(:ConceptCategory {name: "Identifiers"})
 
 -- Level 3: Parameter (측정 파라미터)
-(:Parameter {name: "hr", semantic_name: "Heart Rate", unit: "bpm"})
-(:Parameter {name: "sbp", semantic_name: "Systolic Blood Pressure", unit: "mmHg"})
+(:Parameter {key: "hr", name: "Heart Rate", unit: "bpm", is_identifier: false})
+(:Parameter {key: "caseid", name: "Case ID", unit: null, is_identifier: true})
 
 -- 관계 (Relationships)
-(:RowEntity {name: "surgery"})-[:LINKS_TO {cardinality: "1:N"}]->(:RowEntity {name: "lab_result"})
-(:RowEntity {name: "surgery"})-[:HAS_CONCEPT]->(:ConceptCategory {name: "Vitals"})
-(:ConceptCategory {name: "Vitals"})-[:CONTAINS]->(:Parameter {name: "hr"})
-(:RowEntity {name: "surgery"})-[:HAS_COLUMN]->(:Parameter {name: "caseid"})
-(:RowEntity)-[:FILENAME_VALUE]->(:Parameter)  -- 파일명에서 추출된 값
+-- FileGroup 관계
+(:FileGroup)-[:CONTAINS_FILE]->(:RowEntity)      -- 그룹 → 개별 파일
+(:FileGroup)-[:HAS_COMMON_PARAM]->(:Parameter)   -- 그룹 → 공통 파라미터
+
+-- RowEntity 관계
+(:RowEntity)-[:LINKS_TO {cardinality: "N:1"}]->(:RowEntity)  -- FK 관계
+(:RowEntity)-[:HAS_CONCEPT]->(:ConceptCategory)              -- Entity → Category
+(:RowEntity)-[:HAS_COLUMN]->(:Parameter)                     -- Entity → 소유 컬럼
+(:RowEntity)-[:FILENAME_VALUE]->(:Parameter)                 -- 파일명에서 추출된 값
+
+-- ConceptCategory 관계
+(:ConceptCategory)-[:CONTAINS]->(:Parameter)     -- Category → Parameter
 ```
 
 **Neo4j 시각화:**
 
 ```
-                    ┌─────────────────┐
-                    │   RowEntity     │
-                    │   "surgery"     │
-                    └────────┬────────┘
-                             │
-        ┌────────────────────┼────────────────────┐
-        │ LINKS_TO (1:N)     │ HAS_CONCEPT        │ HAS_COLUMN
-        ▼                    ▼                    ▼
-┌───────────────┐   ┌────────────────┐   ┌─────────────┐
-│  RowEntity    │   │ConceptCategory │   │  Parameter  │
-│ "lab_result"  │   │   "Vitals"     │   │  "caseid"   │
-└───────────────┘   └───────┬────────┘   └─────────────┘
-                            │ CONTAINS
-                            ▼
-                    ┌─────────────┐
-                    │  Parameter  │
-                    │    "hr"     │
-                    └─────────────┘
+                   ┌─────────────────┐
+                   │   FileGroup     │
+                   │"vital_case_rec" │
+                   └────────┬────────┘
+                            │
+      CONTAINS_FILE ────────┼──────── HAS_COMMON_PARAM
+                   ┌────────┼────────┐
+                   ▼        │        ▼
+          ┌─────────────┐   │  ┌─────────────┐
+          │  RowEntity  │   │  │  Parameter  │
+          │ "0001.vital"│   │  │"Solar8000/HR"│
+          └──────┬──────┘   │  └─────────────┘
+                 │          │
+    ┌────────────┼──────────┼───────────────┐
+    │ LINKS_TO   │ HAS_CONCEPT              │ HAS_COLUMN
+    ▼            ▼                          ▼
+┌───────────┐   ┌────────────────┐   ┌─────────────┐
+│RowEntity │   │ConceptCategory │   │  Parameter  │
+│"surgery" │   │ "Vital Signs"  │   │  "caseid"   │
+└───────────┘   └───────┬────────┘   └─────────────┘
+                        │ CONTAINS
+                        ▼
+                ┌─────────────┐
+                │  Parameter  │
+                │    "hr"     │
+                └─────────────┘
 ```
 
 ---
@@ -383,8 +468,8 @@ JOIN file_catalog t ON tr.target_file_id = t.file_id;
 ```sql
 -- ontology_subcategories
 SELECT parent_category, subcategory_name FROM ontology_subcategories;
--- Vitals       | Cardiovascular
--- Vitals       | Respiratory
+-- Vital Signs  | Cardiovascular
+-- Vital Signs  | Respiratory
 -- Demographics | Patient_Info
 
 -- semantic_edges  
@@ -407,8 +492,8 @@ SELECT source_column, target_column, relationship_type FROM cross_table_semantic
 
 ```cypher
 -- SubCategory 추가
-(:ConceptCategory {name: "Vitals"})-[:HAS_SUBCATEGORY]->(:SubCategory {name: "Cardiovascular"})
-(:ConceptCategory {name: "Vitals"})-[:HAS_SUBCATEGORY]->(:SubCategory {name: "Respiratory"})
+(:ConceptCategory {name: "Vital Signs"})-[:HAS_SUBCATEGORY]->(:SubCategory {name: "Cardiovascular"})
+(:ConceptCategory {name: "Vital Signs"})-[:HAS_SUBCATEGORY]->(:SubCategory {name: "Respiratory"})
 
 -- Semantic Edges
 (:Parameter {name: "bmi"})-[:DERIVED_FROM]->(:Parameter {name: "height"})
@@ -428,14 +513,15 @@ SELECT source_column, target_column, relationship_type FROM cross_table_semantic
 
 ## 📊 전체 DB 스키마 요약
 
-### PostgreSQL 테이블 (11개)
+### PostgreSQL 테이블 (12개)
 
 | 테이블 | 생성 노드 | 주요 용도 |
 |--------|-----------|----------|
 | `directory_catalog` | directory_catalog → directory_pattern | 디렉토리 메타데이터 + 파일명 패턴 |
+| `file_group` | file_grouping | 파일 그룹 정의 (Signal 파일 등) |
 | `file_catalog` | file_catalog → file_classification | 파일 메타데이터 + 분류 + 파일명 값 |
 | `column_metadata` | file_catalog → column_classification | 컬럼 메타데이터 + 역할 분류 |
-| `parameter` | column_classification → parameter_semantic | 논리적 파라미터 (Wide/Long 통합) |
+| `parameter` | column_classification → parameter_semantic | 논리적 파라미터 (Wide/Long/Signal 통합) |
 | `data_dictionary` | metadata_semantic | 파라미터 정의 사전 (key-desc-unit) |
 | `table_entities` | entity_identification | 테이블 Entity 정의 |
 | `table_relationships` | relationship_inference | 테이블 간 FK 관계 |
@@ -448,19 +534,22 @@ SELECT source_column, target_column, relationship_type FROM cross_table_semantic
 
 | 노드 타입 | 생성 노드 | 설명 |
 |----------|-----------|------|
+| `FileGroup` | relationship_inference | 파일 그룹 (vital_case_records 등) |
 | `RowEntity` | relationship_inference | 테이블이 나타내는 Entity (surgery, patient 등) |
-| `ConceptCategory` | relationship_inference | 개념 카테고리 (Vitals, Demographics 등) |
+| `ConceptCategory` | relationship_inference | 개념 카테고리 (Vital Signs, Demographics 등) |
 | `Parameter` | relationship_inference | 측정 파라미터 (hr, sbp 등) |
 | `SubCategory` | ontology_enhancement | 세분화된 카테고리 (Cardiovascular 등) |
 | `MedicalTerm` | ontology_enhancement | 표준 의료 용어 (SNOMED/LOINC) |
 
 | 관계 타입 | 생성 노드 | 설명 |
 |----------|-----------|------|
-| `LINKS_TO` | relationship_inference | 테이블 간 FK 관계 |
-| `HAS_CONCEPT` | relationship_inference | Entity → Category |
+| `CONTAINS_FILE` | relationship_inference | FileGroup → RowEntity |
+| `HAS_COMMON_PARAM` | relationship_inference | FileGroup → Parameter (group_common) |
+| `LINKS_TO` | relationship_inference | RowEntity 간 FK 관계 |
+| `HAS_CONCEPT` | relationship_inference | RowEntity → Category |
 | `CONTAINS` | relationship_inference | Category → Parameter |
-| `HAS_COLUMN` | relationship_inference | Entity → Parameter |
-| `FILENAME_VALUE` | relationship_inference | Entity → Parameter (파일명 추출) |
+| `HAS_COLUMN` | relationship_inference | RowEntity → Parameter |
+| `FILENAME_VALUE` | relationship_inference | RowEntity → Parameter (파일명 추출) |
 | `HAS_SUBCATEGORY` | ontology_enhancement | Category → SubCategory |
 | `DERIVED_FROM` | ontology_enhancement | 파라미터 파생 관계 |
 | `RELATED_TO` | ontology_enhancement | 파라미터 상관 관계 |
@@ -478,7 +567,9 @@ SELECT source_column, target_column, relationship_type FROM cross_table_semantic
 |------|------|--------------|------|
 | directory_catalog | 📏 | - | 디렉토리 구조 |
 | file_catalog | 📏 | - | 파일/컬럼 메타데이터 |
+| file_grouping_prep | 📏 | - | 그룹핑 준비 데이터 |
 | schema_aggregation | 📏 | - | 집계 데이터 |
+| file_grouping | 🤖 | "이 파일들을 어떻게 그룹화해야 하나?" | file_group, group_id |
 | file_classification | 🤖 | "이 파일이 metadata인가 data인가?" | is_metadata, confidence |
 | column_classification | 🤖+📏 | "이 컬럼의 역할은?" | column_role, parameter 생성 |
 | metadata_semantic | 🤖 | "어떤 컬럼이 key/desc/unit인가?" | data_dictionary 엔트리 |
@@ -527,7 +618,7 @@ IndexingAgent/
 │   │   ├── models/                      # Pydantic 모델 (LLM 응답 스키마)
 │   │   │   ├── __init__.py
 │   │   │   ├── base.py                  # 공통 베이스 모델
-│   │   │   ├── enums.py                 # ColumnRole, SourceType 등 Enum 정의
+│   │   │   ├── enums.py                 # ColumnRole, SourceType, ConceptCategory 등 Enum 정의
 │   │   │   ├── llm_responses.py         # LLM 응답 모델들
 │   │   │   └── state_schemas.py         # State 스키마
 │   │   ├── prompts/                     # 프롬프트 관리
@@ -544,6 +635,13 @@ IndexingAgent/
 │   │       ├── common.py                # 공통 유틸리티
 │   │       │
 │   │       │   # 🤖 LLM 노드 (폴더 구조: node.py + prompts.py)
+│   │       ├── file_grouping_prep/      # [250] 파일 그룹핑 준비 (📏)
+│   │       │   ├── __init__.py
+│   │       │   └── node.py
+│   │       ├── file_grouping/           # [350] 파일 그룹핑 (🤖)
+│   │       │   ├── __init__.py
+│   │       │   ├── node.py
+│   │       │   └── prompts.py
 │   │       ├── file_classification/     # [400] 파일 분류
 │   │       │   ├── __init__.py
 │   │       │   ├── node.py
@@ -555,7 +653,7 @@ IndexingAgent/
 │   │       │   ├── __init__.py
 │   │       │   ├── node.py
 │   │       │   └── prompts.py
-│   │       ├── parameter_semantic/      # [600] Parameter 의미 분석 (구 data_semantic)
+│   │       ├── parameter_semantic/      # [600] Parameter 의미 분석
 │   │       │   ├── __init__.py
 │   │       │   ├── node.py
 │   │       │   └── prompts.py
@@ -583,8 +681,9 @@ IndexingAgent/
 │   │   ├── schemas/                     # DDL 정의
 │   │   │   ├── catalog.py               # file_catalog, column_metadata
 │   │   │   ├── directory.py             # directory_catalog
+│   │   │   ├── file_group.py            # file_group (NEW!)
 │   │   │   ├── dictionary.py            # data_dictionary
-│   │   │   ├── parameter.py             # parameter (NEW!)
+│   │   │   ├── parameter.py             # parameter
 │   │   │   ├── ontology_core.py         # table_entities, table_relationships
 │   │   │   └── ontology_enhancement.py  # subcategories, edges, mappings
 │   │   ├── repositories/                # CRUD 로직
@@ -594,15 +693,17 @@ IndexingAgent/
 │   │   │   ├── directory_repository.py
 │   │   │   ├── entity_repository.py
 │   │   │   ├── file_repository.py
+│   │   │   ├── file_group_repository.py # file_group CRUD (NEW!)
 │   │   │   ├── ontology_repository.py
-│   │   │   └── parameter_repository.py  # parameter CRUD (NEW!)
+│   │   │   └── parameter_repository.py  # parameter CRUD
 │   │   └── managers/                    # 스키마 매니저
 │   │       ├── base.py
 │   │       ├── catalog.py
 │   │       ├── dictionary.py
 │   │       ├── directory.py
+│   │       ├── file_group.py            # file_group 스키마 관리 (NEW!)
 │   │       ├── ontology.py
-│   │       └── parameter.py             # parameter 스키마 관리 (NEW!)
+│   │       └── parameter.py             # parameter 스키마 관리
 │   │
 │   ├── processors/                      # 파일 처리기
 │   │   ├── base.py                      # BaseDataProcessor
@@ -644,6 +745,7 @@ IndexingAgent/
 
 **예외:**
 - `column_classification`: 프롬프트가 `prompts/column_classification.py`에 위치
+- `file_grouping_prep`: Rule-based이지만 폴더 구조 (향후 확장 대비)
 
 ---
 
@@ -654,9 +756,11 @@ IndexingAgent/
 | Config Class | Node | 주요 설정 |
 |-------------|------|----------|
 | `DirectoryCatalogConfig` | directory_catalog | FILENAME_SAMPLE_SIZE, SAMPLE_STRATEGY |
+| `FileGroupingPrepConfig` | file_grouping_prep | MIN_FILES_FOR_ANALYSIS |
 | `SchemaAggregationConfig` | schema_aggregation | BATCH_SIZE |
+| `FileGroupingConfig` | file_grouping | MIN_FILES_FOR_GROUP |
 | `ColumnClassificationConfig` | column_classification | COLUMN_BATCH_SIZE, CONFIDENCE_THRESHOLD |
-| `MetadataSemanticConfig` | metadata_semantic | COLUMN_BATCH_SIZE, CONCEPT_CATEGORIES |
+| `MetadataSemanticConfig` | metadata_semantic | COLUMN_BATCH_SIZE |
 | `DataSemanticConfig` | parameter_semantic | COLUMN_BATCH_SIZE, CONFIDENCE_THRESHOLD |
 | `DirectoryPatternConfig` | directory_pattern | MAX_DIRS_PER_BATCH, MIN_FILES_FOR_PATTERN |
 | `EntityIdentificationConfig` | entity_identification | TABLE_BATCH_SIZE, MAX_COLUMNS_PER_TABLE |
@@ -697,13 +801,35 @@ NEO4J_PASSWORD=password
 4. **Dual Storage**: PostgreSQL (정형) + Neo4j (그래프) 병렬 저장
 5. **Progressive Enhancement**: 단계별로 온톨로지가 점진적으로 풍부해짐
 6. **NodeRegistry 패턴**: 동적으로 노드 추가/제거 가능
-7. **Wide/Long Format 통합**: `parameter` 테이블로 두 형식의 파라미터를 통합 관리
+7. **Wide/Long/Signal Format 통합**: `parameter` 테이블로 3가지 형식의 파라미터를 통합 관리
+8. **FileGroup 지원**: Signal 파일 등 동일 스키마 파일을 그룹으로 관리
 
 ---
 
 ## 📝 변경 이력
 
-### v2.0 (Current)
+### v3.0 (Current)
+- **file_grouping_prep** 노드 추가 (order 250)
+  - 디렉토리별 파일 통계 및 패턴 관찰
+  - LLM 기반 그룹핑을 위한 데이터 준비
+- **file_grouping** 노드 추가 (order 350)
+  - LLM을 활용한 파일 그룹핑 전략 결정
+  - Signal 파일 등 동일 스키마 파일 그룹화
+- **file_group 테이블** 신규
+  - 파일 그룹 메타데이터 저장
+  - `file_catalog.group_id` FK 추가
+- **parameter 테이블** 확장
+  - `source_type='group_common'` 추가 (그룹 공통 파라미터)
+  - `group_id` 컬럼 추가
+  - `is_identifier` 컬럼 추가
+- **Neo4j FileGroup 노드** 추가
+  - `CONTAINS_FILE` 관계 (FileGroup → RowEntity)
+  - `HAS_COMMON_PARAM` 관계 (FileGroup → Parameter)
+- **ConceptCategory ENUM** 도입
+  - 12개 predefined 카테고리 (Vital Signs, Identifiers 등)
+  - LLM 프롬프트에 카테고리 제한 규칙 추가
+
+### v2.0
 - **column_classification** 노드 추가 (order 420)
   - 컬럼 역할 분류 (LLM) + parameter 생성 (Rule-based)
   - `ColumnRole` enum 도입

@@ -1131,7 +1131,7 @@ def print_neo4j_stats():
         
         with driver.session(database=Neo4jConfig.DATABASE) as session:
             # 노드 카운트
-            node_types = ['RowEntity', 'ConceptCategory', 'SubCategory', 'Parameter', 'MedicalTerm']
+            node_types = ['RowEntity', 'FileGroup', 'ConceptCategory', 'SubCategory', 'Parameter', 'MedicalTerm']
             print("\n🔵 Nodes:")
             for node_type in node_types:
                 result = session.run(f"MATCH (n:{node_type}) RETURN count(n) as cnt")
@@ -1141,7 +1141,8 @@ def print_neo4j_stats():
             
             # 관계 카운트
             rel_types = ['LINKS_TO', 'HAS_CONCEPT', 'HAS_SUBCATEGORY', 'CONTAINS', 
-                        'HAS_COLUMN', 'DERIVED_FROM', 'RELATED_TO', 'MAPS_TO']
+                        'HAS_COLUMN', 'CONTAINS_FILE', 'HAS_COMMON_PARAM',
+                        'DERIVED_FROM', 'RELATED_TO', 'MAPS_TO']
             print("\n🔗 Relationships:")
             for rel_type in rel_types:
                 result = session.run(f"MATCH ()-[r:{rel_type}]->() RETURN count(r) as cnt")
@@ -1167,6 +1168,33 @@ def print_neo4j_stats():
             """)
             for record in result:
                 print(f"   - {record['src']} → {record['tgt']} ({record['col']}, {record['card']})")
+            
+            # FileGroup 정보
+            print("\n📋 Sample FileGroups:")
+            result = session.run("""
+                MATCH (fg:FileGroup)
+                OPTIONAL MATCH (fg)-[:CONTAINS_FILE]->(r:RowEntity)
+                OPTIONAL MATCH (fg)-[:HAS_COMMON_PARAM]->(p:Parameter)
+                WITH fg, count(DISTINCT r) as file_cnt, count(DISTINCT p) as param_cnt
+                RETURN fg.name as name, fg.file_count as declared_cnt, file_cnt, param_cnt
+            """)
+            for record in result:
+                print(f"   - {record['name']}: {record['file_cnt']} files, {record['param_cnt']} common params")
+            
+            # Identifier 파라미터
+            print("\n📋 Identifier Parameters:")
+            result = session.run("""
+                MATCH (p:Parameter)
+                WHERE p.is_identifier = true
+                RETURN p.key as key, p.concept as concept
+                LIMIT 5
+            """)
+            id_params = list(result)
+            if id_params:
+                for record in id_params:
+                    print(f"   - {record['key']} ({record['concept']})")
+            else:
+                print("   (No identifier parameters found)")
         
         driver.close()
         

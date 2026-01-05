@@ -332,6 +332,17 @@ class ColumnClassificationNode(BaseNode, LLMMixin, DatabaseMixin):
                             )
                             result['parameters'] += 1
                         self.log(f"📌 {clf.column_name} → {len(all_unique_values)} group parameters", indent=4)
+                
+                # identifier도 group parameter로 생성 (그룹 레벨)
+                # 참고: 그룹 파일(예: .vital)에서는 identifier가 파일명에서 추출되므로
+                #       여기서 처리되는 경우는 드물지만, 일관성을 위해 추가
+                elif clf.column_role == ColumnRole.IDENTIFIER.value:
+                    self._create_group_identifier_parameter(
+                        group_id=str(group_id),
+                        param_key=clf.column_name
+                    )
+                    result['parameters'] += 1
+                    self.log(f"🔑 {clf.column_name} → group identifier parameter", indent=4)
         
         self.log(f"✅ Group processed: {result['parameters']} parameters created", indent=3)
         return result
@@ -420,6 +431,15 @@ class ColumnClassificationNode(BaseNode, LLMMixin, DatabaseMixin):
                             result['parameters'] += 1
                             result['params_from_value'] += 1
                         self.log(f"📌 {clf.column_name} → {len(all_unique_values)} parameters", indent=4)
+                
+                # identifier도 parameter로 생성 (is_identifier=True)
+                elif clf.column_role == ColumnRole.IDENTIFIER.value:
+                    self._create_parameter_from_identifier(
+                        file_path=file_path,
+                        column_name=clf.column_name
+                    )
+                    result['parameters'] += 1
+                    self.log(f"🔑 {clf.column_name} → parameter (identifier)", indent=4)
         
         self.log(f"✅ File processed: {result['parameters']} parameters", indent=3)
         return result
@@ -458,6 +478,35 @@ class ColumnClassificationNode(BaseNode, LLMMixin, DatabaseMixin):
             INSERT INTO parameter (file_id, group_id, param_key, source_type, source_column_id)
             VALUES (NULL, %s::uuid, %s, %s, NULL)
         """, (group_id, param_key, source_type), fetch=None)
+
+    def _create_group_identifier_parameter(
+        self, 
+        group_id: str, 
+        param_key: str
+    ) -> None:
+        """
+        그룹 단위 identifier parameter 생성 (is_identifier=True)
+        
+        Args:
+            group_id: 파일 그룹 ID
+            param_key: 파라미터 키 (예: "caseid")
+        """
+        param_repo = self._get_param_repo()
+        
+        # 중복 체크
+        existing = param_repo._execute_query("""
+            SELECT param_id FROM parameter 
+            WHERE group_id = %s::uuid AND param_key = %s
+        """, (group_id, param_key), fetch="one")
+        
+        if existing:
+            return  # 이미 존재
+        
+        # parameter 생성 (group_id 사용, is_identifier=True)
+        param_repo._execute_query("""
+            INSERT INTO parameter (file_id, group_id, param_key, source_type, source_column_id, is_identifier)
+            VALUES (NULL, %s::uuid, %s, %s, NULL, TRUE)
+        """, (group_id, param_key, SourceType.GROUP_COMMON.value), fetch=None)
 
     def _get_columns_info_for_file(self, file_path: str) -> List[Dict[str, Any]]:
         """
@@ -652,6 +701,47 @@ class ColumnClassificationNode(BaseNode, LLMMixin, DatabaseMixin):
             
         except Exception as e:
             self.log(f"❌ Error creating parameter: {e}", indent=3)
+    
+    def _create_parameter_from_identifier(
+        self,
+        file_path: str,
+        column_name: str
+    ):
+        """
+        Identifier 컬럼을 parameter로 생성 (is_identifier=True)
+        
+        source_type = 'column_name'
+        is_identifier = True
+        
+        [A-2] parameter_semantic에서 LLM이 concept_category='Identifiers' 할당
+        """
+        param_repo = self._get_param_repo()
+        column_repo = self._get_column_repo()
+        
+        try:
+            # file_id 조회
+            file_info = self._get_file_repo().get_file_by_path(file_path)
+            if not file_info:
+                self.log(f"⚠️ File not found: {file_path}", indent=3)
+                return
+            
+            file_id = file_info.get("file_id")
+            
+            # col_id 조회
+            col_info = column_repo.get_column_by_name(file_path, column_name)
+            col_id = col_info.get("col_id") if col_info else None
+            
+            # parameter 생성 (is_identifier=True)
+            param_repo.create_parameter(
+                file_id=file_id,
+                param_key=column_name,
+                source_type=SourceType.COLUMN_NAME.value,
+                source_column_id=col_id,
+                is_identifier=True  # 핵심: identifier로 표시
+            )
+            
+        except Exception as e:
+            self.log(f"❌ Error creating identifier parameter: {e}", indent=3)
     
     # =========================================================================
     # Helper Methods

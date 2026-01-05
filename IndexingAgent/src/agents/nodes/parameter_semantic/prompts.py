@@ -67,6 +67,7 @@ Total: {param_count} parameters
         "Use parameter names and statistics to help identify the correct match",
         "Return ONLY valid JSON (no markdown, no explanation)",
         "param_key in response must match the parameter name exactly",
+        "If a parameter has 'role: IDENTIFIER', set concept_category to 'Identifiers'",
         _concept_rule,  # ConceptCategory ENUM에서 동적으로 생성
     ]
     
