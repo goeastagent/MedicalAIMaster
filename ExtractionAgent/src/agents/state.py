@@ -1,45 +1,156 @@
-from typing import Annotated, TypedDict, List, Dict, Any, Optional
-import operator
+# src/agents/state.py
+"""
+VitalExtractionAgent State Definition
 
-class ExtractionState(TypedDict):
+LangGraph 워크플로우에서 사용하는 상태 객체입니다.
+3-Node Pipeline:
+    [100] QueryUnderstanding - 동적 컨텍스트 로딩 + 쿼리 분석
+    [200] ParameterResolver  - 파라미터 매핑
+    [300] PlanBuilder        - Execution Plan 생성
+"""
+
+import operator
+from typing import Annotated, List, Dict, Any, Optional, TypedDict
+
+
+class VitalExtractionState(TypedDict):
     """
-    ExtractionAgent의 워크플로우 상태를 관리하는 객체
+    VitalExtractionAgent 워크플로우 상태
     
-    Self-Correction Loop 지원:
-    - 최대 3회까지 SQL 생성/실행 재시도
-    - 실패한 SQL과 에러 메시지를 히스토리로 축적
-    - 다음 시도에서 에러 컨텍스트를 LLM에 전달
+    3-Node Sequential Pipeline:
+        [100] QueryUnderstanding: DB 메타데이터 기반 동적 컨텍스트 생성 + LLM 쿼리 분석
+        [200] ParameterResolver: 요청 파라미터를 실제 param_key에 매핑
+        [300] PlanBuilder: Execution Plan JSON 조립 및 검증
     """
-    # 사용자의 자연어 질문
-    user_query: str
     
-    # DB 및 온톨로지에서 추출한 시맨틱 컨텍스트 (스키마, 관계 등)
-    semantic_context: Dict[str, Any]
+    # ═══════════════════════════════════════════════════════════════════════════
+    # Input
+    # ═══════════════════════════════════════════════════════════════════════════
+    user_query: str  # 사용자 자연어 쿼리
     
-    # 생성된 SQL 쿼리 전략 및 최종 SQL
-    sql_plan: Dict[str, Any]
-    generated_sql: Optional[str]
+    # ═══════════════════════════════════════════════════════════════════════════
+    # [100] QueryUnderstanding Output
+    # ═══════════════════════════════════════════════════════════════════════════
+    query_understanding_result: Optional[Dict[str, Any]]  # 노드 실행 결과 요약
     
-    # SQL 실행 결과 (데이터프레임 또는 리스트)
-    execution_result: Optional[List[Dict[str, Any]]]
+    schema_context: Optional[Dict[str, Any]]
+    # {
+    #     "cohort_sources": [
+    #         {
+    #             "file_id": "uuid-...",
+    #             "file_name": "...",
+    #             "row_represents": "...",
+    #             "entity_identifier": "...",
+    #             "filterable_columns": [...],
+    #             "temporal_columns": [...]
+    #         }
+    #     ],
+    #     "signal_groups": [
+    #         {
+    #             "group_id": "uuid-...",
+    #             "group_name": "...",
+    #             "file_count": 0,
+    #             "file_pattern": "...",
+    #             "entity_identifier_key": "..."
+    #         }
+    #     ],
+    #     "parameters": {
+    #         "<category>": {
+    #             "param_keys": [...],
+    #             "semantic_names": [...],
+    #             "units": [...]
+    #         }
+    #     },
+    #     "relationships": [
+    #         {"from": "...", "to": "...", "via": "...", "cardinality": "..."}
+    #     ],
+    #     "context_text": "LLM 프롬프트용 텍스트"
+    # }
     
-    # 추출된 파일 경로
-    output_file_path: Optional[str]
+    intent: Optional[str]  # always "data_retrieval"
     
-    # 실행 중 발생한 에러 메시지
-    error: Optional[str]
+    requested_parameters: Optional[List[Dict[str, Any]]]
+    # [{
+    #     "term": "심박수",           # 사용자 원문
+    #     "normalized": "Heart Rate", # 정규화된 이름
+    #     "candidates": ["HR", "Heart Rate"]  # 검색 키워드
+    # }]
     
-    # 시스템 로그 (누적)
-    logs: Annotated[List[str], operator.add]
+    cohort_filters: Optional[List[Dict[str, Any]]]
+    # [{
+    #     "column": "diagnosis",
+    #     "operator": "LIKE",
+    #     "value": "%Stomach Cancer%"
+    # }]
     
-    # === Self-Correction Loop 필드 ===
+    temporal_context: Optional[Dict[str, Any]]
+    # {
+    #     "type": "surgery_window",  # full_record | surgery_window | anesthesia_window | custom_window
+    #     "start_column": "op_start",
+    #     "end_column": "op_end",
+    #     "margin_seconds": 300
+    # }
     
-    # 현재 재시도 횟수 (0부터 시작)
-    retry_count: int
+    # ═══════════════════════════════════════════════════════════════════════════
+    # [200] ParameterResolver Output
+    # ═══════════════════════════════════════════════════════════════════════════
+    parameter_resolver_result: Optional[Dict[str, Any]]  # 노드 실행 결과 요약
     
-    # 최대 재시도 횟수 (기본값: 3)
-    max_retries: int
+    resolved_parameters: Optional[List[Dict[str, Any]]]
+    # [{
+    #     "term": "심박수",
+    #     "param_keys": ["Solar8000/HR", "BIS/HR"],
+    #     "semantic_name": "Heart Rate",
+    #     "unit": "bpm",
+    #     "concept_category": "Vital Signs",
+    #     "resolution_mode": "all_sources",  # all_sources | specific | clarify
+    #     "confidence": 0.95
+    # }]
     
-    # SQL 시도 히스토리: [{attempt, sql, error}, ...]
-    sql_history: List[Dict[str, Any]]
+    ambiguities: Optional[List[Dict[str, Any]]]
+    # [{
+    #     "term": "...",
+    #     "candidates": [...],
+    #     "question": "사용자에게 질문할 내용"
+    # }]
+    
+    has_ambiguity: Optional[bool]  # 사용자 확인이 필요한 모호성 존재 여부
+    
+    # ═══════════════════════════════════════════════════════════════════════════
+    # [300] PlanBuilder Output
+    # ═══════════════════════════════════════════════════════════════════════════
+    plan_builder_result: Optional[Dict[str, Any]]  # 노드 실행 결과 요약
+    
+    execution_plan: Optional[Dict[str, Any]]  # 최종 Execution Plan JSON
+    # {
+    #     "version": "1.0",
+    #     "generated_at": "...",
+    #     "agent": "VitalExtractionAgent",
+    #     "original_query": "...",
+    #     "execution_plan": {
+    #         "cohort_source": {...},
+    #         "signal_source": {...}
+    #     },
+    #     "validation": {...}
+    # }
+    
+    validation: Optional[Dict[str, Any]]
+    # {
+    #     "warnings": [],
+    #     "confidence": 0.95,
+    #     "validated_at": "..."
+    # }
+    
+    # ═══════════════════════════════════════════════════════════════════════════
+    # Human-in-the-Loop (Future)
+    # ═══════════════════════════════════════════════════════════════════════════
+    needs_human_review: Optional[bool]
+    human_question: Optional[str]
+    human_feedback: Optional[str]
+    
+    # ═══════════════════════════════════════════════════════════════════════════
+    # System
+    # ═══════════════════════════════════════════════════════════════════════════
+    logs: Annotated[List[str], operator.add]  # 로그 누적
+    error_message: Optional[str]
 

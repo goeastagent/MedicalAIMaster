@@ -365,7 +365,7 @@ class EntityRepository(BaseRepository):
     def get_relationships(self) -> List[Dict[str, Any]]:
         """모든 테이블 관계 조회"""
         rows = self._execute_query("""
-            SELECT r.relationship_id, r.source_file_id, r.target_file_id,
+            SELECT r.rel_id, r.source_file_id, r.target_file_id,
                    r.source_column, r.target_column,
                    r.relationship_type, r.cardinality,
                    r.confidence, r.reasoning,

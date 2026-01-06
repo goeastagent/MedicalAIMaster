@@ -1,97 +1,168 @@
+# src/agents/graph.py
+"""
+VitalExtractionAgent LangGraph Pipeline Builder
+================================================
+
+3-Node Sequential Pipeline:
+    START
+      │
+      ▼
+┌─────────────────────────────┐
+│ query_understanding (100)   │ ← DB 메타데이터 로딩 + LLM 쿼리 분석
+│     🤖📊                    │   SchemaContextBuilder → 동적 컨텍스트
+└───────────────┬─────────────┘
+                │
+                ▼
+┌─────────────────────────────┐
+│ parameter_resolver (200)    │ ← 파라미터 검색 + Resolution Mode 결정
+│     🤖📊                    │   PostgreSQL parameter + Neo4j 보조
+└───────────────┬─────────────┘
+                │
+                ▼
+┌─────────────────────────────┐
+│ plan_builder (300)          │ ← Execution Plan JSON 조립
+│     📊                      │   DynamicTopology + validation
+└───────────────┬─────────────┘
+                │
+                ▼
+              END
+
+Usage:
+    from src.agents.graph import build_agent
+    
+    # Create workflow
+    workflow = build_agent()
+    
+    # Run workflow
+    result = workflow.invoke({
+        "user_query": "위암 환자의 수술 중 심박수 데이터",
+        "logs": []
+    })
+    
+    print(result["execution_plan"])
+"""
+
+from typing import List, Optional
 from langgraph.graph import StateGraph, END
-from ExtractionAgent.src.agents.state import ExtractionState
-from ExtractionAgent.src.agents.nodes import (
-    inspect_context_node,
-    plan_sql_node,
-    execute_sql_node,
-    package_result_node
-)
+from .state import VitalExtractionState
 
 
-def should_retry(state: ExtractionState) -> str:
+def build_agent(
+    checkpointer=None,
+    include_nodes: Optional[List[str]] = None,
+    exclude_nodes: Optional[List[str]] = None
+):
     """
-    SQL 실행 결과에 따라 다음 단계 결정 (Self-Correction Loop)
+    VitalExtractionAgent 파이프라인 빌드
+    
+    NodeRegistry를 사용하여 order 순서대로 노드를 연결합니다.
+    노드를 선택적으로 포함/제외할 수 있습니다.
+    
+    Args:
+        checkpointer: (선택) 상태 저장용 checkpointer
+                     Human-in-the-Loop에서 interrupt/resume을 위해 필요
+        include_nodes: (선택) 포함할 노드 이름 목록. None이면 모든 활성 노드 포함.
+        exclude_nodes: (선택) 제외할 노드 이름 목록.
     
     Returns:
-        "success": 성공 (rows > 0) → packager로 이동
-        "retry": 실패 또는 0건 + 재시도 가능 → planner로 돌아가기 (Self-Loop)
-        "fail": 최대 재시도 초과 → 종료
+        컴파일된 LangGraph 워크플로우
+    
+    Examples:
+        # 전체 파이프라인 (3 nodes)
+        workflow = build_agent()
+        
+        # 특정 노드만 포함
+        workflow = build_agent(include_nodes=["query_understanding", "plan_builder"])
+        
+        # 특정 노드 제외
+        workflow = build_agent(exclude_nodes=["parameter_resolver"])
     """
-    retry_count = state.get("retry_count", 0)
-    max_retries = state.get("max_retries", 3)
-    error = state.get("error")
-    result = state.get("execution_result")
+    # 노드 클래스 임포트 (이 시점에 @register_node가 자동으로 등록)
+    # 직접 사용하지 않지만 import로 registry에 등록됨
+    import src.agents.nodes  # noqa: F401
     
-    # 성공: 결과가 있고, 1건 이상이고, 에러가 없음
-    if result is not None and len(result) > 0 and not error:
-        print(f"\n{'='*60}")
-        print(f"✅ [Router] SUCCESS - SQL executed successfully ({len(result)} rows)")
-        print(f"{'='*60}")
-        return "success"
+    from .registry import get_registry
     
-    # 결과가 0건인 경우 - retry 가능하면 retry
-    if result is not None and len(result) == 0 and retry_count < max_retries:
-        print(f"\n{'='*60}")
-        print(f"🔄 [Router] RETRY (ZERO ROWS) - Attempt {retry_count + 1}/{max_retries}")
-        print(f"   SQL executed but returned 0 rows - possible column/value mismatch")
-        print(f"{'='*60}")
-        return "retry"
+    registry = get_registry()
     
-    # 에러 발생 + 재시도 가능
-    if error and retry_count < max_retries:
-        print(f"\n{'='*60}")
-        print(f"🔄 [Router] RETRY (ERROR) - Attempt {retry_count + 1}/{max_retries}")
-        print(f"   Error: {str(error)[:80]}...")
-        print(f"{'='*60}")
-        return "retry"
+    # 활성화된 노드를 order 순으로 가져오기
+    nodes = registry.get_ordered_nodes(include=include_nodes, exclude=exclude_nodes)
     
-    # 최대 재시도 초과 또는 복구 불가
+    if not nodes:
+        raise ValueError("No nodes to build pipeline. Check include/exclude filters.")
+    
     print(f"\n{'='*60}")
-    print(f"❌ [Router] FAIL - Max retries ({max_retries}) exceeded")
-    if error:
-        print(f"   Last error: {str(error)[:80]}...")
-    elif result is not None and len(result) == 0:
-        print(f"   Query still returns 0 rows after all retries")
+    print("🔧 Building VitalExtractionAgent Pipeline")
     print(f"{'='*60}")
-    return "fail"
+    print(f"📋 Nodes ({len(nodes)}):")
+    for node in nodes:
+        badges = []
+        if node.requires_llm:
+            badges.append("🤖")
+        if node.requires_db:
+            badges.append("📊")
+        badge_str = "".join(badges) if badges else "📏"
+        print(f"   [{node.order:03d}] {node.name} {badge_str} - {node.description}")
+    print(f"{'='*60}\n")
+    
+    workflow = StateGraph(VitalExtractionState)
+    
+    # 노드 추가
+    for node in nodes:
+        workflow.add_node(node.name, node)
+    
+    # Entry point (첫 번째 노드)
+    workflow.set_entry_point(nodes[0].name)
+    
+    # 순차적 엣지 추가
+    for i in range(len(nodes) - 1):
+        current_node = nodes[i]
+        next_node = nodes[i + 1]
+        workflow.add_edge(current_node.name, next_node.name)
+    
+    # 마지막 노드 → END
+    workflow.add_edge(nodes[-1].name, END)
+    
+    # Compile
+    compile_config = {}
+    if checkpointer:
+        compile_config["checkpointer"] = checkpointer
+    
+    return workflow.compile(**compile_config)
 
 
-def build_extraction_graph():
+def build_custom_agent(node_names: List[str], checkpointer=None):
     """
-    Self-Correction Loop가 포함된 ExtractionAgent 워크플로우
+    커스텀 파이프라인 빌드 (지정된 노드만 포함)
     
-    Flow:
-        inspector → planner → executor ─┬─ success → packager → END
-                       ↑                │
-                       └── retry ───────┘
-                                        └── fail → END
+    Args:
+        node_names: 포함할 노드 이름 목록 (순서는 order에 따라 자동 정렬)
+        checkpointer: (선택) 상태 저장용 checkpointer
+    
+    Returns:
+        컴파일된 LangGraph 워크플로우
+    
+    Example:
+        workflow = build_custom_agent([
+            "query_understanding",
+            "plan_builder"
+        ])
     """
-    workflow = StateGraph(ExtractionState)
+    return build_agent(checkpointer=checkpointer, include_nodes=node_names)
 
-    # 1. 노드 등록
-    workflow.add_node("inspector", inspect_context_node)
-    workflow.add_node("planner", plan_sql_node)
-    workflow.add_node("executor", execute_sql_node)
-    workflow.add_node("packager", package_result_node)
 
-    # 2. 엣지 연결
-    workflow.set_entry_point("inspector")
-    workflow.add_edge("inspector", "planner")
-    workflow.add_edge("planner", "executor")
-    
-    # 3. Self-Correction Loop: 조건부 라우팅
-    workflow.add_conditional_edges(
-        "executor",
-        should_retry,
-        {
-            "success": "packager",   # 성공 → 결과 저장
-            "retry": "planner",      # 실패 → SQL 재생성 (Self-Loop)
-            "fail": END              # 최대 재시도 → 종료
-        }
-    )
-    
-    workflow.add_edge("packager", END)
+def list_available_nodes() -> List[dict]:
+    """사용 가능한 모든 노드 목록 반환"""
+    # Import to ensure nodes are registered
+    import src.agents.nodes  # noqa: F401
+    from .registry import get_registry
+    return get_registry().list_nodes()
 
-    # 컴파일
-    return workflow.compile()
+
+def print_pipeline_info():
+    """파이프라인 구성 정보 출력"""
+    # Import to ensure nodes are registered
+    import src.agents.nodes  # noqa: F401
+    from .registry import get_registry
+    get_registry().print_pipeline()
 
