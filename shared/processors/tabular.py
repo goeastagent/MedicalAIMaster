@@ -1,24 +1,38 @@
-# src/processors/tabular.py
+# shared/processors/tabular.py
+"""
+Tabular Processor - 테이블 데이터 처리 (.csv, .xlsx, .parquet)
+
+두 가지 모드:
+1. extract_metadata(): 파일 구조/통계 정보 추출 (IndexingAgent용)
+2. load_data(): 실제 데이터 로드 + 필터링 (DataContext용)
+"""
+
 import os
 import re
 import pandas as pd
-from typing import Dict, Any, Optional
+from typing import Dict, Any, Optional, List
 from datetime import datetime
+
 from .base import BaseDataProcessor
-from src.config import ProcessingConfig
 
 
 class TabularProcessor(BaseDataProcessor):
     """
-    테이블 형태의 데이터(.csv, .xlsx, .parquet)에서 최대한 많은 메타데이터를 추출하는 프로세서.
+    테이블 형태의 데이터(.csv, .xlsx, .parquet)를 처리하는 프로세서.
+    
+    기능:
+    1. extract_metadata(): 메타데이터 추출 (컬럼 정보, 통계, 샘플)
+    2. load_data(): 데이터 로드 + 필터링
     
     추출 정보:
     - 파일 기본 정보: 경로, 크기, 행/열 개수
     - 컬럼별 상세 정보: dtype, categorical/continuous, 통계, 결측치
     - 날짜/시간 컬럼 자동 감지
-    - 텍스트 컬럼 길이 통계
     - ID 컬럼 후보 감지 (unique ratio 기반)
     """
+    
+    # 지원 확장자
+    SUPPORTED_EXTENSIONS = {"csv", "tsv", "xlsx", "xls", "parquet"}
     
     # 날짜/시간 패턴 (컬럼명 기반 감지)
     DATETIME_COLUMN_PATTERNS = [
@@ -36,7 +50,11 @@ class TabularProcessor(BaseDataProcessor):
 
     def can_handle(self, file_path: str) -> bool:
         ext = file_path.lower().split('.')[-1]
-        return ext in ProcessingConfig.TABULAR_EXTENSIONS
+        return ext in self.SUPPORTED_EXTENSIONS
+    
+    # ═══════════════════════════════════════════════════════════════════════════
+    # 1. extract_metadata() - IndexingAgent용
+    # ═══════════════════════════════════════════════════════════════════════════
     
     def _is_potential_datetime_column(self, col_name: str, series: pd.Series) -> bool:
         """날짜/시간 컬럼인지 판단"""
@@ -87,18 +105,7 @@ class TabularProcessor(BaseDataProcessor):
             return None
     
     def _analyze_column(self, series: pd.Series, col_name: str, total_rows: int) -> Dict[str, Any]:
-        """
-        컬럼을 분석하여 최대한 많은 정보를 추출
-        
-        추출 정보:
-        - 기본: dtype, categorical/continuous
-        - 결측치: null_count, null_ratio
-        - 통계: min, max, mean, std, median, quartiles (연속형)
-        - 분포: unique values, value_counts (범주형)
-        - 텍스트: 평균/최대 길이 (문자열)
-        - 날짜: 날짜 범위 (날짜형)
-        - ID 후보: unique_ratio
-        """
+        """컬럼을 분석하여 정보 추출"""
         dtype = str(series.dtype)
         non_null_series = series.dropna()
         unique_values = non_null_series.unique()
@@ -118,7 +125,7 @@ class TabularProcessor(BaseDataProcessor):
             'unique_ratio': round(n_unique / n_total, 4) if n_total > 0 else 0,
         }
         
-        # ID 컬럼 후보 감지 (unique_ratio가 0.9 이상이면 ID 후보)
+        # ID 컬럼 후보 감지
         base_info['is_potential_id'] = base_info['unique_ratio'] >= 0.9 and n_unique > 1
         
         # 날짜/시간 컬럼 감지
@@ -139,10 +146,9 @@ class TabularProcessor(BaseDataProcessor):
         )
         
         if is_categorical:
-            # === Categorical 컬럼 ===
             base_info['column_type'] = 'categorical'
             
-            # Unique values 추출 (최대 20개)
+            # Unique values (최대 20개)
             unique_list = unique_values[:20].tolist()
             if n_unique > 20:
                 unique_list.append(f"... and {n_unique - 20} more")
@@ -159,7 +165,7 @@ class TabularProcessor(BaseDataProcessor):
             except Exception:
                 base_info['value_counts'] = {}
             
-            # 문자열인 경우 길이 통계
+            # 문자열 길이 통계
             if series.dtype == 'object':
                 try:
                     str_lengths = non_null_series.astype(str).str.len()
@@ -175,41 +181,35 @@ class TabularProcessor(BaseDataProcessor):
             base_info['samples'] = unique_values[:5].tolist()
             
         else:
-            # === Continuous 컬럼 ===
             base_info['column_type'] = 'continuous'
             
             try:
-                # 기본 통계
                 base_info['min'] = float(non_null_series.min())
                 base_info['max'] = float(non_null_series.max())
                 base_info['mean'] = round(float(non_null_series.mean()), 4)
                 base_info['std'] = round(float(non_null_series.std()), 4)
                 base_info['median'] = float(non_null_series.median())
                 
-                # 사분위수
                 q1 = non_null_series.quantile(0.25)
                 q3 = non_null_series.quantile(0.75)
                 base_info['quartiles'] = {
                     'q1': float(q1),
-                    'q2': float(non_null_series.median()),  # median
+                    'q2': float(non_null_series.median()),
                     'q3': float(q3),
-                    'iqr': float(q3 - q1),  # Interquartile Range
+                    'iqr': float(q3 - q1),
                 }
                 
-                # 이상치 범위 힌트 (IQR 기반)
                 iqr = q3 - q1
                 base_info['outlier_bounds'] = {
                     'lower': float(q1 - 1.5 * iqr),
                     'upper': float(q3 + 1.5 * iqr),
                 }
                 
-                # 분포 특성
                 base_info['distribution'] = {
                     'skewness': round(float(non_null_series.skew()), 4),
                     'kurtosis': round(float(non_null_series.kurtosis()), 4),
                 }
                 
-                # 범위
                 base_info['range'] = base_info['max'] - base_info['min']
                 
             except Exception as e:
@@ -219,16 +219,18 @@ class TabularProcessor(BaseDataProcessor):
         
         return base_info
     
-    def _load_full_dataframe(self, file_path: str) -> pd.DataFrame:
-        """파일 전체를 로드합니다."""
+    def _load_dataframe(self, file_path: str, usecols: Optional[List[str]] = None) -> pd.DataFrame:
+        """파일을 DataFrame으로 로드"""
         ext = file_path.lower().split('.')[-1]
         
         if ext == 'csv':
-            return pd.read_csv(file_path)
+            return pd.read_csv(file_path, usecols=usecols)
+        elif ext == 'tsv':
+            return pd.read_csv(file_path, sep='\t', usecols=usecols)
         elif ext == 'parquet':
-            return pd.read_parquet(file_path)
+            return pd.read_parquet(file_path, columns=usecols)
         elif ext in ['xlsx', 'xls']:
-            return pd.read_excel(file_path)
+            return pd.read_excel(file_path, usecols=usecols)
         else:
             raise ValueError(f"Unsupported file extension: {ext}")
     
@@ -246,39 +248,29 @@ class TabularProcessor(BaseDataProcessor):
 
     def extract_metadata(self, file_path: str) -> Dict[str, Any]:
         """
-        테이블 파일에서 최대한 많은 메타데이터를 추출합니다.
+        테이블 파일에서 메타데이터를 추출합니다.
         
-        추출 정보:
-        - 파일 기본 정보: 경로, 크기, 행/열 개수
-        - 컬럼별 상세 정보: dtype, 통계, 결측치, unique ratio
-        - 컬럼 타입별 분류: categorical, continuous, datetime
-        - ID 컬럼 후보: unique_ratio 기반 감지
-        - 데이터 품질: 결측치 요약
-        
-        Entity Identifier 감지와 시맨틱 분석은 Analyzer에서 수행합니다.
+        Returns:
+            메타데이터 딕셔너리
         """
         try:
-            # 1. 파일 기본 정보
             file_info = self._get_file_info(file_path)
-            
-            # 2. 전체 데이터 로드
-            df = self._load_full_dataframe(file_path)
+            df = self._load_dataframe(file_path)
             total_rows = len(df)
             total_cols = len(df.columns)
             
-            # 3. 컬럼별 상세 분석
+            # 컬럼별 분석
             column_details = []
             categorical_cols = []
             continuous_cols = []
             datetime_cols = []
             potential_id_cols = []
-            high_null_cols = []  # 결측치 50% 이상
+            high_null_cols = []
             
             for col in df.columns:
                 col_info = self._analyze_column(df[col], col, total_rows)
                 column_details.append(col_info)
                 
-                # 타입별 분류
                 col_type = col_info.get('column_type', 'unknown')
                 if col_type == 'categorical':
                     categorical_cols.append(col)
@@ -287,22 +279,19 @@ class TabularProcessor(BaseDataProcessor):
                 elif col_type == 'datetime':
                     datetime_cols.append(col)
                 
-                # ID 후보
                 if col_info.get('is_potential_id', False):
                     potential_id_cols.append(col)
                 
-                # 높은 결측치 컬럼
                 if col_info.get('null_ratio', 0) >= 0.5:
                     high_null_cols.append({
                         'column': col,
                         'null_ratio': col_info['null_ratio']
                     })
             
-            # 4. 전체 결측치 요약
+            # 결측치 요약
             total_nulls = df.isna().sum().sum()
             total_cells = total_rows * total_cols
             
-            # 5. 데이터 품질 요약
             quality_summary = {
                 "total_cells": total_cells,
                 "total_null_cells": int(total_nulls),
@@ -313,28 +302,20 @@ class TabularProcessor(BaseDataProcessor):
                 "high_null_columns": high_null_cols,
             }
             
-            # 6. 샘플 데이터 (첫 5행)
+            # 샘플 데이터
             sample_rows = df.head(5).to_dict(orient='records')
-            # NaN을 None으로 변환 (JSON 호환)
             for row in sample_rows:
                 for key, value in row.items():
                     if pd.isna(value):
                         row[key] = None
             
-            # 7. 결과 정리
             result = {
                 "processor_type": "tabular",
                 **file_info,
-                
-                # 크기 정보
                 "row_count": total_rows,
                 "column_count": total_cols,
-                
-                # 컬럼 정보
                 "columns": list(df.columns),
                 "column_details": column_details,
-                
-                # 컬럼 타입별 요약
                 "column_type_summary": {
                     "categorical_count": len(categorical_cols),
                     "categorical_columns": categorical_cols,
@@ -343,20 +324,10 @@ class TabularProcessor(BaseDataProcessor):
                     "datetime_count": len(datetime_cols),
                     "datetime_columns": datetime_cols,
                 },
-                
-                # ID 후보
                 "potential_id_columns": potential_id_cols,
-                
-                # 데이터 품질
                 "quality_summary": quality_summary,
-                
-                # 샘플 데이터
                 "sample_rows": sample_rows,
-                
-                # dtype 분포
                 "dtype_distribution": df.dtypes.astype(str).value_counts().to_dict(),
-                
-                # NOTE: entity_info는 Analyzer에서 LLM이 결정
             }
             
             return result
@@ -369,3 +340,158 @@ class TabularProcessor(BaseDataProcessor):
                 "processor_type": "tabular",
                 "file_path": file_path,
             }
+    
+    # ═══════════════════════════════════════════════════════════════════════════
+    # 2. load_data() - DataContext용
+    # ═══════════════════════════════════════════════════════════════════════════
+    
+    def load_data(
+        self,
+        file_path: str,
+        columns: Optional[List[str]] = None,
+        filters: Optional[List[Dict[str, Any]]] = None,
+        limit: Optional[int] = None
+    ) -> pd.DataFrame:
+        """
+        테이블 데이터 로드 + 필터링
+        
+        Args:
+            file_path: 파일 경로
+            columns: 로드할 컬럼 (None이면 전체)
+            filters: 필터 조건 리스트
+                [{"column": "department", "operator": "=", "value": "GS"}]
+            limit: 최대 행 수
+        
+        Returns:
+            DataFrame
+        """
+        # 파일 로드
+        df = self._load_dataframe(file_path, usecols=columns)
+        
+        # 필터 적용
+        if filters:
+            df = self._apply_filters(df, filters)
+        
+        # 행 수 제한
+        if limit:
+            df = df.head(limit)
+        
+        return df
+    
+    def _apply_filters(
+        self, 
+        df: pd.DataFrame, 
+        filters: List[Dict[str, Any]]
+    ) -> pd.DataFrame:
+        """
+        필터 조건 적용
+        
+        지원 연산자:
+        - =, !=, >, <, >=, <=
+        - LIKE (문자열 포함)
+        - IN (목록 포함)
+        - BETWEEN (범위)
+        - IS NULL, IS NOT NULL
+        """
+        for f in filters:
+            col = f.get("column")
+            op = f.get("operator", "=")
+            val = f.get("value")
+            
+            if col not in df.columns:
+                print(f"Warning: Column '{col}' not found, skipping filter")
+                continue
+            
+            op_upper = op.upper()
+            
+            if op_upper == "=" or op == "==":
+                df = df[df[col] == val]
+            elif op_upper == "!=" or op == "<>":
+                df = df[df[col] != val]
+            elif op_upper == ">":
+                df = df[df[col] > val]
+            elif op_upper == ">=":
+                df = df[df[col] >= val]
+            elif op_upper == "<":
+                df = df[df[col] < val]
+            elif op_upper == "<=":
+                df = df[df[col] <= val]
+            elif op_upper == "LIKE":
+                # SQL LIKE → pandas str.contains
+                # % → .* (정규식)
+                pattern = str(val).replace('%', '.*')
+                df = df[df[col].astype(str).str.contains(pattern, case=False, na=False, regex=True)]
+            elif op_upper == "NOT LIKE":
+                pattern = str(val).replace('%', '.*')
+                df = df[~df[col].astype(str).str.contains(pattern, case=False, na=False, regex=True)]
+            elif op_upper == "IN":
+                if isinstance(val, list):
+                    df = df[df[col].isin(val)]
+                else:
+                    df = df[df[col] == val]
+            elif op_upper == "NOT IN":
+                if isinstance(val, list):
+                    df = df[~df[col].isin(val)]
+                else:
+                    df = df[df[col] != val]
+            elif op_upper == "BETWEEN":
+                if isinstance(val, (list, tuple)) and len(val) == 2:
+                    df = df[(df[col] >= val[0]) & (df[col] <= val[1])]
+            elif op_upper == "IS NULL":
+                df = df[df[col].isna()]
+            elif op_upper == "IS NOT NULL":
+                df = df[df[col].notna()]
+            else:
+                print(f"Warning: Unknown operator '{op}', skipping filter")
+        
+        return df
+    
+    def get_available_columns(self, file_path: str) -> List[str]:
+        """
+        파일에서 사용 가능한 컬럼 목록 반환 (전체 로드 없이)
+        
+        CSV는 첫 줄만 읽어서 컬럼명 추출
+        """
+        ext = file_path.lower().split('.')[-1]
+        
+        try:
+            if ext == 'csv':
+                # 첫 줄만 읽기
+                df = pd.read_csv(file_path, nrows=0)
+                return list(df.columns)
+            elif ext == 'tsv':
+                df = pd.read_csv(file_path, sep='\t', nrows=0)
+                return list(df.columns)
+            elif ext == 'parquet':
+                import pyarrow.parquet as pq
+                schema = pq.read_schema(file_path)
+                return schema.names
+            elif ext in ['xlsx', 'xls']:
+                df = pd.read_excel(file_path, nrows=0)
+                return list(df.columns)
+        except Exception as e:
+            print(f"Warning: Could not get columns from {file_path}: {e}")
+        
+        return []
+    
+    def get_row_count(self, file_path: str) -> int:
+        """
+        파일의 행 수 반환 (전체 로드 없이, 가능한 경우)
+        """
+        ext = file_path.lower().split('.')[-1]
+        
+        try:
+            if ext in ['csv', 'tsv']:
+                # 빠른 행 수 카운트
+                with open(file_path, 'r') as f:
+                    return sum(1 for _ in f) - 1  # 헤더 제외
+            elif ext == 'parquet':
+                import pyarrow.parquet as pq
+                return pq.read_metadata(file_path).num_rows
+            else:
+                # 전체 로드 필요
+                df = self._load_dataframe(file_path)
+                return len(df)
+        except Exception:
+            return -1
+

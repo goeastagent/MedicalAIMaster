@@ -4,10 +4,13 @@
 
 NOTE: Processor는 LLM 없이 파일 읽기와 구조화된 데이터 추출만 담당합니다.
       LLM 분석은 Agent Node에서 수행합니다.
+
+Processors는 shared 패키지에서 import합니다:
+- shared.processors.TabularProcessor: CSV, Parquet 등 테이블 데이터
+- shared.processors.SignalProcessor: .vital, .edf 등 신호 데이터
 """
 
-from src.processors.tabular import TabularProcessor
-from src.processors.signal import SignalProcessor
+from shared.processors import TabularProcessor, SignalProcessor
 
 
 # Processors list - used by catalog.py

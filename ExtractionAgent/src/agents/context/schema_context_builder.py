@@ -47,6 +47,7 @@ class SchemaContext:
     signal_groups: List[Dict[str, Any]] = field(default_factory=list)
     parameters: Dict[str, List[Dict[str, Any]]] = field(default_factory=dict)
     parameter_examples: List[Dict[str, Any]] = field(default_factory=list)  # 소스별 예시
+    category_guide: Dict[str, Dict[str, Any]] = field(default_factory=dict)  # 카테고리 가이드 (동적)
     relationships: List[Dict[str, Any]] = field(default_factory=list)
     context_text: str = ""
     
@@ -56,6 +57,7 @@ class SchemaContext:
             "signal_groups": self.signal_groups,
             "parameters": self.parameters,
             "parameter_examples": self.parameter_examples,
+            "category_guide": self.category_guide,
             "relationships": self.relationships,
             "context_text": self.context_text,
         }
@@ -155,10 +157,13 @@ class SchemaContextBuilder:
         # 4. 파라미터 예시 조회 (소스별)
         context.parameter_examples = self.get_parameter_examples(examples_per_source=3)
         
-        # 5. 관계 조회
+        # 5. 카테고리 가이드 생성 (동적)
+        context.category_guide = self.get_category_guide()
+        
+        # 6. 관계 조회
         context.relationships = self.get_relationships()
         
-        # 6. LLM 프롬프트용 텍스트 생성
+        # 7. LLM 프롬프트용 텍스트 생성
         context.context_text = self.build_context_text(context)
         
         return context.to_dict()
@@ -461,6 +466,98 @@ class SchemaContextBuilder:
                 pass
             return []
     
+    def get_category_guide(self) -> Dict[str, Dict[str, Any]]:
+        """
+        카테고리 가이드 동적 생성 (프롬프트용)
+        
+        DB에서 concept_category별로 키워드와 예시를 추출하여
+        LLM이 파라미터를 올바른 카테고리에 매핑할 수 있도록 합니다.
+        
+        Returns:
+            {
+                "Vital Signs": {
+                    "keywords": ["HR", "Heart Rate", "BP", "Blood Pressure", "SpO2", ...],
+                    "examples": ["Solar8000/HR", "Solar8000/NIBP_SBP", ...]
+                },
+                "Medication": {
+                    "keywords": ["infusion", "dose", ...],
+                    "examples": ["Orchestra/PHEN_RATE", ...]
+                },
+                ...
+            }
+        """
+        try:
+            conn = self.db.get_connection()
+            cursor = conn.cursor()
+            
+            # 카테고리별 param_key와 semantic_name 조회
+            query = """
+                SELECT 
+                    concept_category,
+                    param_key,
+                    semantic_name
+                FROM parameter
+                WHERE concept_category IS NOT NULL
+                ORDER BY concept_category, param_id
+            """
+            
+            cursor.execute(query)
+            rows = cursor.fetchall()
+            conn.commit()
+            
+            # 카테고리별로 그룹핑
+            category_data = {}
+            for row in rows:
+                category, param_key, semantic_name = row
+                
+                if category not in category_data:
+                    category_data[category] = {
+                        "keywords": set(),
+                        "examples": []
+                    }
+                
+                # 예시 추가 (최대 5개)
+                if len(category_data[category]["examples"]) < 5:
+                    category_data[category]["examples"].append(param_key)
+                
+                # 키워드 추출
+                # 1. param_key에서 추출 (예: "Solar8000/HR" → "HR")
+                if "/" in param_key:
+                    key_part = param_key.split("/")[-1]
+                    category_data[category]["keywords"].add(key_part)
+                else:
+                    category_data[category]["keywords"].add(param_key)
+                
+                # 2. semantic_name에서 단어 추출
+                if semantic_name:
+                    # 주요 단어만 추출 (관사, 전치사 제외)
+                    words = semantic_name.split()
+                    for word in words:
+                        word_clean = word.strip("(),.")
+                        if len(word_clean) > 2 and word_clean.lower() not in (
+                            "the", "and", "for", "from", "with", "rate", "value", 
+                            "level", "count", "total", "mean", "time"
+                        ):
+                            category_data[category]["keywords"].add(word_clean)
+            
+            # set을 list로 변환하고 정렬
+            result = {}
+            for category, data in category_data.items():
+                result[category] = {
+                    "keywords": sorted(list(data["keywords"]))[:15],  # 최대 15개 키워드
+                    "examples": data["examples"]
+                }
+            
+            return result
+            
+        except Exception as e:
+            print(f"[SchemaContextBuilder] Error getting category guide: {e}")
+            try:
+                self.db.rollback()
+            except:
+                pass
+            return {}
+    
     def get_relationships(self) -> List[Dict[str, Any]]:
         """
         테이블 간 관계 조회
@@ -572,6 +669,28 @@ class SchemaContextBuilder:
                 
                 if len(params) > 10:
                     lines.append(f"  - ... 외 {len(params) - 10}개")
+            lines.append("")
+        
+        # 4. Category Guide (동적 생성)
+        if context.category_guide:
+            lines.append("## Parameter Category Guide")
+            lines.append("")
+            lines.append("Use this guide to determine the expected_categories for requested parameters:")
+            lines.append("")
+            lines.append("| Keywords / Examples | Category |")
+            lines.append("|---------------------|----------|")
+            
+            for category, data in sorted(context.category_guide.items()):
+                keywords = data.get("keywords", [])[:8]  # 최대 8개 키워드
+                examples = data.get("examples", [])[:3]  # 최대 3개 예시
+                
+                # 키워드와 예시를 합쳐서 표시
+                display_items = keywords[:5]
+                if examples:
+                    display_items.append(f"(e.g., {examples[0]})")
+                
+                lines.append(f"| {', '.join(display_items)} | {category} |")
+            
             lines.append("")
         
         # 4. Relationships

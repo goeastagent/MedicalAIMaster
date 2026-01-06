@@ -73,11 +73,14 @@ class ParameterResolverNode(BaseNode):
             term = param.get("term", "")
             normalized = param.get("normalized", term)
             candidates = param.get("candidates", [])
+            expected_categories = param.get("expected_categories", [])  # Option B
             
             self.log(f"🔍 Resolving: {term}", indent=1)
+            if expected_categories:
+                self.log(f"   Expected categories: {expected_categories}", indent=2)
             
-            # 1. Search database for matching parameters
-            db_matches = self._search_parameters(candidates, schema_context)
+            # 1. Search database for matching parameters (with category filter - Option B)
+            db_matches = self._search_parameters(candidates, expected_categories, schema_context)
             self.log(f"   Found {len(db_matches)} DB matches", indent=2)
             
             # 2. Determine resolution based on match count
@@ -142,18 +145,20 @@ class ParameterResolverNode(BaseNode):
     
     def _search_parameters(
         self, 
-        candidates: List[str], 
+        candidates: List[str],
+        expected_categories: List[str],  # Option B: 카테고리 필터
         schema_context: Dict[str, Any]
     ) -> List[Dict[str, Any]]:
         """
         Search PostgreSQL parameter table for matching parameters.
         
-        Uses ILIKE for case-insensitive partial matching on:
-        - param_key
-        - semantic_name
+        Option B: 2-step search
+        1. Keyword search (ILIKE on param_key, semantic_name)
+        2. Filter by expected_categories if provided
         
         Args:
             candidates: Search keywords
+            expected_categories: Expected concept_category values (Option B)
             schema_context: Schema context (contains group info)
         
         Returns:
@@ -166,23 +171,31 @@ class ParameterResolverNode(BaseNode):
         cursor = conn.cursor()
         
         try:
-            # Build ILIKE conditions for each candidate
-            conditions = []
+            # Step 1: Build ILIKE conditions for each candidate
+            keyword_conditions = []
             params = []
             
             for kw in candidates:
                 kw_pattern = f"%{kw}%"
-                conditions.append("(param_key ILIKE %s OR semantic_name ILIKE %s)")
+                keyword_conditions.append("(param_key ILIKE %s OR semantic_name ILIKE %s)")
                 params.extend([kw_pattern, kw_pattern])
             
-            where_clause = " OR ".join(conditions)
+            keyword_clause = " OR ".join(keyword_conditions)
+            
+            # Step 2: Add category filter if expected_categories provided (Option B)
+            if expected_categories:
+                category_placeholders = ", ".join(["%s"] * len(expected_categories))
+                category_clause = f"AND concept_category IN ({category_placeholders})"
+                params.extend(expected_categories)
+            else:
+                category_clause = ""
             
             query = f"""
                 SELECT DISTINCT ON (param_key)
                        param_id, param_key, semantic_name, unit, 
                        concept_category, file_id, group_id
                 FROM parameter
-                WHERE {where_clause}
+                WHERE ({keyword_clause}) {category_clause}
                 ORDER BY param_key, param_id
                 LIMIT %s
             """
@@ -206,11 +219,73 @@ class ParameterResolverNode(BaseNode):
                     "group_id": str(group_id) if group_id else None
                 })
             
+            # Option B Fallback: 카테고리 필터로 결과가 없으면 전체 검색
+            if not results and expected_categories:
+                self.log(f"⚠️ No matches in categories {expected_categories}, searching all", indent=2)
+                return self._search_parameters_without_category(candidates)
+            
             return results
             
         except Exception as e:
             conn.rollback()
             self.log(f"❌ DB search error: {e}", indent=2)
+            return []
+    
+    def _search_parameters_without_category(
+        self,
+        candidates: List[str]
+    ) -> List[Dict[str, Any]]:
+        """
+        Fallback: Search without category filter.
+        Used when category-filtered search returns no results.
+        """
+        conn = self.db.get_connection()
+        cursor = conn.cursor()
+        
+        try:
+            conditions = []
+            params = []
+            
+            for kw in candidates:
+                kw_pattern = f"%{kw}%"
+                conditions.append("(param_key ILIKE %s OR semantic_name ILIKE %s)")
+                params.extend([kw_pattern, kw_pattern])
+            
+            where_clause = " OR ".join(conditions)
+            
+            query = f"""
+                SELECT DISTINCT ON (param_key)
+                       param_id, param_key, semantic_name, unit, 
+                       concept_category, file_id, group_id
+                FROM parameter
+                WHERE {where_clause}
+                ORDER BY param_key, param_id
+                LIMIT %s
+            """
+            params.append(self.config.search_limit)
+            
+            cursor.execute(query, params)
+            rows = cursor.fetchall()
+            conn.commit()
+            
+            results = []
+            for row in rows:
+                param_id, param_key, sem_name, unit, category, file_id, group_id = row
+                results.append({
+                    "param_id": param_id,
+                    "param_key": param_key,
+                    "semantic_name": sem_name,
+                    "unit": unit,
+                    "concept_category": category,
+                    "file_id": str(file_id) if file_id else None,
+                    "group_id": str(group_id) if group_id else None
+                })
+            
+            return results
+            
+        except Exception as e:
+            conn.rollback()
+            self.log(f"❌ DB fallback search error: {e}", indent=2)
             return []
     
     def _create_no_match_result(
@@ -238,15 +313,38 @@ class ParameterResolverNode(BaseNode):
         db_matches: List[Dict[str, Any]]
     ) -> Dict[str, Any]:
         """Create result using all matched sources."""
-        # Use first match for semantic info, collect all param_keys
-        first_match = db_matches[0]
+        # Collect unique values
+        unique_semantic_names = list(set(
+            m.get("semantic_name") for m in db_matches if m.get("semantic_name")
+        ))
+        unique_units = list(set(
+            m.get("unit") for m in db_matches if m.get("unit")
+        ))
+        unique_categories = list(set(
+            m.get("concept_category") for m in db_matches if m.get("concept_category")
+        ))
+        
+        # Determine display values
+        if len(unique_semantic_names) == 1:
+            semantic_name = unique_semantic_names[0]
+        elif len(unique_semantic_names) > 1:
+            semantic_name = f"{normalized} ({len(db_matches)} types)"
+        else:
+            semantic_name = normalized
+        
+        unit = unique_units[0] if len(unique_units) == 1 else (
+            f"mixed ({len(unique_units)})" if unique_units else None
+        )
+        category = unique_categories[0] if len(unique_categories) == 1 else (
+            unique_categories[0] if unique_categories else None
+        )
         
         return {
             "term": term,
             "param_keys": [m.get("param_key") for m in db_matches],
-            "semantic_name": first_match.get("semantic_name") or normalized,
-            "unit": first_match.get("unit"),
-            "concept_category": first_match.get("concept_category"),
+            "semantic_name": semantic_name,
+            "unit": unit,
+            "concept_category": category,
             "resolution_mode": "all_sources",
             "confidence": 0.9,
             "reasoning": f"Using all {len(db_matches)} matched sources"
@@ -305,24 +403,58 @@ class ParameterResolverNode(BaseNode):
             confidence = response.get("confidence", 0.5)
             reasoning = response.get("reasoning", "")
             
-            # Filter to selected param_keys
-            if resolution_mode == "specific" and selected_keys:
+            # Option C (fix-2): ALWAYS trust LLM's selected_param_keys if provided
+            # This is the key fix - previously only "specific" mode used selected_keys
+            if selected_keys:
                 selected_matches = [
                     m for m in db_matches 
                     if m.get("param_key") in selected_keys
                 ]
+                self.log(f"   🎯 LLM selected {len(selected_keys)} keys → {len(selected_matches)} matched", indent=2)
+                
+                # If LLM selected keys but none match DB results, fall back to all
+                if not selected_matches:
+                    self.log(f"   ⚠️ LLM selection didn't match DB, using all", indent=2)
+                    selected_matches = db_matches
+                    resolution_mode = "all_sources"
             else:
+                # No selection from LLM - use all matches
                 selected_matches = db_matches
             
-            # Get semantic info from first selected match
+            # Get semantic info from selected matches
             if selected_matches:
-                first = selected_matches[0]
+                # Collect unique values from selected matches
+                unique_semantic_names = list(set(
+                    m.get("semantic_name") for m in selected_matches if m.get("semantic_name")
+                ))
+                unique_units = list(set(
+                    m.get("unit") for m in selected_matches if m.get("unit")
+                ))
+                unique_categories = list(set(
+                    m.get("concept_category") for m in selected_matches if m.get("concept_category")
+                ))
+                
+                # Determine display values
+                if len(unique_semantic_names) == 1:
+                    semantic_name = unique_semantic_names[0]
+                elif len(unique_semantic_names) > 1:
+                    semantic_name = f"{normalized} ({len(selected_matches)} types)"
+                else:
+                    semantic_name = normalized
+                
+                unit = unique_units[0] if len(unique_units) == 1 else (
+                    f"mixed ({len(unique_units)})" if unique_units else None
+                )
+                category = unique_categories[0] if len(unique_categories) == 1 else (
+                    unique_categories[0] if unique_categories else None
+                )
+                
                 return {
                     "term": term,
                     "param_keys": [m.get("param_key") for m in selected_matches],
-                    "semantic_name": first.get("semantic_name") or normalized,
-                    "unit": first.get("unit"),
-                    "concept_category": first.get("concept_category"),
+                    "semantic_name": semantic_name,
+                    "unit": unit,
+                    "concept_category": category,
                     "resolution_mode": resolution_mode,
                     "confidence": confidence,
                     "reasoning": reasoning

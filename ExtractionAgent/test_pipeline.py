@@ -109,7 +109,10 @@ def print_node_result_detail(result: dict, node_name: str):
         
         print(f"   • Relationships: {len(schema_ctx.get('relationships', []))}")
         for rel in schema_ctx.get('relationships', []):
-            print(f"      - {rel.get('from')} → {rel.get('to')} (via {rel.get('via')})")
+            from_str = f"{rel.get('from_table')}.{rel.get('from_column')}"
+            to_str = f"{rel.get('to_table')}.{rel.get('to_column')}"
+            cardinality = rel.get('cardinality', 'N/A')
+            print(f"      - {from_str} → {to_str} ({cardinality})")
         
         # Intent
         print(f"\n🎯 Intent: {result.get('intent', 'N/A')}")
@@ -404,7 +407,7 @@ def run_test(workflow, query_info: dict, verbose: bool = False, show_json: bool 
             print_node_result_detail(result, "query_understanding")
             print_node_result_detail(result, "parameter_resolver")
             print_node_result_detail(result, "plan_builder")
-            print_logs(result)
+            # print_logs(result)  # 중복 출력 방지 - 노드에서 이미 실시간 로그 출력됨
         
         # JSON 전체 출력 모드
         if show_json:

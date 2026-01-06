@@ -1,10 +1,18 @@
+# shared/processors/signal.py
+"""
+Signal Processor - 생체신호 데이터 처리 (.vital, .edf)
+
+두 가지 모드:
+1. extract_metadata(): 헤더만 읽어 메타데이터 추출 (빠름, IndexingAgent용)
+2. load_data(): 실제 신호 데이터 로드 (느림, DataContext용)
+"""
+
 import os
 from datetime import datetime, timezone
-from typing import Dict, Any, Optional
+from typing import Dict, Any, Optional, List, Tuple
+import pandas as pd
 
-# Base Class 임포트
 from .base import BaseDataProcessor
-from src.config import ProcessingConfig
 
 # --- 라이브러리 동적 로드 (설치되지 않았을 경우 대비) ---
 try:
@@ -22,17 +30,20 @@ except ImportError:
 
 class SignalProcessor(BaseDataProcessor):
     """
-    생체신호 데이터(.vital, .edf)를 파싱하여 최대한 많은 메타데이터를 추출하는 프로세서.
+    생체신호 데이터(.vital, .edf)를 처리하는 프로세서.
+    
+    기능:
+    1. extract_metadata(): 메타데이터 추출 (녹화 정보, 장치, 트랙 등)
+    2. load_data(): 실제 신호 데이터 로드 (선택적 트랙, 시간 범위)
     
     추출 정보:
     - Global: 녹화 시작/종료 시간, duration, GMT offset
     - Device: 장치 목록, 타입, 포트
-    - Track: 이름, 단위, 샘플링 레이트, 타입, 스케일링 정보, 표시 범위, 통계
-    
-    파일명 기반 식별:
-    - 파일명 자체를 식별자로 사용 (다양한 데이터셋 대응)
-    - 파일명이 ID일 수도 있고 아닐 수도 있으므로, 일반적으로 filename으로 처리
+    - Track: 이름, 단위, 샘플링 레이트, 타입, 스케일링 정보
     """
+    
+    # 지원 확장자
+    SUPPORTED_EXTENSIONS = {"vital", "edf", "bdf"}
 
     # Track type 매핑 (vitaldb 내부 타입 코드)
     TRACK_TYPE_MAP = {
@@ -44,21 +55,14 @@ class SignalProcessor(BaseDataProcessor):
     def can_handle(self, file_path: str) -> bool:
         """처리 가능한 파일 확장자 확인"""
         ext = file_path.lower().split('.')[-1]
-        return ext in ProcessingConfig.SIGNAL_EXTENSIONS
+        return ext in self.SUPPORTED_EXTENSIONS
+    
+    # ═══════════════════════════════════════════════════════════════════════════
+    # 1. extract_metadata() - IndexingAgent용
+    # ═══════════════════════════════════════════════════════════════════════════
     
     def extract_filename_info(self, file_path: str) -> Dict[str, Any]:
-        """
-        파일명 정보를 추출합니다.
-        
-        다양한 데이터셋에서 파일명이 반드시 ID 형태가 아닐 수 있으므로,
-        단순히 파일명 자체를 식별자로 사용합니다.
-        
-        Returns:
-            {
-                "filename": str,           # 전체 파일명 (확장자 포함)
-                "name_without_ext": str    # 확장자 제외 파일명
-            }
-        """
+        """파일명 정보를 추출합니다."""
         basename = os.path.basename(file_path)
         name_without_ext = os.path.splitext(basename)[0]
         
@@ -274,16 +278,10 @@ class SignalProcessor(BaseDataProcessor):
 
     def extract_metadata(self, file_path: str) -> Dict[str, Any]:
         """
-        생체신호 파일에서 최대한 많은 메타데이터를 추출합니다.
+        생체신호 파일에서 메타데이터를 추출합니다.
         
-        추출 정보:
-        - 파일 기본 정보: 경로, 크기, 확장자
-        - 녹화 정보: 시작/종료 시간, duration
-        - 장치 정보: 장치 목록, 타입, 포트
-        - 트랙 정보: 이름, 단위, 샘플링 레이트, 타입, 스케일링, 표시 범위
-        - 요약 정보: 트랙 타입별 개수, 샘플링 레이트 범위
-        
-        Entity Identifier 감지와 시맨틱 분석은 Analyzer에서 수행합니다.
+        Returns:
+            메타데이터 딕셔너리
         """
         if not os.path.exists(file_path):
             raise FileNotFoundError(f"File not found: {file_path}")
@@ -315,7 +313,6 @@ class SignalProcessor(BaseDataProcessor):
             "track_summary": {},
             "sample_rate_summary": {},
             "unique_units": [],
-            # NOTE: entity_info는 Analyzer에서 LLM이 결정
         }
 
         error_msg = None
@@ -333,3 +330,178 @@ class SignalProcessor(BaseDataProcessor):
             metadata["error"] = error_msg
 
         return metadata
+    
+    # ═══════════════════════════════════════════════════════════════════════════
+    # 2. load_data() - DataContext용
+    # ═══════════════════════════════════════════════════════════════════════════
+    
+    def load_data(
+        self,
+        file_path: str,
+        columns: Optional[List[str]] = None,
+        time_range: Optional[Tuple[float, float]] = None,
+        resample_interval: float = 1.0
+    ) -> pd.DataFrame:
+        """
+        .vital 파일에서 실제 신호 데이터 로드
+        
+        Args:
+            file_path: .vital 파일 경로
+            columns: 로드할 트랙 이름 (None이면 전체)
+                예: ["Solar8000/HR", "Solar8000/NIBP_SBP"]
+            time_range: (start_sec, end_sec) 시간 범위 (None이면 전체)
+            resample_interval: 리샘플링 간격 (초, 기본 1초)
+        
+        Returns:
+            DataFrame with columns: [Time, track1, track2, ...]
+        """
+        ext = file_path.lower().split('.')[-1]
+        
+        if ext == 'vital':
+            return self._load_vital_data(file_path, columns, time_range, resample_interval)
+        elif ext in ['edf', 'bdf']:
+            return self._load_edf_data(file_path, columns, time_range, resample_interval)
+        else:
+            raise ValueError(f"Unsupported file extension: {ext}")
+    
+    def _load_vital_data(
+        self,
+        file_path: str,
+        columns: Optional[List[str]] = None,
+        time_range: Optional[Tuple[float, float]] = None,
+        resample_interval: float = 1.0
+    ) -> pd.DataFrame:
+        """VitalDB .vital 파일 데이터 로드"""
+        if not VITALDB_AVAILABLE:
+            raise ImportError("vitaldb library required. Install with: pip install vitaldb")
+        
+        # 전체 데이터 로드 (header_only=False)
+        vf = vitaldb.VitalFile(file_path)
+        
+        # 사용 가능한 트랙 확인
+        available = list(vf.trks.keys())
+        
+        # 트랙 선택
+        if columns:
+            selected = [c for c in columns if c in available]
+            if not selected:
+                print(f"Warning: No matching tracks found. Available: {available[:10]}...")
+                return pd.DataFrame()
+        else:
+            selected = available
+        
+        # 데이터 추출
+        data = {}
+        for track_name in selected:
+            try:
+                # vitaldb.to_numpy(): 지정된 interval로 리샘플링된 데이터 반환
+                vals = vf.to_numpy(track_name, interval=resample_interval)
+                if vals is not None and len(vals) > 0:
+                    data[track_name] = vals
+            except Exception as e:
+                print(f"Warning: Failed to load {track_name}: {e}")
+        
+        if not data:
+            return pd.DataFrame()
+        
+        # DataFrame 생성
+        max_len = max(len(v) for v in data.values())
+        df = pd.DataFrame({
+            "Time": [i * resample_interval for i in range(max_len)]
+        })
+        
+        for track_name, vals in data.items():
+            # 길이 맞추기 (padding with NaN)
+            padded = list(vals) + [None] * (max_len - len(vals))
+            df[track_name] = padded
+        
+        # 시간 범위 필터링
+        if time_range:
+            start, end = time_range
+            df = df[(df["Time"] >= start) & (df["Time"] <= end)]
+        
+        return df
+    
+    def _load_edf_data(
+        self,
+        file_path: str,
+        columns: Optional[List[str]] = None,
+        time_range: Optional[Tuple[float, float]] = None,
+        resample_interval: float = 1.0
+    ) -> pd.DataFrame:
+        """MNE .edf/.bdf 파일 데이터 로드"""
+        if not MNE_AVAILABLE:
+            raise ImportError("mne library required. Install with: pip install mne")
+        
+        ext = file_path.lower().split('.')[-1]
+        if ext == 'edf':
+            raw = mne.io.read_raw_edf(file_path, preload=True, verbose=False)
+        else:
+            raw = mne.io.read_raw_bdf(file_path, preload=True, verbose=False)
+        
+        # 채널 선택
+        if columns:
+            available = raw.ch_names
+            selected = [c for c in columns if c in available]
+            if selected:
+                raw = raw.pick_channels(selected)
+        
+        # 데이터 추출
+        data, times = raw.get_data(return_times=True)
+        
+        # DataFrame 생성
+        df = pd.DataFrame({"Time": times})
+        for i, ch_name in enumerate(raw.ch_names):
+            df[ch_name] = data[i]
+        
+        # 시간 범위 필터링
+        if time_range:
+            start, end = time_range
+            df = df[(df["Time"] >= start) & (df["Time"] <= end)]
+        
+        # 리샘플링 (간단한 다운샘플링)
+        if resample_interval > 0:
+            current_interval = times[1] - times[0] if len(times) > 1 else 1.0
+            if resample_interval > current_interval:
+                step = int(resample_interval / current_interval)
+                df = df.iloc[::step].reset_index(drop=True)
+        
+        return df
+    
+    def get_available_columns(self, file_path: str) -> List[str]:
+        """
+        파일에서 사용 가능한 트랙 목록 반환 (데이터 로드 없이)
+        
+        header_only=True로 빠르게 조회
+        """
+        ext = file_path.lower().split('.')[-1]
+        
+        if ext == 'vital':
+            if not VITALDB_AVAILABLE:
+                return []
+            vf = vitaldb.VitalFile(file_path, header_only=True)
+            return list(vf.trks.keys())
+        
+        elif ext in ['edf', 'bdf']:
+            if not MNE_AVAILABLE:
+                return []
+            if ext == 'edf':
+                raw = mne.io.read_raw_edf(file_path, preload=False, verbose=False)
+            else:
+                raw = mne.io.read_raw_bdf(file_path, preload=False, verbose=False)
+            return raw.ch_names
+        
+        return []
+    
+    def get_recording_info(self, file_path: str) -> Dict[str, Any]:
+        """
+        녹화 정보만 빠르게 조회 (시작/종료 시간, duration 등)
+        """
+        metadata = self.extract_metadata(file_path)
+        return {
+            "recording_info": metadata.get("recording_info", {}),
+            "duration": metadata.get("duration", 0),
+            "duration_minutes": metadata.get("duration_minutes", 0),
+            "duration_hours": metadata.get("duration_hours", 0),
+        }
+

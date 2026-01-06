@@ -177,7 +177,12 @@ class QueryUnderstandingNode(BaseNode):
         """
         # 프롬프트 생성
         context_text = schema_context.get("context_text", "")
-        system_prompt = build_system_prompt(context_text)
+        
+        # 사용 가능한 카테고리 목록 추출 (동적)
+        category_guide = schema_context.get("category_guide", {})
+        available_categories = list(category_guide.keys()) if category_guide else None
+        
+        system_prompt = build_system_prompt(context_text, available_categories)
         user_prompt = build_user_prompt(user_query)
         
         # LLM 호출
@@ -227,7 +232,8 @@ class QueryUnderstandingNode(BaseNode):
                     normalized_param = {
                         "term": param.get("term", ""),
                         "normalized": param.get("normalized", param.get("term", "")),
-                        "candidates": param.get("candidates", [])
+                        "candidates": param.get("candidates", []),
+                        "expected_categories": param.get("expected_categories", [])  # Option B: 카테고리 힌트
                     }
                     # candidates가 없으면 term과 normalized를 사용
                     if not normalized_param["candidates"]:
