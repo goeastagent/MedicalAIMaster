@@ -25,7 +25,7 @@ from ...base import BaseNode, LLMMixin, DatabaseMixin, Neo4jMixin
 from ...registry import register_node
 from shared.database import OntologySchemaManager
 from shared.database.repositories import ParameterRepository, FileGroupRepository
-from src.config import RelationshipInferenceConfig
+from src.config import RelationshipInferenceConfig, IndexingConfig
 from shared.config import LLMConfig, Neo4jConfig
 from .prompts import RelationshipInferencePrompt
 
@@ -218,7 +218,9 @@ class RelationshipInferenceNode(BaseNode, LLMMixin, DatabaseMixin, Neo4jMixin):
         shared: List[Dict]
     ) -> Tuple[List[TableRelationship], int]:
         """
-        LLM을 호출하여 FK 관계 추론
+        LLM을 호출하여 FK 관계 추론 (배치 처리)
+        
+        테이블 수가 MAX_TABLES_PER_BATCH를 초과하면 배치로 나눠서 처리합니다.
         
         Returns:
             (관계 목록, LLM 호출 횟수)
@@ -230,6 +232,95 @@ class RelationshipInferenceNode(BaseNode, LLMMixin, DatabaseMixin, Neo4jMixin):
             self.log("ℹ️ No shared columns - skipping LLM call", indent=1)
             return [], 0
         
+        max_tables = RelationshipInferenceConfig.MAX_TABLES_PER_BATCH
+        
+        # 배치가 필요한지 확인
+        if len(tables) <= max_tables:
+            # 단일 배치로 처리
+            return self._call_llm_for_batch(tables, shared)
+        
+        # 배치 처리 필요
+        self.log(f"📦 Splitting {len(tables)} tables into batches of {max_tables}...", indent=1)
+        
+        all_results = []
+        total_llm_calls = 0
+        
+        # 테이블을 배치로 분할
+        table_batches = [tables[i:i + max_tables] for i in range(0, len(tables), max_tables)]
+        
+        for batch_idx, table_batch in enumerate(table_batches):
+            self.log(f"📤 Batch {batch_idx + 1}/{len(table_batches)} ({len(table_batch)} tables)...", indent=1)
+            
+            # 이 배치에 해당하는 파일들의 이름 집합
+            batch_file_names = {t['file_name'] for t in table_batch}
+            
+            # 공유 컬럼 중 이 배치에 해당하는 것만 필터링
+            batch_shared = self._filter_shared_for_batch(shared, batch_file_names)
+            
+            if not batch_shared:
+                self.log(f"   ℹ️ No shared columns in this batch, skipping", indent=1)
+                continue
+            
+            # 배치별 LLM 호출
+            batch_results, batch_calls = self._call_llm_for_batch(table_batch, batch_shared)
+            all_results.extend(batch_results)
+            total_llm_calls += batch_calls
+            
+            self.log(f"   ✅ Found {len(batch_results)} relationships", indent=1)
+        
+        # 중복 관계 제거
+        unique_results = self._deduplicate_relationships(all_results)
+        
+        return unique_results, total_llm_calls
+    
+    def _filter_shared_for_batch(
+        self,
+        shared: List[Dict],
+        batch_file_names: Set[str]
+    ) -> List[Dict]:
+        """배치에 해당하는 파일들만 포함하도록 공유 컬럼 필터링"""
+        filtered = []
+        
+        for item in shared:
+            # 이 컬럼을 공유하는 테이블 중 배치에 속하는 것만 필터링
+            batch_tables = [t for t in item['tables'] if t['file_name'] in batch_file_names]
+            
+            # 2개 이상 테이블이 공유해야 FK 후보
+            if len(batch_tables) >= 2:
+                filtered.append({
+                    "column_name": item['column_name'],
+                    "tables": batch_tables
+                })
+        
+        return filtered
+    
+    def _deduplicate_relationships(
+        self,
+        relationships: List[TableRelationship]
+    ) -> List[TableRelationship]:
+        """중복 관계 제거 (source-target-column 조합 기준)"""
+        seen = set()
+        unique = []
+        
+        for rel in relationships:
+            key = (rel.source_table, rel.target_table, rel.source_column, rel.target_column)
+            if key not in seen:
+                seen.add(key)
+                unique.append(rel)
+        
+        return unique
+    
+    def _call_llm_for_batch(
+        self,
+        tables: List[Dict],
+        shared: List[Dict]
+    ) -> Tuple[List[TableRelationship], int]:
+        """
+        단일 배치에 대해 LLM 호출
+        
+        Returns:
+            (관계 목록, LLM 호출 횟수)
+        """
         tables_context = self._build_tables_context(tables)
         shared_context = self._build_shared_columns_context(shared)
         
@@ -238,8 +329,6 @@ class RelationshipInferenceNode(BaseNode, LLMMixin, DatabaseMixin, Neo4jMixin):
             tables_context=tables_context,
             shared_columns=shared_context
         )
-        
-        self.log("📤 Calling LLM for relationship inference...", indent=1)
         
         llm_calls = 0
         results = []
@@ -265,10 +354,10 @@ class RelationshipInferenceNode(BaseNode, LLMMixin, DatabaseMixin, Neo4jMixin):
                     
                     return results, llm_calls
                 else:
-                    self.log(f"⚠️ Invalid LLM response, attempt {attempt + 1}", indent=1)
+                    self.log(f"   ⚠️ Invalid LLM response, attempt {attempt + 1}", indent=2)
                     
             except Exception as e:
-                self.log(f"❌ LLM call failed (attempt {attempt + 1}): {e}", indent=1)
+                self.log(f"   ❌ LLM call failed (attempt {attempt + 1}): {e}", indent=2)
                 if attempt < RelationshipInferenceConfig.MAX_RETRIES - 1:
                     time.sleep(RelationshipInferenceConfig.RETRY_DELAY_SECONDS)
         
@@ -325,201 +414,229 @@ class RelationshipInferenceNode(BaseNode, LLMMixin, DatabaseMixin, Neo4jMixin):
     # =============================================================================
     
     def _create_row_entity_nodes(self, driver, tables: List[Dict]) -> int:
-        """Level 1: RowEntity 노드 생성"""
-        if not driver:
+        """Level 1: RowEntity 노드 생성 - UNWIND 배치 처리"""
+        if not driver or not tables:
             return 0
         
-        count = 0
-        with driver.session(database=Neo4jConfig.DATABASE) as session:
-            for table in tables:
-                try:
-                    session.run("""
-                        MERGE (e:RowEntity {file_name: $file_name})
-                        SET e.file_id = $file_id,
-                            e.name = $row_represents,
-                            e.identifier_column = $entity_identifier,
-                            e.row_count = $row_count
-                    """, {
-                        "file_id": table['file_id'],
-                        "file_name": table['file_name'],
-                        "row_represents": table['row_represents'],
-                        "entity_identifier": table['entity_identifier'],
-                        "row_count": table['row_count']
-                    })
-                    count += 1
-                except Exception as e:
-                    self.log(f"❌ Error creating RowEntity {table['file_name']}: {e}", indent=2)
+        batch_data = [
+            {
+                "file_id": table['file_id'],
+                "file_name": table['file_name'],
+                "row_represents": table['row_represents'],
+                "entity_identifier": table['entity_identifier'],
+                "row_count": table['row_count']
+            }
+            for table in tables
+        ]
         
-        return count
+        try:
+            with driver.session(database=Neo4jConfig.DATABASE) as session:
+                result = session.run("""
+                    UNWIND $batch AS row
+                    MERGE (e:RowEntity {file_name: row.file_name})
+                    SET e.file_id = row.file_id,
+                        e.name = row.row_represents,
+                        e.identifier_column = row.entity_identifier,
+                        e.row_count = row.row_count
+                    RETURN count(*) as cnt
+                """, {"batch": batch_data})
+                return result.single()["cnt"]
+        except Exception as e:
+            self.log(f"❌ Error creating RowEntity nodes: {e}", indent=2)
+            return 0
     
     def _create_concept_category_nodes(self, driver, all_params: List[Dict]) -> int:
-        """Level 2: ConceptCategory 노드 생성 (parameter 테이블 기반)"""
+        """Level 2: ConceptCategory 노드 생성 - UNWIND 배치 처리"""
         if not driver:
             return 0
         
-        concepts: Set[str] = set()
-        for param in all_params:
-            if param.get('concept'):
-                concepts.add(param['concept'])
+        concepts = list({param['concept'] for param in all_params if param.get('concept')})
+        if not concepts:
+            return 0
         
-        count = 0
-        with driver.session(database=Neo4jConfig.DATABASE) as session:
-            for concept in concepts:
-                try:
-                    session.run("""
-                        MERGE (c:ConceptCategory {name: $name})
-                    """, {"name": concept})
-                    count += 1
-                except Exception as e:
-                    self.log(f"❌ Error creating ConceptCategory {concept}: {e}", indent=2)
-        
-        return count
+        try:
+            with driver.session(database=Neo4jConfig.DATABASE) as session:
+                result = session.run("""
+                    UNWIND $concepts AS name
+                    MERGE (c:ConceptCategory {name: name})
+                    RETURN count(*) as cnt
+                """, {"concepts": concepts})
+                return result.single()["cnt"]
+        except Exception as e:
+            self.log(f"❌ Error creating ConceptCategory nodes: {e}", indent=2)
+            return 0
     
     def _create_parameter_nodes(self, driver, all_params: List[Dict]) -> int:
-        """Level 3: Parameter 노드 생성 (parameter 테이블 기반, identifier 포함)"""
-        if not driver:
+        """Level 3: Parameter 노드 생성 - UNWIND 배치 처리"""
+        if not driver or not all_params:
             return 0
         
-        count = 0
-        with driver.session(database=Neo4jConfig.DATABASE) as session:
-            for param in all_params:
-                try:
-                    session.run("""
-                        MERGE (p:Parameter {key: $key})
-                        SET p.name = $name,
-                            p.unit = $unit,
-                            p.concept = $concept,
-                            p.is_identifier = $is_identifier
-                    """, {
-                        "key": param['key'],
-                        "name": param['name'],
-                        "unit": param['unit'],
-                        "concept": param['concept'],
-                        "is_identifier": param.get('is_identifier', False)
-                    })
-                    count += 1
-                except Exception as e:
-                    self.log(f"❌ Error creating Parameter {param['key']}: {e}", indent=2)
+        batch_data = [
+            {
+                "key": param['key'],
+                "name": param['name'],
+                "unit": param['unit'],
+                "concept": param['concept'],
+                "is_identifier": param.get('is_identifier', False)
+            }
+            for param in all_params
+        ]
         
-        return count
+        try:
+            with driver.session(database=Neo4jConfig.DATABASE) as session:
+                result = session.run("""
+                    UNWIND $batch AS row
+                    MERGE (p:Parameter {key: row.key})
+                    SET p.name = row.name,
+                        p.unit = row.unit,
+                        p.concept = row.concept,
+                        p.is_identifier = row.is_identifier
+                    RETURN count(*) as cnt
+                """, {"batch": batch_data})
+                return result.single()["cnt"]
+        except Exception as e:
+            self.log(f"❌ Error creating Parameter nodes: {e}", indent=2)
+            return 0
     
     def _create_links_to_edges(self, driver, relationships: List[TableRelationship], tables: List[Dict]) -> int:
-        """RowEntity 간 FK 관계 (LINKS_TO) 생성"""
+        """RowEntity 간 FK 관계 (LINKS_TO) 생성 - UNWIND 배치 처리"""
         if not driver or not relationships:
             return 0
         
         valid_names = {t['file_name'] for t in tables}
         
-        count = 0
-        with driver.session(database=Neo4jConfig.DATABASE) as session:
-            for rel in relationships:
-                if rel.source_table not in valid_names or rel.target_table not in valid_names:
-                    continue
-                
-                try:
-                    session.run("""
-                        MATCH (s:RowEntity {file_name: $source_name})
-                        MATCH (t:RowEntity {file_name: $target_name})
-                        MERGE (s)-[r:LINKS_TO]->(t)
-                        SET r.source_column = $source_column,
-                            r.target_column = $target_column,
-                            r.cardinality = $cardinality,
-                            r.confidence = $confidence
-                    """, {
-                        "source_name": rel.source_table,
-                        "target_name": rel.target_table,
-                        "source_column": rel.source_column,
-                        "target_column": rel.target_column,
-                        "cardinality": rel.cardinality,
-                        "confidence": rel.confidence
-                    })
-                    count += 1
-                except Exception as e:
-                    self.log(f"❌ Error creating LINKS_TO: {e}", indent=2)
+        batch_data = [
+            {
+                "source_name": rel.source_table,
+                "target_name": rel.target_table,
+                "source_column": rel.source_column,
+                "target_column": rel.target_column,
+                "cardinality": rel.cardinality,
+                "confidence": rel.confidence
+            }
+            for rel in relationships
+            if rel.source_table in valid_names and rel.target_table in valid_names
+        ]
         
-        return count
+        if not batch_data:
+            return 0
+        
+        try:
+            with driver.session(database=Neo4jConfig.DATABASE) as session:
+                result = session.run("""
+                    UNWIND $batch AS row
+                    MATCH (s:RowEntity {file_name: row.source_name})
+                    MATCH (t:RowEntity {file_name: row.target_name})
+                    MERGE (s)-[r:LINKS_TO]->(t)
+                    SET r.source_column = row.source_column,
+                        r.target_column = row.target_column,
+                        r.cardinality = row.cardinality,
+                        r.confidence = row.confidence
+                    RETURN count(*) as cnt
+                """, {"batch": batch_data})
+                return result.single()["cnt"]
+        except Exception as e:
+            self.log(f"❌ Error creating LINKS_TO edges: {e}", indent=2)
+            return 0
     
     def _create_has_concept_edges(self, driver, tables: List[Dict]) -> int:
-        """RowEntity → ConceptCategory (HAS_CONCEPT) 엣지 생성"""
+        """RowEntity → ConceptCategory (HAS_CONCEPT) 엣지 생성 - UNWIND 배치 처리"""
         if not driver:
             return 0
         
-        count = 0
-        with driver.session(database=Neo4jConfig.DATABASE) as session:
-            for table in tables:
-                concepts = set(col['concept_category'] for col in table['columns'] if col['concept_category'])
-                
-                for concept in concepts:
-                    try:
-                        session.run("""
-                            MATCH (e:RowEntity {file_name: $file_name})
-                            MATCH (c:ConceptCategory {name: $concept})
-                            MERGE (e)-[:HAS_CONCEPT]->(c)
-                        """, {
-                            "file_name": table['file_name'],
-                            "concept": concept
-                        })
-                        count += 1
-                    except Exception as e:
-                        self.log(f"❌ Error creating HAS_CONCEPT: {e}", indent=2)
+        # 배치 데이터 수집 (중복 제거)
+        edges_set = set()
+        for table in tables:
+            concepts = {col['concept_category'] for col in table['columns'] if col['concept_category']}
+            for concept in concepts:
+                edges_set.add((table['file_name'], concept))
         
-        return count
+        if not edges_set:
+            return 0
+        
+        batch_data = [{"file_name": fn, "concept": c} for fn, c in edges_set]
+        
+        try:
+            with driver.session(database=Neo4jConfig.DATABASE) as session:
+                result = session.run("""
+                    UNWIND $batch AS row
+                    MATCH (e:RowEntity {file_name: row.file_name})
+                    MATCH (c:ConceptCategory {name: row.concept})
+                    MERGE (e)-[:HAS_CONCEPT]->(c)
+                    RETURN count(*) as cnt
+                """, {"batch": batch_data})
+                return result.single()["cnt"]
+        except Exception as e:
+            self.log(f"❌ Error creating HAS_CONCEPT edges: {e}", indent=2)
+            return 0
     
     def _create_contains_edges(self, driver, all_params: List[Dict]) -> int:
-        """ConceptCategory → Parameter (CONTAINS) 엣지 생성 (parameter 테이블 기반)"""
+        """ConceptCategory → Parameter (CONTAINS) 엣지 생성 - UNWIND 배치 처리"""
         if not driver:
             return 0
         
-        concept_to_params: Dict[str, Set[str]] = {}
-        for param in all_params:
-            concept = param.get('concept')
-            if concept:
-                if concept not in concept_to_params:
-                    concept_to_params[concept] = set()
-                concept_to_params[concept].add(param['key'])
+        # 배치 데이터 수집
+        batch_data = [
+            {"concept": param['concept'], "key": param['key']}
+            for param in all_params
+            if param.get('concept')
+        ]
         
-        count = 0
-        with driver.session(database=Neo4jConfig.DATABASE) as session:
-            for concept, param_keys in concept_to_params.items():
-                for key in param_keys:
-                    try:
-                        session.run("""
-                            MATCH (c:ConceptCategory {name: $concept})
-                            MATCH (p:Parameter {key: $key})
-                            MERGE (c)-[:CONTAINS]->(p)
-                        """, {
-                            "concept": concept,
-                            "key": key
-                        })
-                        count += 1
-                    except Exception as e:
-                        self.log(f"❌ Error creating CONTAINS: {e}", indent=2)
+        if not batch_data:
+            return 0
         
-        return count
+        try:
+            with driver.session(database=Neo4jConfig.DATABASE) as session:
+                result = session.run("""
+                    UNWIND $batch AS row
+                    MATCH (c:ConceptCategory {name: row.concept})
+                    MATCH (p:Parameter {key: row.key})
+                    MERGE (c)-[:CONTAINS]->(p)
+                    RETURN count(*) as cnt
+                """, {"batch": batch_data})
+                return result.single()["cnt"]
+        except Exception as e:
+            self.log(f"❌ Error creating CONTAINS edges: {e}", indent=2)
+            return 0
     
     def _create_has_column_edges(self, driver, tables: List[Dict]) -> int:
-        """RowEntity → Parameter (HAS_COLUMN) 엣지 생성"""
+        """RowEntity → Parameter (HAS_COLUMN) 엣지 생성 - UNWIND 배치 처리 (대량 최적화)"""
         if not driver:
             return 0
         
-        count = 0
-        with driver.session(database=Neo4jConfig.DATABASE) as session:
-            for table in tables:
-                for col in table['columns']:
-                    try:
-                        session.run("""
-                            MATCH (e:RowEntity {file_name: $file_name})
-                            MATCH (p:Parameter {key: $key})
-                            MERGE (e)-[:HAS_COLUMN]->(p)
-                        """, {
-                            "file_name": table['file_name'],
-                            "key": col['original_name']
-                        })
-                        count += 1
-                    except Exception as e:
-                        self.log(f"❌ Error creating HAS_COLUMN: {e}", indent=2)
+        # 모든 엣지 데이터를 한 번에 수집
+        batch_data = []
+        for table in tables:
+            file_name = table['file_name']
+            for col in table['columns']:
+                batch_data.append({
+                    "file_name": file_name,
+                    "key": col['original_name']
+                })
         
-        return count
+        if not batch_data:
+            return 0
+        
+        # 대량 데이터는 청크로 나눠서 처리 (메모리 효율성)
+        CHUNK_SIZE = 5000
+        total_count = 0
+        
+        try:
+            with driver.session(database=Neo4jConfig.DATABASE) as session:
+                for i in range(0, len(batch_data), CHUNK_SIZE):
+                    chunk = batch_data[i:i + CHUNK_SIZE]
+                    result = session.run("""
+                        UNWIND $batch AS row
+                        MATCH (e:RowEntity {file_name: row.file_name})
+                        MATCH (p:Parameter {key: row.key})
+                        MERGE (e)-[:HAS_COLUMN]->(p)
+                        RETURN count(*) as cnt
+                    """, {"batch": chunk})
+                    total_count += result.single()["cnt"]
+            return total_count
+        except Exception as e:
+            self.log(f"❌ Error creating HAS_COLUMN edges: {e}", indent=2)
+            return 0
     
     def _load_filename_column_mappings(self) -> Dict[str, Dict[str, Any]]:
         """
@@ -530,81 +647,87 @@ class RelationshipInferenceNode(BaseNode, LLMMixin, DatabaseMixin, Neo4jMixin):
         return self.directory_repo.get_filename_column_mappings()
     
     def _create_filename_value_edges(self, driver, tables: List[Dict]) -> int:
-        """filename_values에서 추출된 값을 Parameter 노드와 FILENAME_VALUE 관계로 연결"""
+        """filename_values에서 추출된 값을 Parameter 노드와 FILENAME_VALUE 관계로 연결 - UNWIND 배치 처리"""
         if not driver:
             return 0
         
         dir_mappings = self._load_filename_column_mappings()
         
-        count = 0
-        with driver.session(database=Neo4jConfig.DATABASE) as session:
-            for table in tables:
-                filename_values = table.get('filename_values', {})
-                if not filename_values:
-                    continue
+        # 배치 데이터 수집
+        batch_data = []
+        for table in tables:
+            filename_values = table.get('filename_values', {})
+            if not filename_values:
+                continue
+            
+            file_name = table.get('file_name', '')
+            
+            for key, value in filename_values.items():
+                matched_info = None
+                semantic_role = "extracted_value"
+                confidence = 0.8
+                reasoning = "Extracted from filename pattern"
                 
-                file_name = table.get('file_name', '')
+                for dir_name, col_map in dir_mappings.items():
+                    if key in col_map:
+                        matched_info = col_map[key]
+                        break
                 
-                for key, value in filename_values.items():
-                    matched_info = None
-                    semantic_role = "extracted_value"
-                    confidence = 0.8
-                    reasoning = "Extracted from filename pattern"
-                    
-                    for dir_name, col_map in dir_mappings.items():
-                        if key in col_map:
-                            matched_info = col_map[key]
-                            break
-                    
-                    if matched_info:
-                        matched_column = matched_info.get('matched_column') or key  # None 방지
-                        confidence = matched_info.get('match_confidence', 0.8)
-                        reasoning = matched_info.get('match_reasoning', reasoning)
-                    else:
-                        matched_column = key
-                    
-                    # semantic_role 결정 (matched_column은 항상 문자열)
-                    matched_lower = matched_column.lower()
-                    if 'id' in matched_lower or 'case' in matched_lower:
-                        semantic_role = "case_identifier"
-                    elif 'subject' in matched_lower or 'patient' in matched_lower:
-                        semantic_role = "subject_identifier"
-                    elif 'date' in matched_lower or 'time' in matched_lower:
-                        semantic_role = "temporal_identifier"
-                    else:
-                        semantic_role = "identifier"
-                    
-                    try:
-                        session.run("""
-                            MATCH (e:RowEntity {file_name: $file_name})
-                            MATCH (p:Parameter {key: $param_key})
-                            MERGE (e)-[r:FILENAME_VALUE]->(p)
-                            SET r.value = $value,
-                                r.semantic_role = $semantic_role,
-                                r.source = 'filename',
-                                r.confidence = $confidence,
-                                r.reasoning = $reasoning
-                        """, {
-                            "file_name": file_name,
-                            "param_key": matched_column,
-                            "value": value,
-                            "semantic_role": semantic_role,
-                            "confidence": confidence,
-                            "reasoning": reasoning
-                        })
-                        count += 1
-                        
-                    except Exception as e:
-                        self.log(f"⚠️ Error creating FILENAME_VALUE for {file_name}.{key}: {e}", indent=2)
+                if matched_info:
+                    matched_column = matched_info.get('matched_column') or key
+                    confidence = matched_info.get('match_confidence', 0.8)
+                    reasoning = matched_info.get('match_reasoning', reasoning)
+                else:
+                    matched_column = key
+                
+                # semantic_role 결정
+                matched_lower = matched_column.lower()
+                if 'id' in matched_lower or 'case' in matched_lower:
+                    semantic_role = "case_identifier"
+                elif 'subject' in matched_lower or 'patient' in matched_lower:
+                    semantic_role = "subject_identifier"
+                elif 'date' in matched_lower or 'time' in matched_lower:
+                    semantic_role = "temporal_identifier"
+                else:
+                    semantic_role = "identifier"
+                
+                batch_data.append({
+                    "file_name": file_name,
+                    "param_key": matched_column,
+                    "value": str(value) if value is not None else "",
+                    "semantic_role": semantic_role,
+                    "confidence": confidence,
+                    "reasoning": reasoning
+                })
         
-        return count
+        if not batch_data:
+            return 0
+        
+        try:
+            with driver.session(database=Neo4jConfig.DATABASE) as session:
+                result = session.run("""
+                    UNWIND $batch AS row
+                    MATCH (e:RowEntity {file_name: row.file_name})
+                    MATCH (p:Parameter {key: row.param_key})
+                    MERGE (e)-[r:FILENAME_VALUE]->(p)
+                    SET r.value = row.value,
+                        r.semantic_role = row.semantic_role,
+                        r.source = 'filename',
+                        r.confidence = row.confidence,
+                        r.reasoning = row.reasoning
+                    RETURN count(*) as cnt
+                """, {"batch": batch_data})
+                return result.single()["cnt"]
+        except Exception as e:
+            self.log(f"❌ Error creating FILENAME_VALUE edges: {e}", indent=2)
+            return 0
     
     # =========================================================================
     # FileGroup 노드 및 엣지 (Q2: group_common 파라미터 지원)
     # =========================================================================
     
     def _create_file_group_nodes(self, driver) -> int:
-        """FileGroup 노드 생성 (confirmed 상태의 그룹만)"""
+        """FileGroup 노드 생성 - UNWIND 배치 처리"""
         if not driver:
             return 0
         
@@ -614,58 +737,61 @@ class RelationshipInferenceNode(BaseNode, LLMMixin, DatabaseMixin, Neo4jMixin):
         if not groups:
             return 0
         
-        count = 0
-        with driver.session(database=Neo4jConfig.DATABASE) as session:
-            for group in groups:
-                try:
-                    session.run("""
-                        MERGE (fg:FileGroup {group_id: $group_id})
-                        SET fg.name = $name,
-                            fg.file_count = $file_count,
-                            fg.row_represents = $row_represents
-                    """, {
-                        "group_id": str(group['group_id']),
-                        "name": group['group_name'],
-                        "file_count": group.get('file_count', 0),
-                        "row_represents": group.get('row_represents')
-                    })
-                    count += 1
-                except Exception as e:
-                    self.log(f"❌ Error creating FileGroup {group['group_name']}: {e}", indent=2)
+        batch_data = [
+            {
+                "group_id": str(group['group_id']),
+                "name": group['group_name'],
+                "file_count": group.get('file_count', 0),
+                "row_represents": group.get('row_represents')
+            }
+            for group in groups
+        ]
         
-        return count
+        try:
+            with driver.session(database=Neo4jConfig.DATABASE) as session:
+                result = session.run("""
+                    UNWIND $batch AS row
+                    MERGE (fg:FileGroup {group_id: row.group_id})
+                    SET fg.name = row.name,
+                        fg.file_count = row.file_count,
+                        fg.row_represents = row.row_represents
+                    RETURN count(*) as cnt
+                """, {"batch": batch_data})
+                return result.single()["cnt"]
+        except Exception as e:
+            self.log(f"❌ Error creating FileGroup nodes: {e}", indent=2)
+            return 0
     
     def _create_contains_file_edges(self, driver, tables: List[Dict]) -> int:
-        """FileGroup → RowEntity (CONTAINS_FILE) 엣지 생성"""
+        """FileGroup → RowEntity (CONTAINS_FILE) 엣지 생성 - UNWIND 배치 처리"""
         if not driver:
             return 0
         
         # tables에서 group_id가 있는 파일들만 추출
-        files_with_group = [t for t in tables if t.get('group_id')]
+        batch_data = [
+            {"group_id": str(t['group_id']), "file_name": t['file_name']}
+            for t in tables if t.get('group_id')
+        ]
         
-        if not files_with_group:
+        if not batch_data:
             return 0
         
-        count = 0
-        with driver.session(database=Neo4jConfig.DATABASE) as session:
-            for table in files_with_group:
-                try:
-                    session.run("""
-                        MATCH (fg:FileGroup {group_id: $group_id})
-                        MATCH (r:RowEntity {file_name: $file_name})
-                        MERGE (fg)-[:CONTAINS_FILE]->(r)
-                    """, {
-                        "group_id": str(table['group_id']),
-                        "file_name": table['file_name']
-                    })
-                    count += 1
-                except Exception as e:
-                    self.log(f"❌ Error creating CONTAINS_FILE: {e}", indent=2)
-        
-        return count
+        try:
+            with driver.session(database=Neo4jConfig.DATABASE) as session:
+                result = session.run("""
+                    UNWIND $batch AS row
+                    MATCH (fg:FileGroup {group_id: row.group_id})
+                    MATCH (r:RowEntity {file_name: row.file_name})
+                    MERGE (fg)-[:CONTAINS_FILE]->(r)
+                    RETURN count(*) as cnt
+                """, {"batch": batch_data})
+                return result.single()["cnt"]
+        except Exception as e:
+            self.log(f"❌ Error creating CONTAINS_FILE edges: {e}", indent=2)
+            return 0
     
     def _create_has_common_param_edges(self, driver) -> int:
-        """FileGroup → Parameter (HAS_COMMON_PARAM) 엣지 생성"""
+        """FileGroup → Parameter (HAS_COMMON_PARAM) 엣지 생성 - UNWIND 배치 처리"""
         if not driver:
             return 0
         
@@ -675,23 +801,24 @@ class RelationshipInferenceNode(BaseNode, LLMMixin, DatabaseMixin, Neo4jMixin):
         if not group_params:
             return 0
         
-        count = 0
-        with driver.session(database=Neo4jConfig.DATABASE) as session:
-            for item in group_params:
-                try:
-                    session.run("""
-                        MATCH (fg:FileGroup {group_id: $group_id})
-                        MATCH (p:Parameter {key: $param_key})
-                        MERGE (fg)-[:HAS_COMMON_PARAM]->(p)
-                    """, {
-                        "group_id": item['group_id'],
-                        "param_key": item['param_key']
-                    })
-                    count += 1
-                except Exception as e:
-                    self.log(f"❌ Error creating HAS_COMMON_PARAM: {e}", indent=2)
+        batch_data = [
+            {"group_id": item['group_id'], "param_key": item['param_key']}
+            for item in group_params
+        ]
         
-        return count
+        try:
+            with driver.session(database=Neo4jConfig.DATABASE) as session:
+                result = session.run("""
+                    UNWIND $batch AS row
+                    MATCH (fg:FileGroup {group_id: row.group_id})
+                    MATCH (p:Parameter {key: row.param_key})
+                    MERGE (fg)-[:HAS_COMMON_PARAM]->(p)
+                    RETURN count(*) as cnt
+                """, {"batch": batch_data})
+                return result.single()["cnt"]
+        except Exception as e:
+            self.log(f"❌ Error creating HAS_COMMON_PARAM edges: {e}", indent=2)
+            return 0
     
     def _sync_to_neo4j(
         self,
@@ -825,22 +952,38 @@ class RelationshipInferenceNode(BaseNode, LLMMixin, DatabaseMixin, Neo4jMixin):
         for t in tables:
             self.log(f"- {t['file_name']} ({t['row_represents']}, {len(t['columns'])} columns)", indent=2)
         
-        # 3. 공유 컬럼 찾기
-        self.log("🔍 Finding shared columns...")
-        shared_columns = self._find_shared_columns(tables)
-        self.log(f"✅ Found {len(shared_columns)} shared columns", indent=1)
-        for sc in shared_columns[:5]:
-            self.log(f"- {sc['column_name']} (in {len(sc['tables'])} tables)", indent=2)
+        # 3. 이미 분석된 관계 확인 (스킵 로직)
+        relationships = []
+        llm_calls = 0
+        skipped_relationships = False
         
-        # 4. LLM으로 FK 관계 추론
-        self.log("🤖 Inferring relationships with LLM...")
-        relationships, llm_calls = self._call_llm_for_relationships(tables, shared_columns)
-        self.log(f"✅ Found {len(relationships)} relationships (LLM calls: {llm_calls})", indent=1)
+        if not IndexingConfig.FORCE_REANALYZE:
+            existing_count = self.entity_repo.get_relationship_count()
+            if existing_count > 0:
+                self.log(f"⏭️  Skipping LLM inference: {existing_count} relationships already exist", indent=1)
+                skipped_relationships = True
+                # 기존 관계를 로드하여 사용
+                relationships = self._load_existing_relationships(tables)
         
-        # 5. PostgreSQL 저장
-        self.log("💾 Saving to PostgreSQL...")
-        saved_count = self._save_relationships_to_postgres(relationships, tables)
-        self.log(f"✅ Saved {saved_count} relationships", indent=1)
+        if not skipped_relationships:
+            # 3. 공유 컬럼 찾기
+            self.log("🔍 Finding shared columns...")
+            shared_columns = self._find_shared_columns(tables)
+            self.log(f"✅ Found {len(shared_columns)} shared columns", indent=1)
+            for sc in shared_columns[:5]:
+                self.log(f"- {sc['column_name']} (in {len(sc['tables'])} tables)", indent=2)
+            
+            # 4. LLM으로 FK 관계 추론
+            self.log("🤖 Inferring relationships with LLM...")
+            relationships, llm_calls = self._call_llm_for_relationships(tables, shared_columns)
+            self.log(f"✅ Found {len(relationships)} relationships (LLM calls: {llm_calls})", indent=1)
+        
+        # 5. PostgreSQL 저장 (새로 추론한 경우에만)
+        saved_count = 0
+        if not skipped_relationships:
+            self.log("💾 Saving to PostgreSQL...")
+            saved_count = self._save_relationships_to_postgres(relationships, tables)
+            self.log(f"✅ Saved {saved_count} relationships", indent=1)
         
         # 6. Neo4j 동기화
         self.log("📊 Syncing to Neo4j...")
@@ -896,6 +1039,42 @@ class RelationshipInferenceNode(BaseNode, LLMMixin, DatabaseMixin, Neo4jMixin):
             "relationship_inference_result": phase_result.model_dump(),
             "table_relationships": [r.model_dump() for r in relationships]
         }
+    
+    # =========================================================================
+    # Skip Already Analyzed
+    # =========================================================================
+    
+    def _load_existing_relationships(
+        self, 
+        tables: List[Dict[str, Any]]
+    ) -> List[TableRelationship]:
+        """
+        기존 table_relationships에서 관계 로드
+        
+        FORCE_REANALYZE=false이고 관계가 이미 있을 때 사용
+        
+        Args:
+            tables: 테이블 정보 (file_name → file_id 매핑용)
+        
+        Returns:
+            TableRelationship 목록
+        """
+        existing = self.entity_repo.get_relationships()
+        
+        relationships = []
+        for rel in existing:
+            relationships.append(TableRelationship(
+                source_table=rel.get('source_name', ''),
+                target_table=rel.get('target_name', ''),
+                source_column=rel.get('source_column', ''),
+                target_column=rel.get('target_column', ''),
+                relationship_type=rel.get('relationship_type', 'foreign_key'),
+                cardinality=rel.get('cardinality', '1:N'),
+                confidence=rel.get('confidence', 0.0),
+                reasoning=rel.get('reasoning', '')
+            ))
+        
+        return relationships
     
     @classmethod
     def run_standalone(cls) -> Dict[str, Any]:

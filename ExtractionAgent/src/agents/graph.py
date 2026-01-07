@@ -79,7 +79,7 @@ def build_agent(
     """
     # 노드 클래스 임포트 (이 시점에 @register_node가 자동으로 등록)
     # 직접 사용하지 않지만 import로 registry에 등록됨
-    import src.agents.nodes  # noqa: F401
+    from . import nodes  # noqa: F401
     
     from .registry import get_registry
     

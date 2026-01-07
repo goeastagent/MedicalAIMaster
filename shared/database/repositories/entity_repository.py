@@ -136,6 +136,27 @@ class EntityRepository(BaseRepository):
             "reasoning": reasoning
         }
     
+    def has_entity_for_file_path(self, file_path: str) -> bool:
+        """
+        파일 경로에 대한 Entity 분석 결과가 있는지 확인
+        
+        [800] entity_identification 스킵 로직에서 사용
+        
+        Args:
+            file_path: 파일 경로
+        
+        Returns:
+            True if table_entities에 해당 파일이 있음
+        """
+        row = self._execute_query("""
+            SELECT 1 FROM table_entities te
+            JOIN file_catalog fc ON te.file_id = fc.file_id
+            WHERE fc.file_path = %s
+            LIMIT 1
+        """, (file_path,), fetch="one")
+        
+        return row is not None
+    
     def save_table_entities(
         self, 
         entities: List[Dict[str, Any]]
@@ -378,6 +399,21 @@ class EntityRepository(BaseRepository):
         """, fetch="all")
         
         return [self._rel_row_to_dict(row) for row in rows]
+    
+    def get_relationship_count(self) -> int:
+        """
+        테이블 관계 수 조회 (스킵 로직용)
+        
+        [900] relationship_inference 스킵 로직에서 사용
+        
+        Returns:
+            table_relationships의 총 행 수
+        """
+        row = self._execute_query(
+            "SELECT COUNT(*) FROM table_relationships",
+            fetch="one"
+        )
+        return row[0] if row else 0
     
     def save_relationships(
         self, 

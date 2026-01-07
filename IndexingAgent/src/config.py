@@ -44,6 +44,20 @@ from shared.config import (
     BaseNeo4jPhaseConfig,  # Backward compatibility
 )
 
+
+# =============================================================================
+# Global Indexing Configuration
+# =============================================================================
+
+class IndexingConfig:
+    """
+    전역 인덱싱 설정
+    
+    FORCE_REANALYZE: True면 이미 분석된 파일도 다시 LLM 분석
+                     False면 llm_analyzed_at가 있는 파일은 스킵 (기본값)
+    """
+    FORCE_REANALYZE = os.getenv("FORCE_REANALYZE", "false").lower() == "true"
+
 __all__ = [
     # Re-exported from shared.config
     'Neo4jConfig',
@@ -52,6 +66,8 @@ __all__ = [
     'BaseLLMPhaseConfig',
     'BaseNeo4jNodeConfig',
     'BaseNeo4jPhaseConfig',
+    # Global Indexing Config
+    'IndexingConfig',
     # IndexingAgent specific configs
     'DirectoryCatalogConfig',
     'Phase1Config',
@@ -126,6 +142,17 @@ Phase3Config = SchemaAggregationConfig
 # =============================================================================
 # LLM-based Nodes: file_classification ~ ontology_enhancement
 # =============================================================================
+
+class FileClassificationConfig(BaseLLMNodeConfig):
+    """[file_classification] 파일 분류(metadata/data) 설정"""
+    
+    # --- 1. 파일 배치 크기 ---
+    # 파일 수가 많을 때 LLM 호출을 나눠서 처리
+    FILE_BATCH_SIZE = int(os.getenv("FILE_CLASS_FILE_BATCH_SIZE", "25"))
+    
+    # --- 2. Confidence 설정 ---
+    CONFIDENCE_THRESHOLD = float(os.getenv("FILE_CLASS_CONFIDENCE_THRESHOLD", "0.7"))
+
 
 class MetadataSemanticConfig(BaseLLMNodeConfig):
     """[metadata_semantic] 메타데이터 시맨틱 분석 설정"""
@@ -220,6 +247,10 @@ class RelationshipInferenceConfig(BaseNeo4jNodeConfig):
     # --- 2. FK 후보 탐지 설정 ---
     FK_CANDIDATE_CONCEPTS = ["Identifiers", "Demographics"]
     FK_CANDIDATE_PATTERNS = ["id", "ID", "Id", "key", "Key", "code", "Code"]
+    
+    # --- 3. 배치 처리 설정 (프롬프트 크기 제한) ---
+    MAX_TABLES_PER_BATCH = int(os.getenv("REL_INFER_MAX_TABLES_BATCH", "20"))
+    MAX_SHARED_COLS_PER_BATCH = int(os.getenv("REL_INFER_MAX_SHARED_COLS_BATCH", "30"))
 
 
 # Backward compatibility alias

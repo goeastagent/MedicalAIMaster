@@ -1,0 +1,167 @@
+{
+  "call_id": 25,
+  "timestamp": "2026-01-07T17:50:42.509719",
+  "method": "ask_json",
+  "model": "gpt-5.2-2025-12-11",
+  "duration_seconds": 23.329,
+  "input": {
+    "prompt": "[Role]\nYou are a Medical Data Expert specializing in healthcare informatics.\n\n[Task]\nClassify each file as \"metadata\" or \"data\":\n\n**metadata** files:\n- Data dictionaries, codebooks, parameter definitions, lookup tables\n- Typically contain columns like: Parameter, Description, Unit, Code, Category\n- Values are mostly text descriptions, definitions, or codes\n- Purpose: Define or describe what data means\n- Examples: clinical_parameters.csv, lab_parameters.csv, track_names.csv\n\n**data** files:\n- Actual measurements, patient records, lab results, vital signs\n- Typically contain columns like: patient_id, timestamp, measured values\n- Values are mostly numbers, IDs, dates, measurements\n- Purpose: Store actual recorded data\n- Examples: clinical_data.csv, lab_data.csv, vitals.csv\n\n[Rules]\n- Return ONLY valid JSON (no markdown, no explanation)\n- Include confidence score (0.0-1.0) for each classification\n- Provide brief reasoning for each classification decision\n\n[Context]\n[Files to Classify]\n1. \"0576.vital\" [tabular, 75 columns, 0 rows]\n   Columns: EVENT, BIS/EEG1_WAV, BIS/EEG2_WAV, SNUADC/ART, SNUADC/ECG_II, SNUADC/PLETH, BIS/BIS, BIS/SQI, Primus/CO2, Primus/AWP, Solar8000/HR, Solar8000/ST_II, Solar8000/PLETH_SPO2, Solar8000/PLETH_HR, Primus/INSP_SEVO\n            ... and 60 more columns\n   Sample values per column:\n   - EVENT: []\n   - BIS/EEG1_WAV: []\n   - BIS/EEG2_WAV: []\n   - SNUADC/ART: []\n   - SNUADC/ECG_II: []\n   ... and 70 more columns\n\n2. \"0577.vital\" [tabular, 77 columns, 0 rows]\n   Columns: EVENT, Primus/INSP_SEVO, Primus/EXP_SEVO, Primus/PAMB_MBAR, Primus/MAWP_MBAR, BIS/EEG1_WAV, Primus/MAC, BIS/EEG2_WAV, SNUADC/ART, SNUADC/ECG_II, SNUADC/PLETH, Primus/CO2, Primus/AWP, BIS/SR, BIS/SEF\n            ... and 62 more columns\n   Sample values per column:\n   - EVENT: []\n   - Primus/INSP_SEVO: []\n   - Primus/EXP_SEVO: []\n   - Primus/PAMB_MBAR: []\n   - Primus/MAWP_MBAR: []\n   ... and 72 more columns\n\n3. \"0578.vital\" [tabular, 82 columns, 0 rows]\n   Columns: SNUADC/ECG_II, SNUADC/ECG_V5, SNUADC/PLETH, Solar8000/HR, Solar8000/ST_I, Solar8000/ST_II, Solar8000/ST_III, Solar8000/ST_V5, Solar8000/ST_AVL, Solar8000/ST_AVR, Solar8000/ST_AVF, Solar8000/PLETH_SPO2, Solar8000/PLETH_HR, Solar8000/NIBP_MBP, Solar8000/NIBP_SBP\n            ... and 67 more columns\n   Sample values per column:\n   - SNUADC/ECG_II: []\n   - SNUADC/ECG_V5: []\n   - SNUADC/PLETH: []\n   - Solar8000/HR: []\n   - Solar8000/ST_I: []\n   ... and 77 more columns\n\n4. \"0579.vital\" [tabular, 84 columns, 0 rows]\n   Columns: EVENT, SNUADC/ART, SNUADC/ECG_II, SNUADC/PLETH, Primus/CO2, Primus/AWP, BIS/BIS, BIS/SQI, BIS/EEG1_WAV, BIS/EEG2_WAV, Orchestra/PPF20_RATE, Orchestra/PPF20_VOL, Orchestra/PPF20_CP, Orchestra/PPF20_CE, Orchestra/PPF20_CT\n            ... and 69 more columns\n   Sample values per column:\n   - EVENT: []\n   - SNUADC/ART: []\n   - SNUADC/ECG_II: []\n   - SNUADC/PLETH: []\n   - Primus/CO2: []\n   ... and 79 more columns\n\n5. \"0580.vital\" [tabular, 77 columns, 0 rows]\n   Columns: EVENT, BIS/EEG1_WAV, BIS/EEG2_WAV, SNUADC/ECG_II, SNUADC/ECG_V5, SNUADC/PLETH, Primus/CO2, Primus/AWP, BIS/BIS, BIS/SQI, Solar8000/HR, Solar8000/ST_I, Solar8000/ST_II, Solar8000/ST_III, Solar8000/ST_V5\n            ... and 62 more columns\n   Sample values per column:\n   - EVENT: []\n   - BIS/EEG1_WAV: []\n   - BIS/EEG2_WAV: []\n   - SNUADC/ECG_II: []\n   - SNUADC/ECG_V5: []\n   ... and 72 more columns\n\n6. \"0581.vital\" [tabular, 77 columns, 0 rows]\n   Columns: SNUADC/ECG_II, SNUADC/ECG_V5, SNUADC/PLETH, Solar8000/HR, Solar8000/ST_V5, Solar8000/PLETH_SPO2, Solar8000/PLETH_HR, Solar8000/ETCO2, Solar8000/INCO2, Solar8000/RR_CO2, Solar8000/FEO2, Solar8000/FIO2, Solar8000/BT, Solar8000/VENT_INSP_TM, Solar8000/VENT_RR\n            ... and 62 more columns\n   Sample values per column:\n   - SNUADC/ECG_II: []\n   - SNUADC/ECG_V5: []\n   - SNUADC/PLETH: []\n   - Solar8000/HR: []\n   - Solar8000/ST_V5: []\n   ... and 72 more columns\n\n7. \"0582.vital\" [tabular, 91 columns, 0 rows]\n   Columns: SNUADC/ART, SNUADC/ECG_II, SNUADC/ECG_V5, SNUADC/PLETH, Primus/CO2, Primus/AWP, Primus/PAMB_MBAR, Primus/MAC, Primus/VENT_LEAK, Primus/FLOW_N2O, Primus/FLOW_AIR, Primus/FLOW_O2, Primus/INCO2, Primus/ETCO2, Primus/FEO2\n            ... and 76 more columns\n   Sample values per column:\n   - SNUADC/ART: []\n   - SNUADC/ECG_II: []\n   - SNUADC/ECG_V5: []\n   - SNUADC/PLETH: []\n   - Primus/CO2: []\n   ... and 86 more columns\n\n8. \"0583.vital\" [tabular, 61 columns, 0 rows]\n   Columns: EVENT, SNUADC/ECG_II, SNUADC/PLETH, Primus/CO2, Primus/AWP, Solar8000/HR, Solar8000/ST_II, Solar8000/BT, Solar8000/ETCO2, Solar8000/INCO2, Solar8000/FEO2, Solar8000/FIO2, Solar8000/RR, Primus/PAMB_MBAR, Primus/MAC\n            ... and 46 more columns\n   Sample values per column:\n   - EVENT: []\n   - SNUADC/ECG_II: []\n   - SNUADC/PLETH: []\n   - Primus/CO2: []\n   - Primus/AWP: []\n   ... and 56 more columns\n\n9. \"0584.vital\" [tabular, 89 columns, 0 rows]\n   Columns: EVENT, SNUADC/CVP, SNUADC/ART, SNUADC/ECG_II, SNUADC/ECG_V5, SNUADC/PLETH, Solar8000/HR, Solar8000/ST_I, Solar8000/ST_II, Solar8000/ST_III, Solar8000/ST_V5, Solar8000/ST_AVL, Solar8000/ST_AVR, Solar8000/ST_AVF, Solar8000/ART_MBP\n            ... and 74 more columns\n   Sample values per column:\n   - EVENT: []\n   - SNUADC/CVP: []\n   - SNUADC/ART: []\n   - SNUADC/ECG_II: []\n   - SNUADC/ECG_V5: []\n   ... and 84 more columns\n\n10. \"0585.vital\" [tabular, 79 columns, 0 rows]\n   Columns: EVENT, Orchestra/PPF20_RATE, Orchestra/PPF20_VOL, Orchestra/PPF20_CP, Orchestra/PPF20_CE, Orchestra/PPF20_CT, Orchestra/RFTN20_RATE, Orchestra/RFTN20_VOL, Orchestra/RFTN20_CP, Orchestra/RFTN20_CE, Orchestra/RFTN20_CT, SNUADC/ART, SNUADC/ECG_II, SNUADC/PLETH, BIS/EEG1_WAV\n            ... and 64 more columns\n   Sample values per column:\n   - EVENT: []\n   - Orchestra/PPF20_RATE: []\n   - Orchestra/PPF20_VOL: []\n   - Orchestra/PPF20_CP: []\n   - Orchestra/PPF20_CE: []\n   ... and 74 more columns\n\n11. \"0586.vital\" [tabular, 68 columns, 0 rows]\n   Columns: EVENT, SNUADC/ECG_II, SNUADC/PLETH, Solar8000/HR, Solar8000/PLETH_SPO2, Solar8000/PLETH_HR, Solar8000/RR, Solar8000/NIBP_MBP, Solar8000/NIBP_SBP, Solar8000/NIBP_DBP, Solar8000/VENT_RR, Solar8000/VENT_MV, Solar8000/VENT_MAWP, Solar8000/ETCO2, Solar8000/INCO2\n            ... and 53 more columns\n   Sample values per column:\n   - EVENT: []\n   - SNUADC/ECG_II: []\n   - SNUADC/PLETH: []\n   - Solar8000/HR: []\n   - Solar8000/PLETH_SPO2: []\n   ... and 63 more columns\n\n12. \"0587.vital\" [tabular, 81 columns, 0 rows]\n   Columns: EVENT, SNUADC/CVP, SNUADC/ART, SNUADC/ECG_II, SNUADC/ECG_V5, SNUADC/PLETH, BIS/EEG1_WAV, BIS/EEG2_WAV, Primus/CO2, Primus/AWP, BIS/BIS, BIS/SQI, Solar8000/HR, Solar8000/ST_V5, Solar8000/ART_MBP\n            ... and 66 more columns\n   Sample values per column:\n   - EVENT: []\n   - SNUADC/CVP: []\n   - SNUADC/ART: []\n   - SNUADC/ECG_II: []\n   - SNUADC/ECG_V5: []\n   ... and 76 more columns\n\n13. \"0588.vital\" [tabular, 82 columns, 0 rows]\n   Columns: SNUADC/ECG_II, SNUADC/ECG_V5, SNUADC/PLETH, Solar8000/HR, Solar8000/ST_V5, Solar8000/BT, Solar8000/PLETH_SPO2, Solar8000/PLETH_HR, Solar8000/NIBP_MBP, Solar8000/NIBP_SBP, Solar8000/NIBP_DBP, Solar8000/VENT_RR, Solar8000/VENT_MV, Solar8000/VENT_MAWP, Solar8000/ETCO2\n            ... and 67 more columns\n   Sample values per column:\n   - SNUADC/ECG_II: []\n   - SNUADC/ECG_V5: []\n   - SNUADC/PLETH: []\n   - Solar8000/HR: []\n   - Solar8000/ST_V5: []\n   ... and 77 more columns\n\n14. \"0589.vital\" [tabular, 69 columns, 0 rows]\n   Columns: EVENT, SNUADC/ART, SNUADC/ECG_II, SNUADC/PLETH, Orchestra/RFTN20_RATE, Orchestra/RFTN20_VOL, Orchestra/RFTN20_CP, Orchestra/RFTN20_CE, Orchestra/RFTN20_CT, Primus/CO2, Primus/AWP, Primus/PAMB_MBAR, Primus/VENT_LEAK, Primus/FLOW_N2O, Primus/FLOW_AIR\n            ... and 54 more columns\n   Sample values per column:\n   - EVENT: []\n   - SNUADC/ART: []\n   - SNUADC/ECG_II: []\n   - SNUADC/PLETH: []\n   - Orchestra/RFTN20_RATE: []\n   ... and 64 more columns\n\n15. \"0590.vital\" [tabular, 84 columns, 0 rows]\n   Columns: SNUADC/ART, SNUADC/ECG_II, SNUADC/ECG_V5, SNUADC/PLETH, Solar8000/HR, Solar8000/ST_I, Solar8000/ST_II, Solar8000/ST_III, Solar8000/ST_V5, Solar8000/ST_AVL, Solar8000/ST_AVR, Solar8000/ST_AVF, Solar8000/ART_MBP, Solar8000/ART_SBP, Solar8000/ART_DBP\n            ... and 69 more columns\n   Sample values per column:\n   - SNUADC/ART: []\n   - SNUADC/ECG_II: []\n   - SNUADC/ECG_V5: []\n   - SNUADC/PLETH: []\n   - Solar8000/HR: []\n   ... and 79 more columns\n\n16. \"0591.vital\" [tabular, 82 columns, 0 rows]\n   Columns: SNUADC/ECG_II, SNUADC/ECG_V5, SNUADC/PLETH, Solar8000/HR, Solar8000/ST_I, Solar8000/ST_II, Solar8000/ST_III, Solar8000/ST_V5, Solar8000/ST_AVL, Solar8000/ST_AVR, Solar8000/ST_AVF, Solar8000/ETCO2, Solar8000/INCO2, Solar8000/FEO2, Solar8000/FIO2\n            ... and 67 more columns\n   Sample values per column:\n   - SNUADC/ECG_II: []\n   - SNUADC/ECG_V5: []\n   - SNUADC/PLETH: []\n   - Solar8000/HR: []\n   - Solar8000/ST_I: []\n   ... and 77 more columns\n\n17. \"0592.vital\" [tabular, 84 columns, 0 rows]\n   Columns: SNUADC/ECG_II, SNUADC/ECG_V5, SNUADC/PLETH, Solar8000/HR, Solar8000/ST_I, Solar8000/ST_II, Solar8000/ST_III, Solar8000/ST_V5, Solar8000/ST_AVL, Solar8000/ST_AVR, Solar8000/ST_AVF, Solar8000/ETCO2, Solar8000/INCO2, Solar8000/FEO2, Solar8000/FIO2\n            ... and 69 more columns\n   Sample values per column:\n   - SNUADC/ECG_II: []\n   - SNUADC/ECG_V5: []\n   - SNUADC/PLETH: []\n   - Solar8000/HR: []\n   - Solar8000/ST_I: []\n   ... and 79 more columns\n\n18. \"0593.vital\" [tabular, 80 columns, 0 rows]\n   Columns: EVENT, SNUADC/CVP, SNUADC/ART, SNUADC/ECG_II, SNUADC/PLETH, BIS/EEG1_WAV, BIS/EEG2_WAV, BIS/BIS, BIS/SQI, Primus/CO2, Primus/AWP, Primus/SET_AGE, Solar8000/HR, Solar8000/ST_II, Solar8000/PLETH_SPO2\n            ... and 65 more columns\n   Sample values per column:\n   - EVENT: []\n   - SNUADC/CVP: []\n   - SNUADC/ART: []\n   - SNUADC/ECG_II: []\n   - SNUADC/PLETH: []\n   ... and 75 more columns\n\n19. \"0594.vital\" [tabular, 72 columns, 0 rows]\n   Columns: EVENT, SNUADC/ART, SNUADC/ECG_II, SNUADC/PLETH, Solar8000/HR, Solar8000/ST_II, Solar8000/ART_MBP, Solar8000/ART_SBP, Solar8000/ART_DBP, Solar8000/PLETH_SPO2, Solar8000/PLETH_HR, Solar8000/BT, Solar8000/ETCO2, Solar8000/INCO2, Solar8000/RR_CO2\n            ... and 57 more columns\n   Sample values per column:\n   - EVENT: []\n   - SNUADC/ART: []\n   - SNUADC/ECG_II: []\n   - SNUADC/PLETH: []\n   - Solar8000/HR: []\n   ... and 67 more columns\n\n20. \"0595.vital\" [tabular, 71 columns, 0 rows]\n   Columns: EVENT, SNUADC/ECG_II, SNUADC/PLETH, Solar8000/HR, Solar8000/ST_II, Solar8000/ETCO2, Solar8000/INCO2, Solar8000/FEO2, Solar8000/FIO2, Solar8000/PLETH_SPO2, Solar8000/PLETH_HR, Solar8000/BT, Solar8000/VENT_MAWP, Solar8000/RR, Solar8000/NIBP_MBP\n            ... and 56 more columns\n   Sample values per column:\n   - EVENT: []\n   - SNUADC/ECG_II: []\n   - SNUADC/PLETH: []\n   - Solar8000/HR: []\n   - Solar8000/ST_II: []\n   ... and 66 more columns\n\n21. \"0596.vital\" [tabular, 72 columns, 0 rows]\n   Columns: EVENT, SNUADC/ART, SNUADC/ECG_II, SNUADC/ECG_V5, SNUADC/PLETH, Primus/CO2, Primus/AWP, Solar8000/HR, Solar8000/ST_I, Solar8000/ST_II, Solar8000/ST_III, Solar8000/ST_V5, Solar8000/ST_AVL, Solar8000/ST_AVR, Solar8000/ST_AVF\n            ... and 57 more columns\n   Sample values per column:\n   - EVENT: []\n   - SNUADC/ART: []\n   - SNUADC/ECG_II: []\n   - SNUADC/ECG_V5: []\n   - SNUADC/PLETH: []\n   ... and 67 more columns\n\n22. \"0597.vital\" [tabular, 84 columns, 0 rows]\n   Columns: EVENT, SNUADC/ECG_II, SNUADC/ECG_V5, SNUADC/PLETH, BIS/EEG1_WAV, BIS/EEG2_WAV, Primus/CO2, Primus/AWP, BIS/BIS, BIS/SQI, Orchestra/PPF20_RATE, Orchestra/PPF20_VOL, Orchestra/PPF20_CP, Orchestra/PPF20_CE, Orchestra/PPF20_CT\n            ... and 69 more columns\n   Sample values per column:\n   - EVENT: []\n   - SNUADC/ECG_II: []\n   - SNUADC/ECG_V5: []\n   - SNUADC/PLETH: []\n   - BIS/EEG1_WAV: []\n   ... and 79 more columns\n\n23. \"0598.vital\" [tabular, 84 columns, 0 rows]\n   Columns: SNUADC/ECG_II, SNUADC/ECG_V5, SNUADC/PLETH, Solar8000/HR, Solar8000/ST_V5, Solar8000/PLETH_SPO2, Solar8000/PLETH_HR, Solar8000/ETCO2, Solar8000/INCO2, Solar8000/FEO2, Solar8000/FIO2, Solar8000/VENT_RR, Solar8000/VENT_MV, Solar8000/VENT_MAWP, Solar8000/NIBP_MBP\n            ... and 69 more columns\n   Sample values per column:\n   - SNUADC/ECG_II: []\n   - SNUADC/ECG_V5: []\n   - SNUADC/PLETH: []\n   - Solar8000/HR: []\n   - Solar8000/ST_V5: []\n   ... and 79 more columns\n\n24. \"0599.vital\" [tabular, 75 columns, 0 rows]\n   Columns: EVENT, SNUADC/CVP, SNUADC/ART, SNUADC/ECG_II, SNUADC/PLETH, Solar8000/HR, Solar8000/ART_MBP, Solar8000/ART_SBP, Solar8000/ART_DBP, Solar8000/CVP, Solar8000/PLETH_SPO2, Solar8000/PLETH_HR, Solar8000/ETCO2, Solar8000/INCO2, Solar8000/RR_CO2\n            ... and 60 more columns\n   Sample values per column:\n   - EVENT: []\n   - SNUADC/CVP: []\n   - SNUADC/ART: []\n   - SNUADC/ECG_II: []\n   - SNUADC/PLETH: []\n   ... and 70 more columns\n\n25. \"0600.vital\" [tabular, 73 columns, 0 rows]\n   Columns: SNUADC/ECG_II, SNUADC/ECG_V5, SNUADC/PLETH, Solar8000/HR, Solar8000/ST_V5, Solar8000/PLETH_SPO2, Solar8000/PLETH_HR, Solar8000/ETCO2, Solar8000/INCO2, Solar8000/RR_CO2, Solar8000/FEO2, Solar8000/FIO2, Solar8000/BT, Solar8000/VENT_INSP_TM, Solar8000/VENT_RR\n            ... and 58 more columns\n   Sample values per column:\n   - SNUADC/ECG_II: []\n   - SNUADC/ECG_V5: []\n   - SNUADC/PLETH: []\n   - Solar8000/HR: []\n   - Solar8000/ST_V5: []\n   ... and 68 more columns\n\n\n[Output Format]\nRespond with valid JSON:\n{\n  \"classifications\": [\n    {\n      \"confidence\": \"float (>=0.0, <=1.0) - Confidence score (0.0=uncertain, 1.0=certain)\",\n      \"reasoning\": \"string - Explanation of the analysis reasoning\",\n      \"file_name\": \"string - Target file name to classify\",\n      \"is_metadata\": \"boolean - True=metadata/dictionary file, False=actual data file\"\n    }\n  ]\n}",
+    "max_tokens": 4096
+  },
+  "output": {
+    "response": {
+      "classifications": [
+        {
+          "confidence": 0.93,
+          "reasoning": "File appears to be a vital-signs waveform/monitor export with many measurement channels (e.g., ECG, ART, BIS, CO2, HR). These are typical recorded signals/measurements rather than definitions or code lists; 0 rows likely indicates an empty capture but still a data-structured file.",
+          "file_name": "0576.vital",
+          "is_metadata": false
+        },
+        {
+          "confidence": 0.93,
+          "reasoning": "Contains numerous physiologic/anesthesia monitor parameters (e.g., INSP/EXP SEVO, MAC, EEG waveforms, ART/ECG/PLETH). This structure matches time-series measurement data, not a dictionary/lookup table.",
+          "file_name": "0577.vital",
+          "is_metadata": false
+        },
+        {
+          "confidence": 0.93,
+          "reasoning": "Channel-style columns for ECG leads, pleth, HR, ST segments, NIBP values indicate recorded monitoring data (time-series). Not descriptive fields like parameter/description/unit.",
+          "file_name": "0578.vital",
+          "is_metadata": false
+        },
+        {
+          "confidence": 0.93,
+          "reasoning": "Includes event plus multiple device channels (ART/ECG/PLETH, BIS waveforms/indices, infusion pump parameters). This is characteristic of captured clinical monitoring data.",
+          "file_name": "0579.vital",
+          "is_metadata": false
+        },
+        {
+          "confidence": 0.93,
+          "reasoning": "Columns are device/track names for physiologic signals (EEG waveforms, ECG, pleth, CO2, HR, ST). This indicates measurement data rather than metadata definitions.",
+          "file_name": "0580.vital",
+          "is_metadata": false
+        },
+        {
+          "confidence": 0.93,
+          "reasoning": "Contains typical bedside monitor measurements (HR, SpO2, ETCO2/INCO2, RR, ventilator parameters, temperature). These are recorded values, not a codebook.",
+          "file_name": "0581.vital",
+          "is_metadata": false
+        },
+        {
+          "confidence": 0.93,
+          "reasoning": "Many anesthesia machine and monitor channels (flows, MAC, ETCO2, FIO2/FEO2, leak, ECG/ART/PLETH) indicate captured physiologic/anesthesia data.",
+          "file_name": "0582.vital",
+          "is_metadata": false
+        },
+        {
+          "confidence": 0.93,
+          "reasoning": "Event plus multiple vital/ventilation/anesthesia parameters (HR, BT, ETCO2, RR, MAC, pressures) are measurement tracks typical of data exports.",
+          "file_name": "0583.vital",
+          "is_metadata": false
+        },
+        {
+          "confidence": 0.93,
+          "reasoning": "Includes invasive pressures (CVP/ART), ECG leads, ST segments, arterial BP metrics—consistent with recorded monitoring data rather than metadata.",
+          "file_name": "0584.vital",
+          "is_metadata": false
+        },
+        {
+          "confidence": 0.93,
+          "reasoning": "Contains infusion pump channels (PPF20/RFTN20 rate/vol/CP/CE/CT) alongside physiologic signals (ART/ECG/PLETH, BIS). This is clinical time-series data.",
+          "file_name": "0585.vital",
+          "is_metadata": false
+        },
+        {
+          "confidence": 0.93,
+          "reasoning": "Monitor/ventilator measurements (HR, SpO2, RR, NIBP, MV, MAWP, ETCO2) indicate actual recorded patient data; empty rows suggest no captured samples.",
+          "file_name": "0586.vital",
+          "is_metadata": false
+        },
+        {
+          "confidence": 0.93,
+          "reasoning": "Multiple device channels including CVP/ART, BIS waveforms/indices, anesthesia machine parameters, and HR/ST/BP metrics indicate recorded physiologic data.",
+          "file_name": "0587.vital",
+          "is_metadata": false
+        },
+        {
+          "confidence": 0.93,
+          "reasoning": "Columns are physiologic/ventilator tracks (ECG, pleth, HR, NIBP, MV, MAWP, ETCO2). This is a data file structure, not a dictionary.",
+          "file_name": "0588.vital",
+          "is_metadata": false
+        },
+        {
+          "confidence": 0.93,
+          "reasoning": "Event plus infusion pump parameters and anesthesia machine flows/leak alongside ECG/ART/PLETH indicates captured clinical monitoring/therapy data.",
+          "file_name": "0589.vital",
+          "is_metadata": false
+        },
+        {
+          "confidence": 0.93,
+          "reasoning": "Arterial line and ECG/pleth plus ST segments and arterial BP metrics are typical bedside monitor measurements (time-series data).",
+          "file_name": "0590.vital",
+          "is_metadata": false
+        },
+        {
+          "confidence": 0.93,
+          "reasoning": "ECG/pleth, HR, ST segments, and gas measurements (ETCO2/INCO2/FIO2/FEO2) indicate recorded monitor data rather than metadata definitions.",
+          "file_name": "0591.vital",
+          "is_metadata": false
+        },
+        {
+          "confidence": 0.93,
+          "reasoning": "Same pattern of physiologic channels (ECG/pleth, HR, ST, ETCO2/INCO2, oxygen fractions) consistent with time-series measurement data.",
+          "file_name": "0592.vital",
+          "is_metadata": false
+        },
+        {
+          "confidence": 0.93,
+          "reasoning": "Event plus invasive pressures and BIS waveforms/indices with anesthesia machine settings (e.g., SET_AGE) indicates a monitoring data export, not a codebook.",
+          "file_name": "0593.vital",
+          "is_metadata": false
+        },
+        {
+          "confidence": 0.93,
+          "reasoning": "Event plus ART/ECG/PLETH and multiple numeric vital/gas parameters (HR, BP, SpO2, BT, ETCO2) indicates recorded patient monitoring data.",
+          "file_name": "0594.vital",
+          "is_metadata": false
+        },
+        {
+          "confidence": 0.93,
+          "reasoning": "Event plus typical monitor/ventilator measurements (HR, ST, ETCO2/INCO2, FIO2/FEO2, SpO2, BT, NIBP) indicates actual data capture.",
+          "file_name": "0595.vital",
+          "is_metadata": false
+        },
+        {
+          "confidence": 0.93,
+          "reasoning": "Event plus ECG/ART/PLETH and anesthesia machine channels (CO2, airway pressure) and ST segments indicate time-series physiologic data.",
+          "file_name": "0596.vital",
+          "is_metadata": false
+        },
+        {
+          "confidence": 0.93,
+          "reasoning": "Event plus BIS waveforms/indices and infusion pump parameters alongside ECG/PLETH and CO2/airway pressure indicates recorded clinical device data.",
+          "file_name": "0597.vital",
+          "is_metadata": false
+        },
+        {
+          "confidence": 0.93,
+          "reasoning": "Physiologic and ventilator channels (HR, SpO2, ETCO2, FIO2/FEO2, RR, MV, NIBP) indicate recorded monitoring data rather than metadata.",
+          "file_name": "0598.vital",
+          "is_metadata": false
+        },
+        {
+          "confidence": 0.93,
+          "reasoning": "Event plus CVP/ART and corresponding monitor channels (arterial BP, CVP, SpO2, ETCO2) indicates recorded patient monitoring data.",
+          "file_name": "0599.vital",
+          "is_metadata": false
+        },
+        {
+          "confidence": 0.93,
+          "reasoning": "ECG/pleth, HR, SpO2, ETCO2/INCO2, oxygen fractions, temperature, and ventilator timing/RR are typical recorded vital/ventilator measurements.",
+          "file_name": "0600.vital",
+          "is_metadata": false
+        }
+      ]
+    }
+  }
+}

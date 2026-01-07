@@ -32,7 +32,7 @@ from shared.database import (
     DictionaryRepository,
 )
 from shared.database.repositories import ParameterRepository
-from src.config import DataSemanticConfig
+from src.config import DataSemanticConfig, IndexingConfig
 from shared.config import LLMConfig
 from .prompts import ParameterSemanticPrompt
 
@@ -330,6 +330,17 @@ class ParameterSemanticNode(BaseNode, LLMMixin, DatabaseMixin):
         # 2. 분석할 parameter 조회
         self.log("🔍 Loading parameters to analyze...")
         parameters = self._get_parameters_to_analyze(data_files)
+        
+        # 이미 분석된 파라미터 수 (스킵 로그용)
+        if not IndexingConfig.FORCE_REANALYZE:
+            # _get_parameters_to_analyze는 이미 semantic_name IS NULL인 것만 반환
+            # 전체 파라미터 수 조회하여 스킵 수 계산
+            _, param_repo, _ = self._get_repositories()
+            total_params = param_repo.get_parameter_count()
+            skipped = total_params - len(parameters)
+            if skipped > 0:
+                self.log(f"⏭️  Skipping {skipped} already analyzed parameters", indent=1)
+        
         self.log(f"Found {len(parameters)} parameters to analyze", indent=1)
         
         if not parameters:

@@ -1,0 +1,10 @@
+# OrchestrationAgent Dependencies
+
+# Core
+pydantic>=2.0
+
+# 로컬 패키지 (pip install -e 로 설치)
+# - ExtractionAgent
+# - AnalysisAgent  
+# - shared
+

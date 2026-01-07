@@ -6,8 +6,8 @@ parameter 테이블의 각 parameter를 분석하고 data_dictionary와 매칭�
 """
 
 from src.agents.prompts import PromptTemplate
-from src.agents.models.llm_responses import ParameterSemanticResult
-from src.agents.models.enums import ConceptCategory
+from src.models.llm_responses import ParameterSemanticResult
+from src.models.enums import ConceptCategory
 
 
 # =============================================================================

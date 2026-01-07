@@ -19,7 +19,7 @@ sys.path.insert(0, str(project_root))
 from src.agents.base import BaseNode
 from src.agents.registry import register_node
 from src.agents.context import SchemaContextBuilder
-from src.agents.config import get_config
+from src.config import get_config
 
 # shared LLM client
 from shared.llm.client import get_llm_client

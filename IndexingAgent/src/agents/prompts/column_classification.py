@@ -12,7 +12,7 @@ ColumnRole enum을 동적으로 활용하여 역할 목록을 생성합니다.
 from typing import List, Dict, Any
 
 from .base import PromptTemplate
-from ..models import ColumnClassificationItem, ColumnRole
+from src.models import ColumnClassificationItem, ColumnRole
 
 
 class ColumnClassificationPrompt(PromptTemplate):

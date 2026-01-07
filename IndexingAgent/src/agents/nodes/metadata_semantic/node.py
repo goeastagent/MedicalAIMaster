@@ -20,7 +20,7 @@ from shared.database import (
     DictionarySchemaManager,
 )
 from shared.config import LLMConfig
-from src.agents.models.llm_responses import (
+from src.models.llm_responses import (
     ColumnRoleMapping,
     MetadataSemanticResult,
 )

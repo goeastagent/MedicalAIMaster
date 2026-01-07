@@ -6,7 +6,7 @@ metadata 파일에서 컬럼 역할(key/desc/unit)을 추론하기 위한 LLM �
 """
 
 from src.agents.prompts import PromptTemplate
-from src.agents.models.llm_responses import ColumnRoleMapping
+from src.models.llm_responses import ColumnRoleMapping
 
 
 class ColumnRoleMappingPrompt(PromptTemplate):

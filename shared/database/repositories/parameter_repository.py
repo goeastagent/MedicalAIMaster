@@ -346,6 +346,49 @@ class ParameterRepository(BaseRepository):
             )
         return row[0] if row else 0
     
+    def get_group_parameter_count(self, group_id: str) -> int:
+        """
+        그룹의 파라미터 수 조회
+        
+        [420] column_classification 스킵 로직에서 사용
+        
+        Args:
+            group_id: 파일 그룹 ID
+        
+        Returns:
+            해당 그룹의 파라미터 수
+        """
+        row = self._execute_query("""
+            SELECT COUNT(*) FROM parameter 
+            WHERE group_id = %s AND file_id IS NULL
+        """, (group_id,), fetch="one")
+        
+        return row[0] if row else 0
+    
+    def get_groups_with_parameters(self, group_ids: List[str]) -> List[str]:
+        """
+        이미 파라미터가 생성된 그룹 ID 목록 반환
+        
+        [420] column_classification 스킵 로직에서 사용
+        
+        Args:
+            group_ids: 체크할 그룹 ID 목록
+        
+        Returns:
+            파라미터가 1개 이상 있는 group_id 목록
+        """
+        if not group_ids:
+            return []
+        
+        placeholders = ','.join(['%s'] * len(group_ids))
+        rows = self._execute_query(f"""
+            SELECT DISTINCT group_id::text FROM parameter
+            WHERE group_id IN ({placeholders})
+              AND file_id IS NULL
+        """, tuple(group_ids), fetch="all")
+        
+        return [row[0] for row in rows]
+    
     def get_parameters_by_category(
         self,
         concept_category: str

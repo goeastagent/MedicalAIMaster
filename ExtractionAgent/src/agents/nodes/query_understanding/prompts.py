@@ -37,8 +37,8 @@ Analyze the user's query and extract the following information:
 3. **temporal_context**: Time range settings
    - type: One of the following:
      - "full_record": All available data (default if not specified)
-     - "surgery_window": Data during surgery (requires op_start/op_end columns)
-     - "anesthesia_window": Data during anesthesia (requires ane_start/ane_end columns)
+     - "procedure_window": Data during a medical procedure (uses procedure start/end columns from schema)
+     - "treatment_window": Data during treatment period (uses treatment start/end columns from schema)
      - "custom_window": User-specified time range
    - margin_seconds: Margin time in seconds before/after window (default 0)
 
@@ -76,7 +76,7 @@ Respond ONLY in the following JSON format:
 
 1. Match parameter names accurately using the "Measurement Parameters" section above
 2. **CRITICAL**: For cohort_filters, use ONLY columns listed in the "Filterable Columns" section. Do NOT filter on caseid with text values - caseid is a numeric identifier
-3. Default to "full_record" if no time range is specified. Use "surgery_window" or "anesthesia_window" only when explicitly requested
+3. Default to "full_record" if no time range is specified. Use "procedure_window" or "treatment_window" only when explicitly requested
 4. Include multiple possible keywords in candidates when uncertain
 5. Consider both Korean and English medical terminology
 6. **IMPORTANT**: Always specify expected_categories using the "Parameter Category Guide" section above to help filter irrelevant database matches
@@ -104,7 +104,7 @@ def build_system_prompt(schema_context_text: str, available_categories: list = N
     if available_categories:
         categories_text = "\n".join([f"- {cat}" for cat in sorted(available_categories)])
     else:
-        categories_text = "- Vital Signs\n- Medication\n- Laboratory:Chemistry\n- Laboratory:Coagulation\n- Laboratory:Hematology\n- Anesthesia\n- Respiratory\n- Hemodynamics\n- Neurological\n- Demographics\n- Surgical\n- Other"
+        categories_text = "- Vital Signs\n- Medication\n- Laboratory\n- Demographics\n- Clinical\n- Monitoring\n- Other"
     
     return SYSTEM_PROMPT_TEMPLATE.format(
         schema_context=schema_context_text,

@@ -21,9 +21,9 @@ from datetime import datetime
 
 from shared.database import FileRepository, ColumnRepository
 from shared.database.repositories import ParameterRepository, FileGroupRepository
-from src.config import ColumnClassificationConfig
+from src.config import ColumnClassificationConfig, IndexingConfig
 from shared.config import LLMConfig
-from src.agents.models import (
+from src.models import (
     ColumnRole,
     SourceType,
     ColumnClassificationItem,
@@ -108,11 +108,19 @@ class ColumnClassificationNode(BaseNode, LLMMixin, DatabaseMixin):
         # Phase 1: 그룹에 속한 파일들 처리 (그룹 단위)
         # =====================================================================
         file_groups = state.get("file_groups", [])
+        groups_skipped = 0
         
         if file_groups:
             self.log(f"📦 Processing {len(file_groups)} file groups...", indent=1)
             
-            for group in file_groups:
+            # Skip already analyzed groups (FORCE_REANALYZE=false인 경우)
+            groups_to_process = file_groups
+            if not IndexingConfig.FORCE_REANALYZE:
+                groups_to_process, groups_skipped = self._filter_unanalyzed_groups(file_groups)
+                if groups_skipped > 0:
+                    self.log(f"⏭️  Skipping {groups_skipped} already analyzed groups", indent=2)
+            
+            for group in groups_to_process:
                 group_result = self._process_group(group, batch_size)
                 
                 if group_result:
@@ -131,11 +139,19 @@ class ColumnClassificationNode(BaseNode, LLMMixin, DatabaseMixin):
         # Phase 2: 그룹에 속하지 않은 파일들 처리 (개별)
         # =====================================================================
         ungrouped_files = self._get_file_repo().get_ungrouped_data_files()
+        ungrouped_skipped = 0
         
         if ungrouped_files:
             self.log(f"📄 Processing {len(ungrouped_files)} ungrouped files...", indent=1)
             
-            for file_path in ungrouped_files:
+            # Skip already analyzed files (FORCE_REANALYZE=false인 경우)
+            files_to_process = ungrouped_files
+            if not IndexingConfig.FORCE_REANALYZE:
+                files_to_process, ungrouped_skipped = self._filter_unanalyzed_files(ungrouped_files)
+                if ungrouped_skipped > 0:
+                    self.log(f"⏭️  Skipping {ungrouped_skipped} already analyzed files", indent=2)
+            
+            for file_path in files_to_process:
                 file_result = self._process_single_file(file_path, batch_size)
                 
                 if file_result:
@@ -174,8 +190,8 @@ class ColumnClassificationNode(BaseNode, LLMMixin, DatabaseMixin):
         )
         
         self.log("✅ Complete!")
-        self.log(f"📦 Groups processed: {groups_processed}", indent=1)
-        self.log(f"📄 Ungrouped files processed: {ungrouped_files_processed}", indent=1)
+        self.log(f"📦 Groups processed: {groups_processed} (skipped: {groups_skipped})", indent=1)
+        self.log(f"📄 Ungrouped files processed: {ungrouped_files_processed} (skipped: {ungrouped_skipped})", indent=1)
         self.log(f"📊 Total columns: {total_columns}", indent=1)
         self.log("🏷️  Columns by role:", indent=1)
         for role, count in sorted(columns_by_role.items()):
@@ -795,6 +811,66 @@ class ColumnClassificationNode(BaseNode, LLMMixin, DatabaseMixin):
             },
             "logs": [f"⚠️ [Column Classification] {error_msg}"]
         }
+    
+    # =========================================================================
+    # Skip Already Analyzed
+    # =========================================================================
+    
+    def _filter_unanalyzed_groups(
+        self, 
+        file_groups: List[Dict[str, Any]]
+    ) -> tuple:
+        """
+        이미 파라미터가 생성된 그룹 필터링
+        
+        Args:
+            file_groups: 그룹 목록
+        
+        Returns:
+            (분석할 그룹 목록, 스킵된 그룹 수)
+        """
+        if not file_groups:
+            return [], 0
+        
+        param_repo = self._get_param_repo()
+        group_ids = [str(g.get('group_id')) for g in file_groups if g.get('group_id')]
+        
+        # 이미 파라미터가 있는 그룹 ID 조회
+        analyzed_group_ids = set(param_repo.get_groups_with_parameters(group_ids))
+        
+        # 필터링
+        to_process = [g for g in file_groups if str(g.get('group_id')) not in analyzed_group_ids]
+        skipped_count = len(file_groups) - len(to_process)
+        
+        return to_process, skipped_count
+    
+    def _filter_unanalyzed_files(
+        self, 
+        file_paths: List[str]
+    ) -> tuple:
+        """
+        이미 column_role이 설정된 파일 필터링
+        
+        Args:
+            file_paths: 파일 경로 목록
+        
+        Returns:
+            (분석할 파일 목록, 스킵된 파일 수)
+        """
+        if not file_paths:
+            return [], 0
+        
+        column_repo = self._get_column_repo()
+        
+        # column_role이 설정된 파일 확인
+        to_process = []
+        for file_path in file_paths:
+            # 해당 파일의 column_role이 NULL인 컬럼이 있는지 확인
+            if column_repo.has_unclassified_columns(file_path):
+                to_process.append(file_path)
+        
+        skipped_count = len(file_paths) - len(to_process)
+        return to_process, skipped_count
     
     # =========================================================================
     # Convenience Methods (Standalone Execution)

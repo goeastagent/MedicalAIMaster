@@ -563,6 +563,164 @@ class DataContext:
                 }
         return None
     
+    def to_execution_context(
+        self,
+        include_signals: bool = True,
+        sample_rows: int = 3,
+        max_signal_cases: int = 3
+    ) -> Dict[str, Any]:
+        """
+        Code Generation을 위한 ExecutionContext 데이터 생성
+        
+        AnalysisAgent의 ExecutionContext 모델과 호환되는 딕셔너리 반환.
+        DataSchema 정보를 포함하여 LLM이 정확한 컬럼명을 알 수 있도록 함.
+        
+        Args:
+            include_signals: Signal 데이터 스키마 포함 여부
+            sample_rows: 샘플 데이터 행 수
+            max_signal_cases: Signal 샘플링할 최대 케이스 수
+        
+        Returns:
+            ExecutionContext 생성에 필요한 딕셔너리
+            {
+                "available_variables": {...},
+                "available_imports": [...],
+                "data_schemas": {
+                    "df": {...},
+                    "cohort": {...}
+                }
+            }
+        
+        Example:
+            ctx_data = data_context.to_execution_context()
+            from AnalysisAgent.src.models import ExecutionContext, DataSchema
+            exec_ctx = ExecutionContext(
+                available_variables=ctx_data["available_variables"],
+                data_schemas={k: DataSchema(**v) for k, v in ctx_data["data_schemas"].items()}
+            )
+        """
+        cohort = self.get_cohort()
+        case_ids = self.get_case_ids()
+        
+        # 1. Available Variables
+        available_variables = {}
+        
+        if not cohort.empty:
+            available_variables["cohort"] = (
+                f"pandas DataFrame - Cohort 메타데이터, "
+                f"{len(cohort)} rows × {len(cohort.columns)} columns"
+            )
+        
+        if include_signals and case_ids:
+            available_variables["df"] = (
+                f"pandas DataFrame - Signal 데이터, "
+                f"columns: [Time, {', '.join(self._param_keys[:5])}{'...' if len(self._param_keys) > 5 else ''}]"
+            )
+        
+        available_variables["case_ids"] = f"List[str] - {len(case_ids)}개 케이스 ID"
+        available_variables["param_keys"] = f"List[str] - {self._param_keys}"
+        
+        # 2. Data Schemas
+        data_schemas = {}
+        
+        # Cohort 스키마
+        if not cohort.empty:
+            cohort_schema = self._build_data_schema(
+                name="cohort",
+                description="Cohort 메타데이터 (환자 정보)",
+                df=cohort,
+                sample_rows=sample_rows
+            )
+            data_schemas["cohort"] = cohort_schema
+        
+        # Signal 스키마 (샘플 케이스에서 추출)
+        if include_signals and case_ids:
+            sample_case = case_ids[0] if case_ids else None
+            if sample_case:
+                signals = self._get_signal_for_case(sample_case, apply_temporal=True)
+                if not signals.empty:
+                    # 여러 케이스의 shape 추정
+                    total_rows = len(signals) * len(case_ids)
+                    signals_schema = self._build_data_schema(
+                        name="df",
+                        description=f"Signal 데이터 (생체신호, {len(case_ids)} cases)",
+                        df=signals,
+                        sample_rows=sample_rows,
+                        override_shape=(total_rows, len(signals.columns))
+                    )
+                    data_schemas["df"] = signals_schema
+        
+        # 3. Available Imports
+        available_imports = [
+            "pandas as pd",
+            "numpy as np", 
+            "scipy.stats as stats",
+            "datetime",
+            "math",
+        ]
+        
+        return {
+            "available_variables": available_variables,
+            "available_imports": available_imports,
+            "data_schemas": data_schemas,
+            "case_ids": case_ids,
+            "param_keys": self._param_keys,
+        }
+    
+    def _build_data_schema(
+        self,
+        name: str,
+        description: str,
+        df: pd.DataFrame,
+        sample_rows: int = 3,
+        override_shape: Optional[Tuple[int, int]] = None
+    ) -> Dict[str, Any]:
+        """DataFrame에서 DataSchema 딕셔너리 생성"""
+        # 컬럼 정보
+        columns = list(df.columns)
+        dtypes = {col: str(df[col].dtype) for col in columns}
+        
+        # Shape
+        shape = override_shape or (len(df), len(df.columns))
+        
+        # 샘플 행
+        sample_data = None
+        if sample_rows > 0 and not df.empty:
+            sample_df = df.head(sample_rows)
+            sample_data = sample_df.to_dict(orient="records")
+            # 숫자 반올림
+            for row in sample_data:
+                for k, v in row.items():
+                    if isinstance(v, float):
+                        row[k] = round(v, 4)
+        
+        # 컬럼 통계
+        column_stats = {}
+        for col in columns[:10]:  # 최대 10개 컬럼만
+            if pd.api.types.is_numeric_dtype(df[col]):
+                column_stats[col] = {
+                    "type": "numeric",
+                    "mean": round(df[col].mean(), 4) if not df[col].isna().all() else None,
+                    "min": round(df[col].min(), 4) if not df[col].isna().all() else None,
+                    "max": round(df[col].max(), 4) if not df[col].isna().all() else None,
+                }
+            else:
+                column_stats[col] = {
+                    "type": "categorical",
+                    "unique_count": df[col].nunique(),
+                    "sample_values": df[col].dropna().head(5).tolist(),
+                }
+        
+        return {
+            "name": name,
+            "description": description,
+            "columns": columns,
+            "dtypes": dtypes,
+            "shape": shape,
+            "sample_rows": sample_data,
+            "column_stats": column_stats,
+        }
+    
     # ═══════════════════════════════════════════════════════════════════════════
     # Private Methods - DB 조회
     # ═══════════════════════════════════════════════════════════════════════════

@@ -13,7 +13,7 @@ from typing import Dict, Any, List
 from datetime import datetime
 from src.agents.base import BaseNode
 from src.agents.registry import register_node
-from src.agents.config import VitalExtractionConfig
+from src.config import VitalExtractionConfig
 
 
 @register_node
@@ -298,7 +298,7 @@ class PlanBuilderNode(BaseNode):
         }
         
         # Add column references for windowed types
-        if temporal_type in ("surgery_window", "anesthesia_window", "custom_window"):
+        if temporal_type in ("procedure_window", "treatment_window", "custom_window"):
             # Try to get from temporal_context first
             start_col = temporal_context.get("start_column")
             end_col = temporal_context.get("end_column")
@@ -378,7 +378,7 @@ class PlanBuilderNode(BaseNode):
             
             # Check temporal alignment
             temporal = signal_source.get("temporal_alignment", {})
-            if temporal.get("type") in ("surgery_window", "anesthesia_window"):
+            if temporal.get("type") in ("procedure_window", "treatment_window"):
                 if not temporal.get("start_column") or not temporal.get("end_column"):
                     warnings.append(f"Temporal window '{temporal.get('type')}' missing start/end columns")
                     confidence -= 0.1

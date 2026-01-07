@@ -1,0 +1,517 @@
+{
+  "call_id": 24,
+  "timestamp": "2026-01-07T15:59:41.866966",
+  "method": "ask_json",
+  "model": "gpt-5.2-2025-12-11",
+  "duration_seconds": 44.252,
+  "input": {
+    "prompt": "[Role]\nYou are a Medical Data Expert analyzing clinical parameters from medical datasets.\n\n[Task]\nAnalyze each parameter and provide semantic information.\nUse the Parameter Dictionary to match parameters with standard definitions.\nParameters may come from column names (Wide-format) or column values (Long-format).\n\n[Rules]\n- dict_entry_key MUST be EXACTLY one of the keys from 'EXACT Parameter Keys' (if provided)\n- Copy the key exactly as shown (including '/' and special characters)\n- If no matching key exists → set dict_entry_key to null\n- If uncertain (confidence < 0.7) → set dict_entry_key to null\n- Use parameter names and statistics to help identify the correct match\n- Return ONLY valid JSON (no markdown, no explanation)\n- param_key in response must match the parameter name exactly\n- If a parameter has 'role: IDENTIFIER', set concept_category to 'Identifiers'\n- concept_category MUST be one of the following:\n- 'Vital Signs': Heart rate, blood pressure, temperature, SpO2\n- 'Hemodynamics': Cardiac output, SVR, CVP, PAP\n- 'Respiratory': Respiratory rate, tidal volume, FiO2, PEEP\n- 'Neurological': BIS, EEG, ICP, consciousness level\n- 'Demographics': Age, sex, height, weight, BMI\n- 'Identifiers': Case ID, patient ID, subject ID, encounter ID\n- 'Timestamps': Date, time, datetime, duration\n- 'Laboratory:Chemistry': Glucose, creatinine, electrolytes, liver enzymes\n- 'Laboratory:Hematology': Hemoglobin, hematocrit, WBC, platelets\n- 'Laboratory:Coagulation': PT, aPTT, INR, fibrinogen\n- 'Medication': Drug names, doses, infusion rates\n- 'Anesthesia': Anesthetic agents, MAC, sedation scores\n- 'Surgical': Procedure type, surgical time, blood loss\n- 'Device/Equipment': Device IDs, equipment settings, alarm parameters\n- 'Waveform/Signal': ECG, arterial waveform, pleth, raw signals\n- 'Other': Uncategorized or unknown parameters\n\n[Examples]\nExample 1:\nInput: Parameter 'HR' (source: column_name)\nOutput: {\n  \"param_key\": \"HR\",\n  \"semantic_name\": \"Heart Rate\",\n  \"unit\": \"bpm\",\n  \"description\": \"Heart rate measurement\",\n  \"concept_category\": \"Vital Signs\",\n  \"dict_entry_key\": \"HR\",\n  \"match_confidence\": 0.95,\n  \"reasoning\": \"HR is standard abbreviation for Heart Rate\"\n}\n\nExample 2:\nInput: Parameter 'unknown_param' with unclear meaning\nOutput: {\n  \"param_key\": \"unknown_param\",\n  \"semantic_name\": \"Unknown Parameter\",\n  \"unit\": null,\n  \"description\": \"Unable to determine meaning\",\n  \"concept_category\": \"Other\",\n  \"dict_entry_key\": null,\n  \"match_confidence\": 0.0,\n  \"reasoning\": \"No matching parameter found in dictionary\"\n}\n\n[Context]\n[EXACT Parameter Keys - Use these values ONLY]\n\"BIS/BIS\", \"BIS/EEG1_WAV\", \"BIS/EEG2_WAV\", \"BIS/EMG\", \"BIS/SEF\", \"BIS/SQI\", \"BIS/SR\", \"BIS/TOTPOW\", \"CardioQ/ABP\", \"CardioQ/CI\", \"CardioQ/CO\", \"CardioQ/FLOW\", \"CardioQ/FTc\", \"CardioQ/FTp\", \"CardioQ/HR\", \"CardioQ/MA\", \"CardioQ/MD\", \"CardioQ/PV\", \"CardioQ/SD\", \"CardioQ/SV\", \"CardioQ/SVI\", \"EV1000/ART_MBP\", \"EV1000/CI\", \"EV1000/CO\", \"EV1000/CVP\", \"EV1000/SV\", \"EV1000/SVI\", \"EV1000/SVR\", \"EV1000/SVRI\", \"EV1000/SVV\", \"FMS/FLOW_RATE\", \"FMS/INPUT_AMB_TEMP\", \"FMS/INPUT_TEMP\", \"FMS/OUTPUT_AMB_TEMP\", \"FMS/OUTPUT_TEMP\", \"FMS/PRESSURE\", \"FMS/TOTAL_VOL\", \"Invos/SCO2_L\", \"Invos/SCO2_R\", \"Orchestra/AMD_RATE\", \"Orchestra/AMD_VOL\", \"Orchestra/DEX2_RATE\", \"Orchestra/DEX2_VOL\", \"Orchestra/DEX4_RATE\", \"Orchestra/DEX4_VOL\", \"Orchestra/DOBU_RATE\", \"Orchestra/DOBU_VOL\", \"Orchestra/DOPA_RATE\", \"Orchestra/DOPA_VOL\", \"Orchestra/DTZ_RATE\", \"Orchestra/DTZ_VOL\", \"Orchestra/EPI_RATE\", \"Orchestra/EPI_VOL\", \"Orchestra/FUT_RATE\", \"Orchestra/FUT_VOL\", \"Orchestra/MRN_RATE\", \"Orchestra/MRN_VOL\", \"Orchestra/NEPI_RATE\", \"Orchestra/NEPI_VOL\", \"Orchestra/NPS_RATE\", \"Orchestra/NPS_VOL\", \"Orchestra/NTG_RATE\", \"Orchestra/NTG_VOL\", \"Orchestra/OXY_RATE\", \"Orchestra/OXY_VOL\", \"Orchestra/PGE1_RATE\", \"Orchestra/PGE1_VOL\", \"Orchestra/PHEN_RATE\", \"Orchestra/PHEN_VOL\", \"Orchestra/PPF20_CE\", \"Orchestra/PPF20_CP\", \"Orchestra/PPF20_CT\", \"Orchestra/PPF20_RATE\", \"Orchestra/PPF20_VOL\", \"Orchestra/RFTN20_CE\", \"Orchestra/RFTN20_CP\", \"Orchestra/RFTN20_CT\", \"Orchestra/RFTN20_RATE\", \"Orchestra/RFTN20_VOL\", \"Orchestra/RFTN50_CE\", \"Orchestra/RFTN50_CP\", \"Orchestra/RFTN50_CT\", \"Orchestra/RFTN50_RATE\", \"Orchestra/RFTN50_VOL\", \"Orchestra/ROC_RATE\", \"Orchestra/ROC_VOL\", \"Orchestra/VASO_RATE\", \"Orchestra/VASO_VOL\", \"Orchestra/VEC_RATE\", \"Orchestra/VEC_VOL\", \"Primus/AWP\", \"Primus/CO2\", \"Primus/COMPLIANCE\", \"Primus/ETCO2\", \"Primus/EXP_DES\", \"Primus/EXP_SEVO\", \"Primus/FEN2O\", \"Primus/FEO2\", \"Primus/FIN2O\", \"Primus/FIO2\", \"Primus/FLOW_AIR\", \"Primus/FLOW_N2O\", \"Primus/FLOW_O2\", \"Primus/INCO2\", \"Primus/INSP_DES\", \"Primus/INSP_SEVO\", \"Primus/MAC\", \"Primus/MAWP_MBAR\", \"Primus/MV\", \"Primus/PAMB_MBAR\", \"Primus/PEEP_MBAR\", \"Primus/PIP_MBAR\", \"Primus/PPLAT_MBAR\", \"Primus/RR_CO2\", \"Primus/SET_AGE\", \"Primus/SET_FIO2\", \"Primus/SET_FLOW_TRIG\", \"Primus/SET_FRESH_FLOW\", \"Primus/SET_INSP_PAUSE\", \"Primus/SET_INSP_PRES\", \"Primus/SET_INSP_TM\", \"Primus/SET_INTER_PEEP\", \"Primus/SET_PIP\", \"Primus/SET_RR_IPPV\", \"Primus/SET_TV_L\", \"Primus/TV\", \"Primus/VENT_LEAK\", \"SNUADC/ART\", \"SNUADC/CVP\", \"SNUADC/ECG_II\", \"SNUADC/ECG_V5\", \"SNUADC/FEM\", \"SNUADC/PLETH\", \"Solar8000/ART_DBP\", \"Solar8000/ART_MBP\", \"Solar8000/ART_SBP\", \"Solar8000/BT\", \"Solar8000/CVP\", \"Solar8000/ETCO2\", \"Solar8000/FEM_DBP\", \"Solar8000/FEM_MBP\", \"Solar8000/FEM_SBP\", \"Solar8000/FEO2\", \"Solar8000/FIO2\", \"Solar8000/GAS2_EXPIRED\", \"Solar8000/GAS2_INSPIRED\", \"Solar8000/HR\", \"Solar8000/INCO2\", \"Solar8000/NIBP_DBP\", \"Solar8000/NIBP_MBP\", \"Solar8000/NIBP_SBP\", \"Solar8000/PA_DBP\", \"Solar8000/PA_MBP\", \"Solar8000/PA_SBP\", \"Solar8000/PLETH_HR\", \"Solar8000/PLETH_SPO2\", \"Solar8000/RR\", \"Solar8000/RR_CO2\", \"Solar8000/ST_AVF\", \"Solar8000/ST_AVL\", \"Solar8000/ST_AVR\", \"Solar8000/ST_I\", \"Solar8000/ST_II\", \"Solar8000/ST_III\", \"Solar8000/ST_V5\", \"Solar8000/VENT_COMPL\", \"Solar8000/VENT_INSP_TM\", \"Solar8000/VENT_MAWP\", \"Solar8000/VENT_MEAS_PEEP\", \"Solar8000/VENT_MV\", \"Solar8000/VENT_PIP\", \"Solar8000/VENT_PPLAT\", \"Solar8000/VENT_RR\", \"Solar8000/VENT_SET_FIO2\", \"Solar8000/VENT_SET_PCP\", \"Solar8000/VENT_SET_TV\", \"Solar8000/VENT_TV\", \"Vigilance/BT_PA\", \"Vigilance/CI\", \"Vigilance/CO\", \"Vigilance/EDV\", \"Vigilance/EDVI\", \"Vigilance/ESV\", \"Vigilance/ESVI\", \"Vigilance/HR_AVG\", \"Vigilance/RVEF\", \"Vigilance/SNR\", \"Vigilance/SQI\", \"Vigilance/SV\", \"Vigilance/SVI\", \"Vigilance/SVO2\", \"Vigileo/CI\", \"Vigileo/CO\", \"Vigileo/SV\", \"Vigileo/SVI\", \"Vigileo/SVV\", \"adm\", \"age\", \"airway\", \"alb\", \"aline1\", \"aline2\", \"alt\", \"ammo\", \"ane_type\", \"anedur\", \"aneend\", \"anestart\", \"approach\", \"aptt\", \"asa\", \"ast\", \"be\", \"bmi\", \"bun\", \"casedur\", \"caseend\", \"caseid\", \"casestart\", \"ccr\", \"cl\", \"cline1\", \"cline2\", \"cormack\", \"cr\", \"crp\", \"death_inhosp\", \"department\", \"devices\", \"dis\", \"dltubesize\", \"dx\", \"emop\", \"esr\", \"fib\", \"filesize\", \"gfr\", \"gluc\", \"hb\", \"hco3\", \"hct\", \"height\", \"ica\", \"intraop_ca\", \"intraop_colloid\", \"intraop_crystalloid\", \"intraop_ebl\", \"intraop_eph\", \"intraop_epi\", \"intraop_ffp\", \"intraop_ftn\", \"intraop_mdz\", \"intraop_phe\", \"intraop_ppf\", \"intraop_rbc\", \"intraop_rocu\", \"intraop_uo\", \"intraop_vecu\", \"iv1\", \"iv2\", \"k\", \"lac\", \"lmasize\", \"los_icu\", \"los_postop\", \"na\", \"opdur\", \"opend\", \"opname\", \"opstart\", \"optype\", \"pco2\", \"ph\", \"plt\", \"po2\", \"position\", \"preop_alb\", \"preop_alt\", \"preop_aptt\", \"preop_arrhythmia\", \"preop_ast\", \"preop_be\", \"preop_bun\", \"preop_cr\", \"preop_dm\", \"preop_gluc\", \"preop_hb\", \"preop_hco3\", \"preop_htn\", \"preop_k\", \"preop_na\", \"preop_paco2\", \"preop_pao2\", \"preop_pft\", \"preop_ph\", \"preop_plt\", \"preop_pt\", \"preop_sao2\", \"pt%\", \"ptinr\", \"ptsec\", \"sao2\", \"sex\", \"subjectid\", \"tbil\", \"tprot\", \"tracks\", \"tubesize\", \"wbc\", \"weight\"\n\n[Parameter Definitions]\n- \"BIS/BIS\": Bispectral index value (unitless) [signal_type_sampling_rate=N]\n- \"BIS/EEG1_WAV\": EEG wave from channel 1 (uV) [signal_type_sampling_rate=W/128]\n- \"BIS/EEG2_WAV\": EEG wave from channel 2 (uV) [signal_type_sampling_rate=W/128]\n- \"BIS/EMG\": Electromyography power (dB) [signal_type_sampling_rate=N]\n- \"BIS/SEF\": Spectral edge frequency (Hz) [signal_type_sampling_rate=N]\n- \"BIS/SQI\": Signal quality index (%) [signal_type_sampling_rate=N]\n- \"BIS/SR\": Suppression ratio (%) [signal_type_sampling_rate=N]\n- \"BIS/TOTPOW\": Total power (dB) [signal_type_sampling_rate=N]\n- \"CardioQ/ABP\": Arterial pressure wave (mmHg) [signal_type_sampling_rate=W/180]\n- \"CardioQ/CI\": Cardiac index (L/min/m2) [signal_type_sampling_rate=N]\n- \"CardioQ/CO\": Cardiac output (L/min) [signal_type_sampling_rate=N]\n- \"CardioQ/FLOW\": Flow wave (cm/sec) [signal_type_sampling_rate=W/180]\n- \"CardioQ/FTc\": Flow time corrected (ms) [signal_type_sampling_rate=N]\n- \"CardioQ/FTp\": Flow time to peak (ms) [signal_type_sampling_rate=N]\n- \"CardioQ/HR\": Heart rate (/min) [signal_type_sampling_rate=N]\n- \"CardioQ/MA\": Mean acceleration (cm/sec2) [signal_type_sampling_rate=N]\n- \"CardioQ/MD\": Minute distance (cm) [signal_type_sampling_rate=N]\n- \"CardioQ/PV\": Peak velocity (cm/sec) [signal_type_sampling_rate=N]\n- \"CardioQ/SD\": Stroke distance (cm) [signal_type_sampling_rate=N]\n- \"CardioQ/SV\": Stroke volume (mL/beat) [signal_type_sampling_rate=N]\n- \"CardioQ/SVI\": Stroke volume index (mL/beat/m2) [signal_type_sampling_rate=N]\n- \"EV1000/ART_MBP\": Mean arterial pressure (mmHg) [signal_type_sampling_rate=N]\n- \"EV1000/CI\": Cardiac index (L/min/m2) [signal_type_sampling_rate=N]\n- \"EV1000/CO\": Cardiac output (L/min) [signal_type_sampling_rate=N]\n- \"EV1000/CVP\": Central venous pressure wave (cmH2O) [signal_type_sampling_rate=N]\n- \"EV1000/SV\": Stroke volume (mL/beat) [signal_type_sampling_rate=N]\n- \"EV1000/SVI\": Stroke volume index (mL/beat/m2) [signal_type_sampling_rate=N]\n- \"EV1000/SVR\": Systemic vascular resistance (dn-s/cm5) [signal_type_sampling_rate=N]\n- \"EV1000/SVRI\": Systemic vascular resistance index (dn-s-m2/cm5) [signal_type_sampling_rate=N]\n- \"EV1000/SVV\": Stroke volume variation (%) [signal_type_sampling_rate=N]\n- \"FMS/FLOW_RATE\": Flow rate (mL) [signal_type_sampling_rate=N]\n- \"FMS/INPUT_AMB_TEMP\": Input ambient temperature (℃) [signal_type_sampling_rate=N]\n- \"FMS/INPUT_TEMP\": Input fluid temperature (℃) [signal_type_sampling_rate=N]\n- \"FMS/OUTPUT_AMB_TEMP\": Output ambient temperature (℃) [signal_type_sampling_rate=N]\n- \"FMS/OUTPUT_TEMP\": Output fluid temperature (℃) [signal_type_sampling_rate=N]\n- \"FMS/PRESSURE\": Infusion line pressure (mmHg) [signal_type_sampling_rate=N]\n- \"FMS/TOTAL_VOL\": Total infused volume (mL) [signal_type_sampling_rate=N]\n- \"Invos/SCO2_L\": Cerebral oxygen saturation (Left) (%) [signal_type_sampling_rate=N]\n- \"Invos/SCO2_R\": Cerebral oxygen saturation (Right) (%) [signal_type_sampling_rate=N]\n- \"Orchestra/AMD_RATE\": Infusion rate (amiodarone 2 mg/mL) (mL/hr) [signal_type_sampling_rate=N]\n- \"Orchestra/AMD_VOL\": Infused volume (amiodarone 2 mg/mL) (mL) [signal_type_sampling_rate=N]\n- \"Orchestra/DEX2_RATE\": Infusion rate (dexmedetomidine 2 mcg/mL) (mL/hr) [signal_type_sampling_rate=N]\n- \"Orchestra/DEX2_VOL\": Infused volume (dexmedetomidine 2 mcg/mL) (mL) [signal_type_sampling_rate=N]\n- \"Orchestra/DEX4_RATE\": Infusion rate (dexmedetomidine 4 mcg/mL) (mL/hr) [signal_type_sampling_rate=N]\n- \"Orchestra/DEX4_VOL\": Infused volume (dexmedetomidine 4 mcg/mL) (mL) [signal_type_sampling_rate=N]\n- \"Orchestra/DOBU_RATE\": Infusion rate (dobutamine 2 mg/mL) (mL/hr) [signal_type_sampling_rate=N]\n- \"Orchestra/DOBU_VOL\": Infused volume (dobutamine 2 mg/mL) (mL) [signal_type_sampling_rate=N]\n- \"Orchestra/DOPA_RATE\": Infusion rate (dopamine 2 mg/mL) (mL/hr) [signal_type_sampling_rate=N]\n- \"Orchestra/DOPA_VOL\": Infused volume (dopamine 2 mg/mL) (mL) [signal_type_sampling_rate=N]\n- \"Orchestra/DTZ_RATE\": Infusion rate (diltiazem 1 mg/mL) (mL/hr) [signal_type_sampling_rate=N]\n- \"Orchestra/DTZ_VOL\": Infused volume (diltiazem 1 mg/mL) (mL) [signal_type_sampling_rate=N]\n- \"Orchestra/EPI_RATE\": Infusion rate (epinephrine 20 mcg/mL) (mL/hr) [signal_type_sampling_rate=N]\n- \"Orchestra/EPI_VOL\": Infused volume (epinephrine 20 mcg/mL) (mL) [signal_type_sampling_rate=N]\n- \"Orchestra/FUT_RATE\": Infusion rate (futhan 0.5 mg/mL) (mL/hr) [signal_type_sampling_rate=N]\n- \"Orchestra/FUT_VOL\": Infused volume (futhan 0.5 mg/mL) (mL) [signal_type_sampling_rate=N]\n- \"Orchestra/MRN_RATE\": Infusion rate (milrinone 200 mcg/mL) (mL/hr) [signal_type_sampling_rate=N]\n- \"Orchestra/MRN_VOL\": Infused volume (milrinone 200 mcg/mL) (mL) [signal_type_sampling_rate=N]\n- \"Orchestra/NEPI_RATE\": Infusion rate (norepinephrine 20 mcg/mL) (mL/hr) [signal_type_sampling_rate=N]\n- \"Orchestra/NEPI_VOL\": Infused volume (norepinephrine 20 mcg/mL) (mL) [signal_type_sampling_rate=N]\n- \"Orchestra/NPS_RATE\": Infused rate (nitroprusside 0.2 mg/mL) (mL/hr) [signal_type_sampling_rate=N]\n- \"Orchestra/NPS_VOL\": Infusion volume (nitroprusside 0.2 mg/mL) (mL) [signal_type_sampling_rate=N]\n- \"Orchestra/NTG_RATE\": Infused rate (nitroglycerine 0.2 mg/mL) (mL/hr) [signal_type_sampling_rate=N]\n- \"Orchestra/NTG_VOL\": Infusion volume (nitroglycerine 0.2 mg/mL) (mL) [signal_type_sampling_rate=N]\n- \"Orchestra/OXY_RATE\": Infused rate (oxytocin 0.2 U/mL) (mL/hr) [signal_type_sampling_rate=N]\n- \"Orchestra/OXY_VOL\": Infusion volume (oxytocin 0.2 U/mL) (mL) [signal_type_sampling_rate=N]\n- \"Orchestra/PGE1_RATE\": Infused rate (prostaglandin-E1 2 mg/mL) (mL/hr) [signal_type_sampling_rate=N]\n- \"Orchestra/PGE1_VOL\": Infusion volume (prostaglandin-E1 2 mg/mL) (mL) [signal_type_sampling_rate=N]\n- \"Orchestra/PHEN_RATE\": Infused rate (phenylephrine 100 mcg/mL) (mL/hr) [signal_type_sampling_rate=N]\n- \"Orchestra/PHEN_VOL\": Infusion volume (phenylephrine 100 mcg/mL) (mL) [signal_type_sampling_rate=N]\n- \"Orchestra/PPF20_CE\": Effect-site concentration (propofol 20 mg/mL) (mcg/mL) [signal_type_sampling_rate=N]\n- \"Orchestra/PPF20_CP\": Plasma concentration (propofol 20 mg/mL) (mcg/mL) [signal_type_sampling_rate=N]\n- \"Orchestra/PPF20_CT\": Target concentration (propofol 20 mg/mL) (mcg/mL) [signal_type_sampling_rate=N]\n- \"Orchestra/PPF20_RATE\": Infusion rate (propofol 20 mg/mL) (mL/hr) [signal_type_sampling_rate=N]\n- \"Orchestra/PPF20_VOL\": Infused volume (propofol 20 mg/mL) (mL) [signal_type_sampling_rate=N]\n- \"Orchestra/RFTN20_CE\": Effect-site concentration (remifentanil 20 mcg/mL) (ng/mL) [signal_type_sampling_rate=N]\n- \"Orchestra/RFTN20_CP\": Plasma concentration (remifentanil 20 mcg/mL) (ng/mL) [signal_type_sampling_rate=N]\n- \"Orchestra/RFTN20_CT\": Target concentration (remifentanil 20 mcg/mL) (ng/mL) [signal_type_sampling_rate=N]\n- \"Orchestra/RFTN20_RATE\": Infusion rate (remifentanil 20 mcg/mL) (mL/hr) [signal_type_sampling_rate=N]\n- \"Orchestra/RFTN20_VOL\": Infused volume (remifentanil 20 mcg/mL) (mL) [signal_type_sampling_rate=N]\n- \"Orchestra/RFTN50_CE\": Effect-site concentration (remifentanil 50 mcg/mL) (ng/mL) [signal_type_sampling_rate=N]\n- \"Orchestra/RFTN50_CP\": Plasma concentration (remifentanil 50 mcg/mL) (ng/mL) [signal_type_sampling_rate=N]\n- \"Orchestra/RFTN50_CT\": Target concentration (remifentanil 50 mcg/mL) (ng/mL) [signal_type_sampling_rate=N]\n- \"Orchestra/RFTN50_RATE\": Infusion rate (remifentanil 50 mcg/mL) (mL/hr) [signal_type_sampling_rate=N]\n- \"Orchestra/RFTN50_VOL\": Infused volume (remifentanil 50 mcg/mL) (mL) [signal_type_sampling_rate=N]\n- \"Orchestra/ROC_RATE\": Infusion rate (rocuronium 2 mg/mL) (mL/hr) [signal_type_sampling_rate=N]\n- \"Orchestra/ROC_VOL\": Infused volume (rocuronium 2 mg/mL) (mL) [signal_type_sampling_rate=N]\n- \"Orchestra/VASO_RATE\": Infusion rate (vasopressin 0.2 U/mL) (mL/hr) [signal_type_sampling_rate=N]\n- \"Orchestra/VASO_VOL\": Infused volume (vasopressin 0.2 U/mL) (mL) [signal_type_sampling_rate=N]\n- \"Orchestra/VEC_RATE\": Infusion rate (vecuronium 1 mg/mL) (mL/hr) [signal_type_sampling_rate=N]\n- \"Orchestra/VEC_VOL\": Infused volume (vecuronium 1 mg/mL) (mL) [signal_type_sampling_rate=N]\n- \"Primus/AWP\": Airway pressure wave (hPa) [signal_type_sampling_rate=W/62.5]\n- \"Primus/CO2\": Capnography wave (mmHg) [signal_type_sampling_rate=W/62.5]\n- \"Primus/COMPLIANCE\": Airway compliance (mL/mbar) [signal_type_sampling_rate=N]\n- \"Primus/ETCO2\": End-tidal CO2 (mmHg) [signal_type_sampling_rate=N]\n- \"Primus/EXP_DES\": Expiratory desflurane pressure (kPa) [signal_type_sampling_rate=N]\n- \"Primus/EXP_SEVO\": Expiratory sevoflurane pressure (kPa) [signal_type_sampling_rate=N]\n- \"Primus/FEN2O\": Fraction of inspired N2O (%) [signal_type_sampling_rate=N]\n- \"Primus/FEO2\": Fraction of expired O2 (%) [signal_type_sampling_rate=N]\n- \"Primus/FIN2O\": Fraction of expired N2O (%) [signal_type_sampling_rate=N]\n- \"Primus/FIO2\": Fraction of inspired O2 (%) [signal_type_sampling_rate=N]\n- \"Primus/FLOW_AIR\": Flow rate of air (mL/min) [signal_type_sampling_rate=N]\n- \"Primus/FLOW_N2O\": Flow rate of N2O (mbar) [signal_type_sampling_rate=N]\n- \"Primus/FLOW_O2\": Flow rate of O2 (mL/min) [signal_type_sampling_rate=N]\n- \"Primus/INCO2\": Inspiratory CO2 (mmHg) [signal_type_sampling_rate=N]\n- \"Primus/INSP_DES\": Inspiratory desflurane pressure (kPa) [signal_type_sampling_rate=N]\n- \"Primus/INSP_SEVO\": Inspiratory sevoflurane pressure (kPa) [signal_type_sampling_rate=N]\n- \"Primus/MAC\": Minimum alveolar concentration of volatile (unitless) [signal_type_sampling_rate=N]\n- \"Primus/MAWP_MBAR\": Mean airway pressure (mbar) [signal_type_sampling_rate=N]\n- \"Primus/MV\": Minute volume (L) [signal_type_sampling_rate=N]\n- \"Primus/PAMB_MBAR\": Ambient pressure (mbar) [signal_type_sampling_rate=N]\n- \"Primus/PEEP_MBAR\": Positive end expiratory pressure (PEEP) (mbar) [signal_type_sampling_rate=N]\n- \"Primus/PIP_MBAR\": Peak inspiratory pressure (mbar) [signal_type_sampling_rate=N]\n- \"Primus/PPLAT_MBAR\": Plateau pressure (mbar) [signal_type_sampling_rate=N]\n- \"Primus/RR_CO2\": Respiratory rate based on capnography (/min) [signal_type_sampling_rate=N]\n- \"Primus/SET_AGE\": Patient age (years) [signal_type_sampling_rate=N]\n- \"Primus/SET_FIO2\": Set fraction of inspired O2 (%) [signal_type_sampling_rate=N]\n- \"Primus/SET_FLOW_TRIG\": Set flow trigger value (mL/min) [signal_type_sampling_rate=N]\n- \"Primus/SET_FRESH_FLOW\": Set fresh gas flow (mL/min) [signal_type_sampling_rate=N]\n- \"Primus/SET_INSP_PAUSE\": Set inspiratory pause (%) [signal_type_sampling_rate=N]\n- \"Primus/SET_INSP_PRES\": Set inspiratory pressure (mbar) [signal_type_sampling_rate=N]\n- \"Primus/SET_INSP_TM\": Set inspiratory time (sec) [signal_type_sampling_rate=N]\n- \"Primus/SET_INTER_PEEP\": Set positive end expiratory pressure (PEEP) (mbar) [signal_type_sampling_rate=N]\n- \"Primus/SET_PIP\": Set peak inspiratory pressure (mbar) [signal_type_sampling_rate=N]\n- \"Primus/SET_RR_IPPV\": Set respiratory rate (mbar) [signal_type_sampling_rate=N]\n- \"Primus/SET_TV_L\": Set tidal volume in liter (L) [signal_type_sampling_rate=N]\n- \"Primus/TV\": Tidal volume (mL) [signal_type_sampling_rate=N]\n- \"Primus/VENT_LEAK\": Ventilator leakage (mL/min) [signal_type_sampling_rate=N]\n- \"SNUADC/ART\": Arterial pressure wave (mmHg) [signal_type_sampling_rate=W/500]\n- \"SNUADC/CVP\": Central venous pressure wave (mmHg) [signal_type_sampling_rate=W/500]\n- \"SNUADC/ECG_II\": ECG lead II wave (mV) [signal_type_sampling_rate=W/500]\n- \"SNUADC/ECG_V5\": ECG lead V5 wave (mV) [signal_type_sampling_rate=W/500]\n- \"SNUADC/FEM\": Femoral arterial pressure wave (mmHg) [signal_type_sampling_rate=W/500]\n- \"SNUADC/PLETH\": Plethysmography wave (unitless) [signal_type_sampling_rate=W/500]\n- \"Solar8000/ART_DBP\": Diastolic arterial pressure (mmHg) [signal_type_sampling_rate=N]\n- \"Solar8000/ART_MBP\": Mean arterial pressure (mmHg) [signal_type_sampling_rate=N]\n- \"Solar8000/ART_SBP\": Systolic arterial pressure (mmHg) [signal_type_sampling_rate=N]\n- \"Solar8000/BT\": Body temperature (℃) [signal_type_sampling_rate=N]\n- \"Solar8000/CVP\": Central venous pressure (mmHg) [signal_type_sampling_rate=N]\n- \"Solar8000/ETCO2\": End-tidal CO2 (mmHg) [signal_type_sampling_rate=N]\n- \"Solar8000/FEM_DBP\": Femoral diastolic arterial pressure (mmHg) [signal_type_sampling_rate=N]\n- \"Solar8000/FEM_MBP\": Femoral mean arterial pressure (mmHg) [signal_type_sampling_rate=N]\n- \"Solar8000/FEM_SBP\": Femoral systolic arterial pressure (mmHg) [signal_type_sampling_rate=N]\n- \"Solar8000/FEO2\": Fraction of expired O2 (%) [signal_type_sampling_rate=N]\n- \"Solar8000/FIO2\": Fraction of inspired O2 (%) [signal_type_sampling_rate=N]\n- \"Solar8000/GAS2_EXPIRED\": Expiratory volatile concentration (%) [signal_type_sampling_rate=N]\n- \"Solar8000/GAS2_INSPIRED\": Inspiratory volatile concentration (%) [signal_type_sampling_rate=N]\n- \"Solar8000/HR\": Heart rate (/min) [signal_type_sampling_rate=N]\n- \"Solar8000/INCO2\": Inspiratory CO2 (mmHg) [signal_type_sampling_rate=N]\n- \"Solar8000/NIBP_DBP\": Non-invasive diastolic arterial pressure (mmHg) [signal_type_sampling_rate=N]\n- \"Solar8000/NIBP_MBP\": Non-invasive mean arterial pressure (mmHg) [signal_type_sampling_rate=N]\n- \"Solar8000/NIBP_SBP\": Non-invasive systolic arterial pressure (mmHg) [signal_type_sampling_rate=N]\n- \"Solar8000/PA_DBP\": Pulmonary diastolic arterial pressure (mmHg) [signal_type_sampling_rate=N]\n- \"Solar8000/PA_MBP\": Pulmonary mean arterial pressure (mmHg) [signal_type_sampling_rate=N]\n- \"Solar8000/PA_SBP\": Pulmonary systolic arterial pressure (mmHg) [signal_type_sampling_rate=N]\n- \"Solar8000/PLETH_HR\": Heart rate based on plethysmography (/min) [signal_type_sampling_rate=N]\n- \"Solar8000/PLETH_SPO2\": Percutaneous oxygen saturation (%) [signal_type_sampling_rate=N]\n- \"Solar8000/RR\": Respiratory rate based on ECG (/min) [signal_type_sampling_rate=N]\n- \"Solar8000/RR_CO2\": Respiratory rate based on capnography (/min) [signal_type_sampling_rate=N]\n- \"Solar8000/ST_AVF\": ST segment in lead aVF (mm) [signal_type_sampling_rate=N]\n- \"Solar8000/ST_AVL\": ST segment in lead aVL (mm) [signal_type_sampling_rate=N]\n- \"Solar8000/ST_AVR\": ST segment in lead aVR (mm) [signal_type_sampling_rate=N]\n- \"Solar8000/ST_I\": ST segment in lead I (mm) [signal_type_sampling_rate=N]\n- \"Solar8000/ST_II\": ST segment in lead II (mm) [signal_type_sampling_rate=N]\n- \"Solar8000/ST_III\": ST segment in lead III (mm) [signal_type_sampling_rate=N]\n- \"Solar8000/ST_V5\": ST segment in lead V5 (mm) [signal_type_sampling_rate=N]\n- \"Solar8000/VENT_COMPL\": Airway compliance (from ventilator) (mL/mbar) [signal_type_sampling_rate=N]\n- \"Solar8000/VENT_INSP_TM\": Inspiratory time (from ventilator) (sec) [signal_type_sampling_rate=N]\n- \"Solar8000/VENT_MAWP\": Mean airway pressure (from ventilator) (mbar) [signal_type_sampling_rate=N]\n- \"Solar8000/VENT_MEAS_PEEP\": Positive end-expiratory pressure (from ventilator) (mbar) [signal_type_sampling_rate=N]\n- \"Solar8000/VENT_MV\": Minute ventilation (from ventilator) (L/min) [signal_type_sampling_rate=N]\n- \"Solar8000/VENT_PIP\": Peak inspiratory pressure (from ventilator) (mbar) [signal_type_sampling_rate=N]\n- \"Solar8000/VENT_PPLAT\": Plateau pressure (from ventilator) (mbar) [signal_type_sampling_rate=N]\n- \"Solar8000/VENT_RR\": Respiratory rate (from ventilator) (/min) [signal_type_sampling_rate=N]\n- \"Solar8000/VENT_SET_FIO2\": Set fraction of inspired O2 (from ventilator) (%) [signal_type_sampling_rate=N]\n- \"Solar8000/VENT_SET_PCP\": Set peak inspiratory pressure in pressure control mode (from ventilator) (cmH2O) [signal_type_sampling_rate=N]\n- \"Solar8000/VENT_SET_TV\": Set tidal volume in volume control mode (from ventilator) (mL) [signal_type_sampling_rate=N]\n- \"Solar8000/VENT_TV\": Measured tidal volume (from ventilator) (mL) [signal_type_sampling_rate=N]\n- \"Vigilance/BT_PA\": Pulmonary artery temperature (℃) [signal_type_sampling_rate=N]\n- \"Vigilance/CI\": Cardiac index (L/min/m2) [signal_type_sampling_rate=N]\n- \"Vigilance/CO\": Cardiac output (L/min) [signal_type_sampling_rate=N]\n- \"Vigilance/EDV\": End-diastolic volume (mL) [signal_type_sampling_rate=N]\n- \"Vigilance/EDVI\": End-diastolic volume index (mL/m2) [signal_type_sampling_rate=N]\n- \"Vigilance/ESV\": End-systolic volume (mL) [signal_type_sampling_rate=N]\n- \"Vigilance/ESVI\": End-systolic volume index (mL/m2) [signal_type_sampling_rate=N]\n- \"Vigilance/HR_AVG\": Average heart rate (/min) [signal_type_sampling_rate=N]\n- \"Vigilance/RVEF\": Right ventricular ejection fraction (%) [signal_type_sampling_rate=N]\n- \"Vigilance/SNR\": Signal to noise ratio (dB) [signal_type_sampling_rate=N]\n- \"Vigilance/SQI\": Signal quality index (%) [signal_type_sampling_rate=N]\n- \"Vigilance/SV\": Stroke volume (mL/beat) [signal_type_sampling_rate=N]\n- \"Vigilance/SVI\": Stroke volume index (mL/beat/m2) [signal_type_sampling_rate=N]\n- \"Vigilance/SVO2\": Mixed venous oxygen saturation (%) [signal_type_sampling_rate=N]\n- \"Vigileo/CI\": Cardiac index (L/min/m2) [signal_type_sampling_rate=N]\n- \"Vigileo/CO\": Cardiac output (L/min) [signal_type_sampling_rate=N]\n- \"Vigileo/SV\": Stroke volume (mL/beat) [signal_type_sampling_rate=N]\n- \"Vigileo/SVI\": Stroke volume index (mL/beat/m2) [signal_type_sampling_rate=N]\n- \"Vigileo/SVV\": Stroke volume variation (%) [signal_type_sampling_rate=N]\n- \"adm\": Admission time from casestart (sec) [data_source=EMR]\n- \"age\": Age (years) [data_source=EMR]\n- \"airway\": Airway route [data_source=EMR]\n- \"alb\": Albumin (g/dL) [category=Chemistry, reference_value=3.3~5.2]\n- \"aline1\": Site of arterial line (1) [data_source=EMR]\n- \"aline2\": Site of arterial line (2) [data_source=EMR]\n- \"alt\": Alanine transferase (IU/L) [category=Chemistry, reference_value=1~40]\n- \"ammo\": Ammonia (mcg/dL) [category=Chemistry, reference_value=27.2~102]\n- \"ane_type\": Anesthesia type [data_source=EMR]\n- \"anedur\": Anesthesia duration (min) [data_source=EMR]\n- \"aneend\": Anesthesia end time; from casestart (sec) [data_source=Case file]\n- \"anestart\": Anesthesia start time; from casestart (sec) [data_source=Case file]\n- \"approach\": Surgical approach [data_source=EMR]\n- \"aptt\": Activated partial thromboplastin time (sec) [category=Coagulation, reference_value=26.7~36.6]\n- \"asa\": ASA Physical status classification [data_source=EMR]\n- \"ast\": Asparate transferase (IU/L) [category=Chemistry, reference_value=1~40]\n- \"be\": Base excess (mmol/L) [category=ABGA, reference_value=-2.0~3.0]\n- \"bmi\": Body mass index (kg/m2) [data_source=EMR]\n- \"bun\": Blood urea nitrogen (mg/dL) [category=Chemistry, reference_value=10~26]\n- \"casedur\": Case duration (min) [data_source=Case file]\n- \"caseend\": Recording End Time; from casestart (sec) [data_source=Case file]\n- \"caseid\": Case ID; Random number between 00001 and 06388 [data_source=Random]\n- \"casestart\": Recording Start Time; Set to 0 for anonymization (sec) [data_source=Case file]\n- \"ccr\": Creatinine clearance (mL/min) [category=Chemistry, reference_value=75~125]\n- \"cl\": Chloride (mmol/L) [category=Chemistry, reference_value=98~110]\n- \"cline1\": Site of central line (1) [data_source=EMR]\n- \"cline2\": Site of central line (2) [data_source=EMR]\n- \"cormack\": Cormack's grade [data_source=EMR]\n- \"cr\": Creatinine (mg/dL) [category=Chemistry, reference_value=0.70~1.40]\n- \"crp\": C-reactive protein (mg/dL) [category=Chemistry, reference_value=0~0.5]\n- \"death_inhosp\": In-hospital Mortality [data_source=EMR]\n- \"department\": Surgical department [data_source=EMR]\n- \"devices\": Devices used [data_source=Case file]\n- \"dis\": Discharge time from casestart (sec) [data_source=EMR]\n- \"dltubesize\": Double lumen tube size (Fr) [data_source=EMR]\n- \"dx\": Diagnosis [data_source=EMR]\n- \"emop\": Emergency operation [data_source=EMR]\n- \"esr\": Erythrocyte sedimentation rate (mm/hr) [category=CBC, reference_value=0~9]\n- \"fib\": Fibrinogen (mg/dL) [category=Coagulation, reference_value=192~411]\n- \"filesize\": Case file size (MB) [data_source=Case file]\n- \"gfr\": Glomerular filtration rate (mL/min/1.73 m2) [category=Chemistry, reference_value=90~120]\n- \"gluc\": Glucose (mg/dL) [category=Chemistry, reference_value=70~110]\n- \"hb\": Hemoglobin (g/dL) [category=CBC, reference_value=13~17]\n- \"hco3\": Bicarbonate (mmol/L) [category=ABGA, reference_value=18~23.0]\n- \"hct\": Hematocrit (%) [category=CBC, reference_value=39~52]\n- \"height\": Height (cm) [data_source=EMR]\n- \"ica\": ionized Calcium (mmol/L) [category=Chemistry, reference_value=1.05~1.35]\n- \"intraop_ca\": Calcium chloride (mg) [data_source=EMR]\n- \"intraop_colloid\": Intraoperative colloid (mL) [data_source=EMR]\n- \"intraop_crystalloid\": Intraoperative crystalloid (mL) [data_source=EMR]\n- \"intraop_ebl\": Estimated blood loss (mL) [data_source=EMR]\n- \"intraop_eph\": Ephedrine (mg) [data_source=EMR]\n- \"intraop_epi\": Epinephrine (mcg) [data_source=EMR]\n- \"intraop_ffp\": Intraoperative FFP transfusion (Unit) [data_source=EMR]\n- \"intraop_ftn\": Fentanyl (mcg) [data_source=EMR]\n- \"intraop_mdz\": Midazolam (mg) [data_source=EMR]\n- \"intraop_phe\": Phenylephrine (mcg) [data_source=EMR]\n- \"intraop_ppf\": Propofol bolus (mg) [data_source=EMR]\n- \"intraop_rbc\": Intraoperative RBC transfusion (Unit) [data_source=EMR]\n- \"intraop_rocu\": Rocuronium (mg) [data_source=EMR]\n- \"intraop_uo\": Intraoperative urine output (mL) [data_source=EMR]\n- \"intraop_vecu\": Vecuronium (mg) [data_source=EMR]\n- \"iv1\": Site of IV line (1) [data_source=EMR]\n- \"iv2\": Site of IV line (2) [data_source=EMR]\n- \"k\": Potassium (mmol/L) [category=Chemistry, reference_value=3.5~5.5]\n- \"lac\": Lactate (mmol/L) [category=Chemistry, reference_value=0.5~2.2]\n- \"lmasize\": LMA size [data_source=EMR]\n- \"los_icu\": Postoperative length of ICU stay (days) [data_source=EMR]\n- \"los_postop\": Postoperative length of hospital stay (days) [data_source=EMR]\n- \"na\": Sodium (mmol/L) [category=Chemistry, reference_value=135~145]\n- \"opdur\": Surgery duration (min) [data_source=EMR]\n- \"opend\": Operation end time; from casestart (sec) [data_source=Case file]\n- \"opname\": Operation name [data_source=EMR]\n- \"opstart\": Operation start time; from casestart (sec) [data_source=Case file]\n- \"optype\": Surgery type [data_source=EMR]\n- \"pco2\": partial pressure of CO2 (mmHg) [category=ABGA, reference_value=35~48]\n- \"ph\": pH [category=ABGA, reference_value=7.35~7.45]\n- \"plt\": Platelet count (×1000/mcL) [category=CBC, reference_value=130~400]\n- \"po2\": partial pressure of O2 (mmHg) [category=ABGA, reference_value=83~108]\n- \"position\": Surgical position [data_source=EMR]\n- \"preop_alb\": Preoperative albumin (g/dL) [data_source=EMR]\n- \"preop_alt\": Preoperative GPT (IU/L) [data_source=EMR]\n- \"preop_aptt\": Preoperative aPTT (sec) [data_source=EMR]\n- \"preop_arrhythmia\": Preoperative arrhythmia [data_source=EMR]\n- \"preop_ast\": Preoperative GOT (IU/L) [data_source=EMR]\n- \"preop_be\": Preoperative base excess (mmol/L) [data_source=EMR]\n- \"preop_bun\": Preoperative blood urea nitrogen (mg/dL) [data_source=EMR]\n- \"preop_cr\": Preoperative creatinine (mg/dL) [data_source=EMR]\n- \"preop_dm\": Preoperative diabetes [data_source=EMR]\n- \"preop_gluc\": Preoperative glucose (mg/dL) [data_source=EMR]\n- \"preop_hb\": Preoperative hemoglobin (g/dL) [data_source=EMR]\n- \"preop_hco3\": Preoperative HCO3- (mmol/L) [data_source=EMR]\n- \"preop_htn\": Preoperative hypertension [data_source=EMR]\n- \"preop_k\": Preoperative K (mmol/L) [data_source=EMR]\n- \"preop_na\": Preoperative Na (mmol/L) [data_source=EMR]\n- \"preop_paco2\": Preoperative PaCO2 (mmHg) [data_source=EMR]\n- \"preop_pao2\": Preoperative PaO2 (mmHg) [data_source=EMR]\n- \"preop_pft\": Preoperative pulmonary function [data_source=EMR]\n- \"preop_ph\": Preoperative pH [data_source=EMR]\n- \"preop_plt\": Preoperative platelet count (x1000/mcL) [data_source=EMR]\n- \"preop_pt\": Preoperative PT (%) [data_source=EMR]\n- \"preop_sao2\": Preoperative SpO2 (%) [data_source=EMR]\n- \"pt%\": Prothrombin time (%) (%) [category=Coagulation, reference_value=80~120]\n- \"ptinr\": Prothrombin time (INR) (INR) [category=Coagulation, reference_value=0.8~1.2]\n- \"ptsec\": Prothrombin time (sec) (sec) [category=Coagulation, reference_value=10.6~12.9]\n- \"sao2\": Arterial oxygen saturation (%) [category=ABGA, reference_value=95~98]\n- \"sex\": Sex (M/F) [data_source=EMR]\n- \"subjectid\": Subject ID; Deidentified hospital ID of patient [data_source=EMR]\n- \"tbil\": Total bilirubin (mg/dL) [category=Chemistry, reference_value=0.2~1.2]\n- \"tprot\": Total protein (g/dL) [category=Chemistry, reference_value=6.0~8.0]\n- \"tracks\": Number of track parameters [data_source=Case file]\n- \"tubesize\": Endotracheal tube size (mm) [data_source=EMR]\n- \"wbc\": White blood cell count (×1000/mcL) [category=CBC, reference_value=4~10]\n- \"weight\": Weight (kg) [data_source=EMR]\n\n\n[Parameters to Analyze]\nTotal: 50 parameters\n\n- caseid (source: column_name, role: IDENTIFIER)\n- alb (source: column_value)\n- alt (source: column_value)\n- aptt (source: column_value)\n- ast (source: column_value)\n- bun (source: column_value)\n- cl (source: column_value)\n- cr (source: column_value)\n- crp (source: column_value)\n- fib (source: column_value)\n- gfr (source: column_value)\n- gluc (source: column_value)\n- hb (source: column_value)\n- hco3 (source: column_value)\n- hct (source: column_value)\n- ica (source: column_value)\n- k (source: column_value)\n- lac (source: column_value)\n- na (source: column_value)\n- pco2 (source: column_value)\n- ph (source: column_value)\n- ... and 14 more (source: column_value)\n- caseid (source: column_name, role: IDENTIFIER)\n- subjectid (source: column_name, role: IDENTIFIER)\n- preop_hb (source: column_name)\n- preop_plt (source: column_name)\n- preop_pt (source: column_name)\n- preop_aptt (source: column_name)\n- preop_na (source: column_name)\n- preop_k (source: column_name)\n- preop_gluc (source: column_name)\n- preop_alb (source: column_name)\n- preop_ast (source: column_name)\n- preop_alt (source: column_name)\n- preop_bun (source: column_name)\n- preop_cr (source: column_name)\n- preop_ph (source: column_name)\n- preop_hco3 (source: column_name)\n- preop_be (source: column_name)\n- preop_pao2 (source: column_name)\n- preop_paco2 (source: column_name)\n- preop_sao2 (source: column_name)\n- intraop_ebl (source: column_name)\n- intraop_uo (source: column_name)\n- intraop_rbc (source: column_name)\n- intraop_ffp (source: column_name)\n- intraop_crystalloid (source: column_name)\n- intraop_colloid (source: column_name)\n- intraop_ppf (source: column_name)\n- intraop_mdz (source: column_name)\n\n[Output Format]\nRespond with valid JSON:\n{\n  \"parameters\": [\n    {\n      \"param_key\": \"string - Original parameter key (MUST match input exactly)\",\n      \"semantic_name\": \"string - Standardized semantic name\",\n      \"unit\": \"string or null - Measurement unit\",\n      \"description\": \"string or null - Description\",\n      \"concept_category\": \"string - Category (Vital Signs, Laboratory, Demographics, etc.)\",\n      \"dict_entry_key\": \"string or null - EXACT key from dictionary (null if no match)\",\n      \"match_confidence\": \"float (0.0-1.0) - Confidence score\",\n      \"reasoning\": \"string - Reasoning for the match decision\"\n    }\n  ]\n}",
+    "max_tokens": 8192
+  },
+  "output": {
+    "response": {
+      "parameters": [
+        {
+          "param_key": "caseid",
+          "semantic_name": "Case ID",
+          "unit": null,
+          "description": "Case ID; Random number between 00001 and 06388",
+          "concept_category": "Identifiers",
+          "dict_entry_key": "caseid",
+          "match_confidence": 0.99,
+          "reasoning": "Exact match to dictionary key 'caseid' and marked as IDENTIFIER."
+        },
+        {
+          "param_key": "alb",
+          "semantic_name": "Albumin",
+          "unit": "g/dL",
+          "description": "Albumin laboratory measurement",
+          "concept_category": "Laboratory:Chemistry",
+          "dict_entry_key": "alb",
+          "match_confidence": 0.98,
+          "reasoning": "Exact match to dictionary key 'alb' (Albumin, g/dL)."
+        },
+        {
+          "param_key": "alt",
+          "semantic_name": "Alanine Aminotransferase (ALT)",
+          "unit": "IU/L",
+          "description": "Alanine transferase laboratory measurement",
+          "concept_category": "Laboratory:Chemistry",
+          "dict_entry_key": "alt",
+          "match_confidence": 0.98,
+          "reasoning": "Exact match to dictionary key 'alt' (Alanine transferase, IU/L)."
+        },
+        {
+          "param_key": "aptt",
+          "semantic_name": "Activated Partial Thromboplastin Time (aPTT)",
+          "unit": "sec",
+          "description": "Activated partial thromboplastin time",
+          "concept_category": "Laboratory:Coagulation",
+          "dict_entry_key": "aptt",
+          "match_confidence": 0.98,
+          "reasoning": "Exact match to dictionary key 'aptt' (aPTT, seconds)."
+        },
+        {
+          "param_key": "ast",
+          "semantic_name": "Aspartate Aminotransferase (AST)",
+          "unit": "IU/L",
+          "description": "Aspartate transferase laboratory measurement",
+          "concept_category": "Laboratory:Chemistry",
+          "dict_entry_key": "ast",
+          "match_confidence": 0.98,
+          "reasoning": "Exact match to dictionary key 'ast' (AST, IU/L)."
+        },
+        {
+          "param_key": "bun",
+          "semantic_name": "Blood Urea Nitrogen (BUN)",
+          "unit": "mg/dL",
+          "description": "Blood urea nitrogen laboratory measurement",
+          "concept_category": "Laboratory:Chemistry",
+          "dict_entry_key": "bun",
+          "match_confidence": 0.98,
+          "reasoning": "Exact match to dictionary key 'bun' (BUN, mg/dL)."
+        },
+        {
+          "param_key": "cl",
+          "semantic_name": "Chloride",
+          "unit": "mmol/L",
+          "description": "Serum chloride laboratory measurement",
+          "concept_category": "Laboratory:Chemistry",
+          "dict_entry_key": "cl",
+          "match_confidence": 0.98,
+          "reasoning": "Exact match to dictionary key 'cl' (Chloride, mmol/L)."
+        },
+        {
+          "param_key": "cr",
+          "semantic_name": "Creatinine",
+          "unit": "mg/dL",
+          "description": "Serum creatinine laboratory measurement",
+          "concept_category": "Laboratory:Chemistry",
+          "dict_entry_key": "cr",
+          "match_confidence": 0.98,
+          "reasoning": "Exact match to dictionary key 'cr' (Creatinine, mg/dL)."
+        },
+        {
+          "param_key": "crp",
+          "semantic_name": "C-Reactive Protein (CRP)",
+          "unit": "mg/dL",
+          "description": "C-reactive protein laboratory measurement",
+          "concept_category": "Laboratory:Chemistry",
+          "dict_entry_key": "crp",
+          "match_confidence": 0.98,
+          "reasoning": "Exact match to dictionary key 'crp' (CRP, mg/dL)."
+        },
+        {
+          "param_key": "fib",
+          "semantic_name": "Fibrinogen",
+          "unit": "mg/dL",
+          "description": "Fibrinogen laboratory measurement",
+          "concept_category": "Laboratory:Coagulation",
+          "dict_entry_key": "fib",
+          "match_confidence": 0.98,
+          "reasoning": "Exact match to dictionary key 'fib' (Fibrinogen, mg/dL)."
+        },
+        {
+          "param_key": "gfr",
+          "semantic_name": "Glomerular Filtration Rate (GFR)",
+          "unit": "mL/min/1.73 m2",
+          "description": "Estimated glomerular filtration rate",
+          "concept_category": "Laboratory:Chemistry",
+          "dict_entry_key": "gfr",
+          "match_confidence": 0.98,
+          "reasoning": "Exact match to dictionary key 'gfr' (GFR, mL/min/1.73 m2)."
+        },
+        {
+          "param_key": "gluc",
+          "semantic_name": "Glucose",
+          "unit": "mg/dL",
+          "description": "Blood glucose laboratory measurement",
+          "concept_category": "Laboratory:Chemistry",
+          "dict_entry_key": "gluc",
+          "match_confidence": 0.98,
+          "reasoning": "Exact match to dictionary key 'gluc' (Glucose, mg/dL)."
+        },
+        {
+          "param_key": "hb",
+          "semantic_name": "Hemoglobin",
+          "unit": "g/dL",
+          "description": "Hemoglobin laboratory measurement",
+          "concept_category": "Laboratory:Hematology",
+          "dict_entry_key": "hb",
+          "match_confidence": 0.98,
+          "reasoning": "Exact match to dictionary key 'hb' (Hemoglobin, g/dL)."
+        },
+        {
+          "param_key": "hco3",
+          "semantic_name": "Bicarbonate (HCO3-)",
+          "unit": "mmol/L",
+          "description": "Bicarbonate from arterial blood gas analysis",
+          "concept_category": "Laboratory:Chemistry",
+          "dict_entry_key": "hco3",
+          "match_confidence": 0.97,
+          "reasoning": "Exact match to dictionary key 'hco3' (Bicarbonate, mmol/L)."
+        },
+        {
+          "param_key": "hct",
+          "semantic_name": "Hematocrit",
+          "unit": "%",
+          "description": "Hematocrit laboratory measurement",
+          "concept_category": "Laboratory:Hematology",
+          "dict_entry_key": "hct",
+          "match_confidence": 0.98,
+          "reasoning": "Exact match to dictionary key 'hct' (Hematocrit, %)."
+        },
+        {
+          "param_key": "ica",
+          "semantic_name": "Ionized Calcium",
+          "unit": "mmol/L",
+          "description": "Ionized calcium laboratory measurement",
+          "concept_category": "Laboratory:Chemistry",
+          "dict_entry_key": "ica",
+          "match_confidence": 0.98,
+          "reasoning": "Exact match to dictionary key 'ica' (ionized Calcium, mmol/L)."
+        },
+        {
+          "param_key": "k",
+          "semantic_name": "Potassium",
+          "unit": "mmol/L",
+          "description": "Serum potassium laboratory measurement",
+          "concept_category": "Laboratory:Chemistry",
+          "dict_entry_key": "k",
+          "match_confidence": 0.98,
+          "reasoning": "Exact match to dictionary key 'k' (Potassium, mmol/L)."
+        },
+        {
+          "param_key": "lac",
+          "semantic_name": "Lactate",
+          "unit": "mmol/L",
+          "description": "Blood lactate laboratory measurement",
+          "concept_category": "Laboratory:Chemistry",
+          "dict_entry_key": "lac",
+          "match_confidence": 0.98,
+          "reasoning": "Exact match to dictionary key 'lac' (Lactate, mmol/L)."
+        },
+        {
+          "param_key": "na",
+          "semantic_name": "Sodium",
+          "unit": "mmol/L",
+          "description": "Serum sodium laboratory measurement",
+          "concept_category": "Laboratory:Chemistry",
+          "dict_entry_key": "na",
+          "match_confidence": 0.98,
+          "reasoning": "Exact match to dictionary key 'na' (Sodium, mmol/L)."
+        },
+        {
+          "param_key": "pco2",
+          "semantic_name": "Partial Pressure of Carbon Dioxide (PaCO2)",
+          "unit": "mmHg",
+          "description": "Partial pressure of CO2 from arterial blood gas analysis",
+          "concept_category": "Laboratory:Chemistry",
+          "dict_entry_key": "pco2",
+          "match_confidence": 0.97,
+          "reasoning": "Exact match to dictionary key 'pco2' (partial pressure of CO2, mmHg)."
+        },
+        {
+          "param_key": "ph",
+          "semantic_name": "pH",
+          "unit": null,
+          "description": "Acid-base status (pH) from arterial blood gas analysis",
+          "concept_category": "Laboratory:Chemistry",
+          "dict_entry_key": "ph",
+          "match_confidence": 0.98,
+          "reasoning": "Exact match to dictionary key 'ph' (pH, unitless)."
+        },
+        {
+          "param_key": "... and 14 more",
+          "semantic_name": "Unknown Parameter",
+          "unit": null,
+          "description": "Unable to determine meaning because the parameter names are not provided (placeholder text in input).",
+          "concept_category": "Other",
+          "dict_entry_key": null,
+          "match_confidence": 0.0,
+          "reasoning": "Input contains a placeholder ('... and 14 more') rather than actual parameter keys, so no dictionary matching is possible."
+        },
+        {
+          "param_key": "caseid",
+          "semantic_name": "Case ID",
+          "unit": null,
+          "description": "Case ID; Random number between 00001 and 06388",
+          "concept_category": "Identifiers",
+          "dict_entry_key": "caseid",
+          "match_confidence": 0.99,
+          "reasoning": "Exact match to dictionary key 'caseid' and marked as IDENTIFIER."
+        },
+        {
+          "param_key": "subjectid",
+          "semantic_name": "Subject ID",
+          "unit": null,
+          "description": "Subject ID; Deidentified hospital ID of patient",
+          "concept_category": "Identifiers",
+          "dict_entry_key": "subjectid",
+          "match_confidence": 0.99,
+          "reasoning": "Exact match to dictionary key 'subjectid' and marked as IDENTIFIER."
+        },
+        {
+          "param_key": "preop_hb",
+          "semantic_name": "Preoperative Hemoglobin",
+          "unit": "g/dL",
+          "description": "Preoperative hemoglobin laboratory measurement",
+          "concept_category": "Laboratory:Hematology",
+          "dict_entry_key": "preop_hb",
+          "match_confidence": 0.98,
+          "reasoning": "Exact match to dictionary key 'preop_hb' (Preoperative hemoglobin, g/dL)."
+        },
+        {
+          "param_key": "preop_plt",
+          "semantic_name": "Preoperative Platelet Count",
+          "unit": "x1000/mcL",
+          "description": "Preoperative platelet count",
+          "concept_category": "Laboratory:Hematology",
+          "dict_entry_key": "preop_plt",
+          "match_confidence": 0.98,
+          "reasoning": "Exact match to dictionary key 'preop_plt' (platelet count, x1000/mcL)."
+        },
+        {
+          "param_key": "preop_pt",
+          "semantic_name": "Preoperative Prothrombin Time (PT %)",
+          "unit": "%",
+          "description": "Preoperative prothrombin time expressed as percent activity",
+          "concept_category": "Laboratory:Coagulation",
+          "dict_entry_key": "preop_pt",
+          "match_confidence": 0.97,
+          "reasoning": "Exact match to dictionary key 'preop_pt' (Preoperative PT (%))."
+        },
+        {
+          "param_key": "preop_aptt",
+          "semantic_name": "Preoperative Activated Partial Thromboplastin Time (aPTT)",
+          "unit": "sec",
+          "description": "Preoperative activated partial thromboplastin time",
+          "concept_category": "Laboratory:Coagulation",
+          "dict_entry_key": "preop_aptt",
+          "match_confidence": 0.98,
+          "reasoning": "Exact match to dictionary key 'preop_aptt' (Preoperative aPTT, sec)."
+        },
+        {
+          "param_key": "preop_na",
+          "semantic_name": "Preoperative Sodium",
+          "unit": "mmol/L",
+          "description": "Preoperative serum sodium laboratory measurement",
+          "concept_category": "Laboratory:Chemistry",
+          "dict_entry_key": "preop_na",
+          "match_confidence": 0.98,
+          "reasoning": "Exact match to dictionary key 'preop_na' (Preoperative Na, mmol/L)."
+        },
+        {
+          "param_key": "preop_k",
+          "semantic_name": "Preoperative Potassium",
+          "unit": "mmol/L",
+          "description": "Preoperative serum potassium laboratory measurement",
+          "concept_category": "Laboratory:Chemistry",
+          "dict_entry_key": "preop_k",
+          "match_confidence": 0.98,
+          "reasoning": "Exact match to dictionary key 'preop_k' (Preoperative K, mmol/L)."
+        },
+        {
+          "param_key": "preop_gluc",
+          "semantic_name": "Preoperative Glucose",
+          "unit": "mg/dL",
+          "description": "Preoperative blood glucose laboratory measurement",
+          "concept_category": "Laboratory:Chemistry",
+          "dict_entry_key": "preop_gluc",
+          "match_confidence": 0.98,
+          "reasoning": "Exact match to dictionary key 'preop_gluc' (Preoperative glucose, mg/dL)."
+        },
+        {
+          "param_key": "preop_alb",
+          "semantic_name": "Preoperative Albumin",
+          "unit": "g/dL",
+          "description": "Preoperative albumin laboratory measurement",
+          "concept_category": "Laboratory:Chemistry",
+          "dict_entry_key": "preop_alb",
+          "match_confidence": 0.98,
+          "reasoning": "Exact match to dictionary key 'preop_alb' (Preoperative albumin, g/dL)."
+        },
+        {
+          "param_key": "preop_ast",
+          "semantic_name": "Preoperative Aspartate Aminotransferase (AST)",
+          "unit": "IU/L",
+          "description": "Preoperative AST laboratory measurement",
+          "concept_category": "Laboratory:Chemistry",
+          "dict_entry_key": "preop_ast",
+          "match_confidence": 0.98,
+          "reasoning": "Exact match to dictionary key 'preop_ast' (Preoperative GOT/AST, IU/L)."
+        },
+        {
+          "param_key": "preop_alt",
+          "semantic_name": "Preoperative Alanine Aminotransferase (ALT)",
+          "unit": "IU/L",
+          "description": "Preoperative ALT laboratory measurement",
+          "concept_category": "Laboratory:Chemistry",
+          "dict_entry_key": "preop_alt",
+          "match_confidence": 0.98,
+          "reasoning": "Exact match to dictionary key 'preop_alt' (Preoperative GPT/ALT, IU/L)."
+        },
+        {
+          "param_key": "preop_bun",
+          "semantic_name": "Preoperative Blood Urea Nitrogen (BUN)",
+          "unit": "mg/dL",
+          "description": "Preoperative blood urea nitrogen laboratory measurement",
+          "concept_category": "Laboratory:Chemistry",
+          "dict_entry_key": "preop_bun",
+          "match_confidence": 0.98,
+          "reasoning": "Exact match to dictionary key 'preop_bun' (Preoperative BUN, mg/dL)."
+        },
+        {
+          "param_key": "preop_cr",
+          "semantic_name": "Preoperative Creatinine",
+          "unit": "mg/dL",
+          "description": "Preoperative serum creatinine laboratory measurement",
+          "concept_category": "Laboratory:Chemistry",
+          "dict_entry_key": "preop_cr",
+          "match_confidence": 0.98,
+          "reasoning": "Exact match to dictionary key 'preop_cr' (Preoperative creatinine, mg/dL)."
+        },
+        {
+          "param_key": "preop_ph",
+          "semantic_name": "Preoperative pH",
+          "unit": null,
+          "description": "Preoperative pH from arterial blood gas analysis",
+          "concept_category": "Laboratory:Chemistry",
+          "dict_entry_key": "preop_ph",
+          "match_confidence": 0.98,
+          "reasoning": "Exact match to dictionary key 'preop_ph' (Preoperative pH, unitless)."
+        },
+        {
+          "param_key": "preop_hco3",
+          "semantic_name": "Preoperative Bicarbonate (HCO3-)",
+          "unit": "mmol/L",
+          "description": "Preoperative bicarbonate from arterial blood gas analysis",
+          "concept_category": "Laboratory:Chemistry",
+          "dict_entry_key": "preop_hco3",
+          "match_confidence": 0.98,
+          "reasoning": "Exact match to dictionary key 'preop_hco3' (Preoperative HCO3-, mmol/L)."
+        },
+        {
+          "param_key": "preop_be",
+          "semantic_name": "Preoperative Base Excess",
+          "unit": "mmol/L",
+          "description": "Preoperative base excess from arterial blood gas analysis",
+          "concept_category": "Laboratory:Chemistry",
+          "dict_entry_key": "preop_be",
+          "match_confidence": 0.98,
+          "reasoning": "Exact match to dictionary key 'preop_be' (Preoperative base excess, mmol/L)."
+        },
+        {
+          "param_key": "preop_pao2",
+          "semantic_name": "Preoperative Partial Pressure of Oxygen (PaO2)",
+          "unit": "mmHg",
+          "description": "Preoperative PaO2 from arterial blood gas analysis",
+          "concept_category": "Laboratory:Chemistry",
+          "dict_entry_key": "preop_pao2",
+          "match_confidence": 0.98,
+          "reasoning": "Exact match to dictionary key 'preop_pao2' (Preoperative PaO2, mmHg)."
+        },
+        {
+          "param_key": "preop_paco2",
+          "semantic_name": "Preoperative Partial Pressure of Carbon Dioxide (PaCO2)",
+          "unit": "mmHg",
+          "description": "Preoperative PaCO2 from arterial blood gas analysis",
+          "concept_category": "Laboratory:Chemistry",
+          "dict_entry_key": "preop_paco2",
+          "match_confidence": 0.98,
+          "reasoning": "Exact match to dictionary key 'preop_paco2' (Preoperative PaCO2, mmHg)."
+        },
+        {
+          "param_key": "preop_sao2",
+          "semantic_name": "Preoperative Oxygen Saturation (SpO2)",
+          "unit": "%",
+          "description": "Preoperative oxygen saturation",
+          "concept_category": "Vital Signs",
+          "dict_entry_key": "preop_sao2",
+          "match_confidence": 0.9,
+          "reasoning": "Exact match to dictionary key 'preop_sao2' labeled as preoperative SpO2 (%)."
+        },
+        {
+          "param_key": "intraop_ebl",
+          "semantic_name": "Intraoperative Estimated Blood Loss",
+          "unit": "mL",
+          "description": "Estimated blood loss during surgery",
+          "concept_category": "Surgical",
+          "dict_entry_key": "intraop_ebl",
+          "match_confidence": 0.98,
+          "reasoning": "Exact match to dictionary key 'intraop_ebl' (Estimated blood loss, mL)."
+        },
+        {
+          "param_key": "intraop_uo",
+          "semantic_name": "Intraoperative Urine Output",
+          "unit": "mL",
+          "description": "Urine output during surgery",
+          "concept_category": "Surgical",
+          "dict_entry_key": "intraop_uo",
+          "match_confidence": 0.98,
+          "reasoning": "Exact match to dictionary key 'intraop_uo' (Intraoperative urine output, mL)."
+        },
+        {
+          "param_key": "intraop_rbc",
+          "semantic_name": "Intraoperative RBC Transfusion",
+          "unit": "Unit",
+          "description": "Red blood cell transfusion amount during surgery",
+          "concept_category": "Surgical",
+          "dict_entry_key": "intraop_rbc",
+          "match_confidence": 0.98,
+          "reasoning": "Exact match to dictionary key 'intraop_rbc' (RBC transfusion, Unit)."
+        },
+        {
+          "param_key": "intraop_ffp",
+          "semantic_name": "Intraoperative Fresh Frozen Plasma (FFP) Transfusion",
+          "unit": "Unit",
+          "description": "FFP transfusion amount during surgery",
+          "concept_category": "Surgical",
+          "dict_entry_key": "intraop_ffp",
+          "match_confidence": 0.98,
+          "reasoning": "Exact match to dictionary key 'intraop_ffp' (FFP transfusion, Unit)."
+        },
+        {
+          "param_key": "intraop_crystalloid",
+          "semantic_name": "Intraoperative Crystalloid Volume",
+          "unit": "mL",
+          "description": "Crystalloid administered during surgery",
+          "concept_category": "Surgical",
+          "dict_entry_key": "intraop_crystalloid",
+          "match_confidence": 0.98,
+          "reasoning": "Exact match to dictionary key 'intraop_crystalloid' (Intraoperative crystalloid, mL)."
+        },
+        {
+          "param_key": "intraop_colloid",
+          "semantic_name": "Intraoperative Colloid Volume",
+          "unit": "mL",
+          "description": "Colloid administered during surgery",
+          "concept_category": "Surgical",
+          "dict_entry_key": "intraop_colloid",
+          "match_confidence": 0.98,
+          "reasoning": "Exact match to dictionary key 'intraop_colloid' (Intraoperative colloid, mL)."
+        },
+        {
+          "param_key": "intraop_ppf",
+          "semantic_name": "Propofol Bolus (Intraoperative)",
+          "unit": "mg",
+          "description": "Propofol bolus dose administered intraoperatively",
+          "concept_category": "Medication",
+          "dict_entry_key": "intraop_ppf",
+          "match_confidence": 0.98,
+          "reasoning": "Exact match to dictionary key 'intraop_ppf' (Propofol bolus, mg)."
+        },
+        {
+          "param_key": "intraop_mdz",
+          "semantic_name": "Midazolam (Intraoperative)",
+          "unit": "mg",
+          "description": "Midazolam dose administered intraoperatively",
+          "concept_category": "Medication",
+          "dict_entry_key": "intraop_mdz",
+          "match_confidence": 0.98,
+          "reasoning": "Exact match to dictionary key 'intraop_mdz' (Midazolam, mg)."
+        }
+      ]
+    }
+  }
+}

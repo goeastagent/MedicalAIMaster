@@ -7,7 +7,7 @@ Entity Identification 프롬프트
 """
 
 from src.agents.prompts import PromptTemplate
-from src.agents.models.llm_responses import TableEntityResult
+from src.models.llm_responses import TableEntityResult
 
 
 class EntityIdentificationPrompt(PromptTemplate):

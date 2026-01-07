@@ -19,7 +19,7 @@ import operator
 from typing import Annotated, List, Dict, Any, Optional, Literal, TypedDict
 
 # Pydantic 스키마는 필요한 곳에서 models 패키지에서 import하여 사용
-# from src.agents.models import ColumnSchema, EntityIdentification, ...
+# from src.models import ColumnSchema, EntityIdentification, ...
 
 
 class AgentState(TypedDict):

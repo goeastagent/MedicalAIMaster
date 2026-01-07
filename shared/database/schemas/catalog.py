@@ -25,6 +25,7 @@ CREATE TABLE IF NOT EXISTS file_catalog (
     file_size_bytes BIGINT,
     file_size_mb NUMERIC(10, 2),
     file_modified_at TIMESTAMP,
+    file_content_hash VARCHAR(64),        -- SHA-256 해시 (파일 변경 감지용)
     processor_type VARCHAR(50),           -- "tabular" or "signal"
     is_text_readable BOOLEAN DEFAULT FALSE,
     file_metadata JSONB DEFAULT '{}'::jsonb,

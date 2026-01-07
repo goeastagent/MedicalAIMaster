@@ -88,7 +88,7 @@ VitalExtractionAgent는 **VitalDB .vital 파일**에 특화된 경량 Extraction
 ┃     - intent: "data_retrieval"                                              ┃
 ┃     - parameters: ["심박수"]                                                 ┃
 ┃     - filters: [{column: "diagnosis", op: "LIKE", value: "%Stomach%"}]      ┃
-┃     - temporal: {type: "surgery_window"}                                    ┃
+┃     - temporal: {type: "procedure_window"}                                  ┃
 ┗━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━┛
                                              │
                                              ▼
@@ -404,8 +404,8 @@ class EntityType(Enum):
 class TemporalType(Enum):
     """Vital Signal 슬라이싱용 시간 유형"""
     FULL_RECORD = "full_record"           # 전체 기록
-    SURGERY_WINDOW = "surgery_window"     # 수술 중 (op_start ~ op_end)
-    ANESTHESIA_WINDOW = "anesthesia_window"  # 마취 중 (ane_start ~ ane_end)
+    PROCEDURE_WINDOW = "procedure_window"  # 시술/수술 중 (procedure_start ~ procedure_end)
+    TREATMENT_WINDOW = "treatment_window"  # 치료 중 (treatment_start ~ treatment_end)
     CUSTOM_WINDOW = "custom_window"       # 사용자 정의 구간
 ```
 
@@ -552,7 +552,7 @@ Your task is to understand user queries and map them to the available data schem
         }
     ],
     "temporal_context": {
-        "type": "<full_record|surgery_window|anesthesia_window|custom_window>",
+        "type": "<full_record|procedure_window|treatment_window|custom_window>",
         "description": "<description of time context>"
     },
     "reasoning": "<explanation of your understanding>"
@@ -673,9 +673,9 @@ class QueryUnderstandingOutput:
     
     temporal_context: Optional[Dict]
     # {
-    #     "type": "surgery_window",
-    #     "start_column": "op_start",
-    #     "end_column": "op_end",
+    #     "type": "procedure_window",
+    #     "start_column": "procedure_start",
+    #     "end_column": "procedure_end",
     #     "margin_seconds": 300
     # }
     
@@ -1064,19 +1064,19 @@ def _build_temporal_alignment(self, state: Dict) -> Optional[Dict]:
     if temporal_type == "full_record":
         return None  # 전체 기록, 슬라이싱 불필요
     
-    if temporal_type == "surgery_window":
+    if temporal_type == "procedure_window":
         return {
             "type": "relative_window",
-            "start_column": "op_start",
-            "end_column": "op_end",
+            "start_column": temporal.get("start_column", "procedure_start"),
+            "end_column": temporal.get("end_column", "procedure_end"),
             "margin_seconds": temporal.get("margin_seconds", 0),
         }
     
-    if temporal_type == "anesthesia_window":
+    if temporal_type == "treatment_window":
         return {
             "type": "relative_window",
-            "start_column": "ane_start",
-            "end_column": "ane_end",
+            "start_column": temporal.get("start_column", "treatment_start"),
+            "end_column": temporal.get("end_column", "treatment_end"),
             "margin_seconds": temporal.get("margin_seconds", 0),
         }
     
@@ -1189,9 +1189,9 @@ class VitalExtractionState(TypedDict):
     
     temporal_context: Optional[Dict[str, Any]]
     # {
-    #     "type": "surgery_window",
-    #     "start_column": "op_start",
-    #     "end_column": "op_end"
+    #     "type": "procedure_window",
+    #     "start_column": "procedure_start",
+    #     "end_column": "procedure_end"
     # }
     
     # ═══════════════════════════════════════════════════════════════════
@@ -1328,14 +1328,14 @@ class VitalExtractionState(TypedDict):
 
 ### 예시 2: 수술 중 구간 추출
 
-**쿼리**: "당뇨 환자의 수술 중 혈압"
+**쿼리**: "당뇨 환자의 시술 중 혈압"
 
 ```
 [100] QueryUnderstanding
 ├─ Intent: data_retrieval
 ├─ Parameters: ["혈압"]
 ├─ Filters: [{column: "diagnosis", op: "LIKE", value: "%Diabetes%"}]
-└─ Temporal: {type: "surgery_window"}
+└─ Temporal: {type: "procedure_window"}
 
 [200] ParameterResolver
 ├─ "혈압" → [Solar8000/NIBP_SBP, Solar8000/NIBP_DBP, Solar8000/ART_SBP, ...]

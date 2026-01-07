@@ -33,8 +33,14 @@ class CatalogSchemaManager(BaseSchemaManager):
         cursor.execute(CREATE_UUID_EXTENSION_SQL)
     
     def _post_create_hook(self, cursor) -> None:
-        """트리거 생성"""
+        """트리거 생성 + 마이그레이션"""
         cursor.execute(CREATE_UPDATE_TRIGGER_SQL)
+        
+        # file_content_hash 컬럼 추가 (마이그레이션)
+        cursor.execute("""
+            ALTER TABLE file_catalog 
+            ADD COLUMN IF NOT EXISTS file_content_hash VARCHAR(64)
+        """)
     
     def get_stats(self) -> Dict[str, Any]:
         """카탈로그 통계 조회"""

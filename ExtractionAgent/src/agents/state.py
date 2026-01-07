@@ -85,9 +85,9 @@ class VitalExtractionState(TypedDict):
     
     temporal_context: Optional[Dict[str, Any]]
     # {
-    #     "type": "surgery_window",  # full_record | surgery_window | anesthesia_window | custom_window
-    #     "start_column": "op_start",
-    #     "end_column": "op_end",
+    #     "type": "procedure_window",  # full_record | procedure_window | treatment_window | custom_window
+    #     "start_column": "procedure_start",
+    #     "end_column": "procedure_end",
     #     "margin_seconds": 300
     # }
     

@@ -6,7 +6,7 @@ Pydantic 모델의 필드 정보(타입, description, example)를 활용하여
 LLM에게 전달할 출력 형식을 자동으로 생성합니다.
 
 사용 예시:
-    from src.agents.models.llm_responses import FileClassificationItem
+    from src.models.llm_responses import FileClassificationItem
     
     generator = OutputFormatGenerator()
     format_str = generator.generate(

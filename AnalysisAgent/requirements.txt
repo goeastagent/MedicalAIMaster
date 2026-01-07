@@ -1,0 +1,17 @@
+# AnalysisAgent Dependencies
+
+# Core
+pydantic>=2.0.0
+
+# Data Processing
+pandas>=2.0.0
+numpy>=1.24.0
+scipy>=1.10.0
+
+# Code Execution Security (Optional but recommended)
+RestrictedPython>=6.0
+
+# Testing
+pytest>=7.0.0
+pytest-asyncio>=0.21.0
+

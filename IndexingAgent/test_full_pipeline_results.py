@@ -43,7 +43,10 @@ import sys
 import os
 
 # 프로젝트 경로 추가
-sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
+CURRENT_DIR = os.path.dirname(os.path.abspath(__file__))
+PARENT_DIR = os.path.dirname(CURRENT_DIR)  # MedicalAIMaster (shared 모듈 포함)
+sys.path.insert(0, CURRENT_DIR)
+sys.path.insert(0, PARENT_DIR)
 
 from datetime import datetime
 from pathlib import Path
@@ -213,7 +216,7 @@ def find_data_files() -> list:
         print(f"   Found: {f.name}")
     
     # Vital 파일 스캔 (생체신호 데이터) - 테스트용으로 5개만
-    vital_files = list(DATA_DIR.rglob("*.vital"))[:5]
+    vital_files = list(DATA_DIR.rglob("*.vital"))
     for f in vital_files:
         files.append(str(f))
         print(f"   Found: {f.name} (signal)")
@@ -1304,6 +1307,11 @@ def main():
     print(f"   Dataset: Open VitalDB")
     print(f"   Mode: Testing up to relationship_inference (ontology_enhancement excluded)")
     print(f"   Started: {datetime.now().strftime('%Y-%m-%d %H:%M:%S')}")
+    
+    # 0. LLM 로깅 활성화
+    from shared.llm import enable_llm_logging
+    log_session_dir = enable_llm_logging()
+    print(f"   📝 LLM Logs: {log_session_dir}")
     
     # 1. DB 리셋
     reset_database()

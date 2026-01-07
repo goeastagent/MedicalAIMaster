@@ -39,7 +39,7 @@ TEST_QUERIES = [
         "expected": {
             "intent": "data_retrieval",
             "min_parameters": 2,
-            "temporal_type": "surgery_window"
+            "temporal_type": "procedure_window"
         }
     },
     {
@@ -53,11 +53,11 @@ TEST_QUERIES = [
     },
     {
         "name": "시간 필터 쿼리",
-        "query": "2020년 1월부터 2023년 12월까지 수술받은 환자들의 마취 중 체온과 심박수 데이터를 추출해줘",
+        "query": "2020년 1월부터 2023년 12월까지 수술받은 환자들의 치료 중 체온과 심박수 데이터를 추출해줘",
         "expected": {
             "intent": "data_retrieval",
             "min_parameters": 2,  # 체온, 심박수
-            "temporal_type": "anesthesia_window"
+            "temporal_type": "treatment_window"
         }
     }
 ]
@@ -303,10 +303,10 @@ def print_node_result_detail(result: dict, node_name: str):
             temporal_type = temporal.get('type', '')
             if temporal_type == 'full_record':
                 print(f"      📝 (전체 기록 - 시간 필터 없음)")
-            elif temporal_type == 'surgery_window':
-                print(f"      📝 (수술 시간 구간 내 데이터만)")
-            elif temporal_type == 'anesthesia_window':
-                print(f"      📝 (마취 시간 구간 내 데이터만)")
+            elif temporal_type == 'procedure_window':
+                print(f"      📝 (시술/수술 시간 구간 내 데이터만)")
+            elif temporal_type == 'treatment_window':
+                print(f"      📝 (치료 시간 구간 내 데이터만)")
         else:
             print(f"   ⚠️ Signal source not configured")
         

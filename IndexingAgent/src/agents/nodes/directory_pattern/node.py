@@ -31,7 +31,7 @@ from datetime import datetime
 
 from ...base import BaseNode, LLMMixin, DatabaseMixin
 from ...registry import register_node
-from src.config import DirectoryPatternConfig
+from src.config import DirectoryPatternConfig, IndexingConfig
 from shared.database.repositories import FileGroupRepository
 from .prompts import DirectoryPatternPrompt, GroupPatternPrompt
 
@@ -583,11 +583,19 @@ class DirectoryPatternNode(BaseNode, LLMMixin, DatabaseMixin):
         
         group_repo = self._get_group_repo()
         groups = group_repo.get_confirmed_groups_for_pattern_analysis()
+        groups_skipped = 0
         
         if groups:
             self.log(f"📦 Found {len(groups)} groups to analyze", indent=1)
             
-            for group in groups:
+            # Skip already analyzed groups (FORCE_REANALYZE=false인 경우)
+            groups_to_process = groups
+            if not IndexingConfig.FORCE_REANALYZE:
+                groups_to_process, groups_skipped = self._filter_groups_without_pattern(groups)
+                if groups_skipped > 0:
+                    self.log(f"⏭️  Skipping {groups_skipped} groups with existing patterns", indent=1)
+            
+            for group in groups_to_process:
                 group_result = self._process_group_pattern(group, data_dictionary)
                 groups_processed += 1
                 llm_calls += 1
@@ -611,6 +619,14 @@ class DirectoryPatternNode(BaseNode, LLMMixin, DatabaseMixin):
         self.log("📂 Phase 2: Processing ungrouped directories...")
         
         directories = self._get_directories_for_analysis()
+        dirs_skipped = 0
+        
+        if directories:
+            # Skip already analyzed directories (FORCE_REANALYZE=false인 경우)
+            if not IndexingConfig.FORCE_REANALYZE:
+                directories, dirs_skipped = self._filter_dirs_without_pattern(directories)
+                if dirs_skipped > 0:
+                    self.log(f"⏭️  Skipping {dirs_skipped} directories with existing patterns", indent=1)
         
         if directories:
             self.log(f"📂 Found {len(directories)} directories to analyze:", indent=1)
@@ -665,8 +681,8 @@ class DirectoryPatternNode(BaseNode, LLMMixin, DatabaseMixin):
         
         self.log("=" * 50)
         self.log("📊 Summary:")
-        self.log(f"📦 Groups: {groups_processed} processed, {groups_patterns_found} patterns, {groups_need_review} need review", indent=1)
-        self.log(f"📂 Directories: {dirs_processed} processed, {dirs_patterns_found} patterns", indent=1)
+        self.log(f"📦 Groups: {groups_processed} processed, {groups_patterns_found} patterns, {groups_need_review} need review (skipped: {groups_skipped})", indent=1)
+        self.log(f"📂 Directories: {dirs_processed} processed, {dirs_patterns_found} patterns (skipped: {dirs_skipped})", indent=1)
         self.log(f"📝 Files updated: {files_updated}", indent=1)
         self.log(f"🤖 LLM calls: {llm_calls}", indent=1)
         self.log(f"⏱️  Duration: {duration:.1f}s", indent=1)
@@ -680,6 +696,58 @@ class DirectoryPatternNode(BaseNode, LLMMixin, DatabaseMixin):
                 f"Files: {files_updated}"
             ]
         }
+    
+    # =========================================================================
+    # Skip Already Analyzed
+    # =========================================================================
+    
+    def _filter_groups_without_pattern(
+        self, 
+        groups: List[Dict]
+    ) -> tuple:
+        """
+        이미 패턴이 있는 그룹 필터링
+        
+        Args:
+            groups: 그룹 목록
+        
+        Returns:
+            (분석할 그룹 목록, 스킵된 그룹 수)
+        """
+        if not groups:
+            return [], 0
+        
+        # grouping_criteria에 pattern_regex가 있으면 이미 분석됨
+        to_process = []
+        for group in groups:
+            criteria = group.get('grouping_criteria', {})
+            if not criteria.get('pattern_regex'):
+                to_process.append(group)
+        
+        skipped_count = len(groups) - len(to_process)
+        return to_process, skipped_count
+    
+    def _filter_dirs_without_pattern(
+        self, 
+        directories: List[Dict]
+    ) -> tuple:
+        """
+        이미 패턴이 있는 디렉토리 필터링
+        
+        Args:
+            directories: 디렉토리 목록
+        
+        Returns:
+            (분석할 디렉토리 목록, 스킵된 디렉토리 수)
+        """
+        if not directories:
+            return [], 0
+        
+        # filename_pattern이 있으면 이미 분석됨
+        to_process = [d for d in directories if not d.get('filename_pattern')]
+        skipped_count = len(directories) - len(to_process)
+        
+        return to_process, skipped_count
     
     @classmethod
     def run_standalone(cls) -> Dict[str, Any]:

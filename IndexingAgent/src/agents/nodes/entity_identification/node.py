@@ -23,7 +23,7 @@ from ...base import BaseNode, LLMMixin, DatabaseMixin
 from ...registry import register_node
 from shared.database import OntologySchemaManager
 from shared.database.repositories import FileGroupRepository
-from src.config import EntityIdentificationConfig
+from src.config import EntityIdentificationConfig, IndexingConfig
 from shared.config import LLMConfig
 from .prompts import EntityIdentificationPrompt, GroupEntityPrompt
 
@@ -543,11 +543,19 @@ class EntityIdentificationNode(BaseNode, LLMMixin, DatabaseMixin):
         
         group_repo = self._get_group_repo()
         groups = group_repo.get_groups_for_entity_analysis()
+        groups_skipped = 0
         
         if groups:
             self.log(f"📦 Found {len(groups)} groups to analyze", indent=1)
             
-            for group in groups:
+            # Skip already analyzed groups (FORCE_REANALYZE=false인 경우)
+            groups_to_process = groups
+            if not IndexingConfig.FORCE_REANALYZE:
+                groups_to_process, groups_skipped = self._filter_unanalyzed_groups_entity(groups)
+                if groups_skipped > 0:
+                    self.log(f"⏭️  Skipping {groups_skipped} already analyzed groups", indent=1)
+            
+            for group in groups_to_process:
                 group_result = self._analyze_group_entity(group)
                 total_llm_calls += 1
                 
@@ -588,31 +596,43 @@ class EntityIdentificationNode(BaseNode, LLMMixin, DatabaseMixin):
         self.log("📄 Phase 2: Processing ungrouped files...")
         
         ungrouped_files = self.file_repo.get_ungrouped_data_files()
+        ungrouped_skipped = 0
         
         if ungrouped_files:
             self.log(f"📄 Found {len(ungrouped_files)} ungrouped files to analyze", indent=1)
             
-            # 파일 정보 로드
-            files_info = self._load_data_files_with_columns(ungrouped_files)
+            # Skip already analyzed files (FORCE_REANALYZE=false인 경우)
+            if not IndexingConfig.FORCE_REANALYZE:
+                original_count = len(ungrouped_files)
+                ungrouped_files = self._filter_unanalyzed_files_entity(ungrouped_files)
+                ungrouped_skipped = original_count - len(ungrouped_files)
+                if ungrouped_skipped > 0:
+                    self.log(f"⏭️  Skipping {ungrouped_skipped} already analyzed files", indent=1)
             
-            if files_info:
-                # 배치 처리
-                batch_size = EntityIdentificationConfig.TABLE_BATCH_SIZE
-                for i in range(0, len(files_info), batch_size):
-                    batch = files_info[i:i + batch_size]
-                    batch_num = i // batch_size + 1
-                    total_batches = (len(files_info) + batch_size - 1) // batch_size
-                    
-                    self.log(f"📦 Batch {batch_num}/{total_batches} ({len(batch)} tables)", indent=2)
-                    
-                    results, llm_calls = self._call_llm_for_entity_identification(batch)
-                    all_results.extend(results)
-                    total_llm_calls += llm_calls
+            if ungrouped_files:
+                # 파일 정보 로드
+                files_info = self._load_data_files_with_columns(ungrouped_files)
                 
-                # DB 저장
-                saved_count = self._save_table_entities(files_info, all_results)
-                ungrouped_files_processed = saved_count
-                self.log(f"✅ Saved {saved_count} table entities", indent=2)
+                if files_info:
+                    # 배치 처리
+                    batch_size = EntityIdentificationConfig.TABLE_BATCH_SIZE
+                    for i in range(0, len(files_info), batch_size):
+                        batch = files_info[i:i + batch_size]
+                        batch_num = i // batch_size + 1
+                        total_batches = (len(files_info) + batch_size - 1) // batch_size
+                        
+                        self.log(f"📦 Batch {batch_num}/{total_batches} ({len(batch)} tables)", indent=2)
+                        
+                        results, llm_calls = self._call_llm_for_entity_identification(batch)
+                        all_results.extend(results)
+                        total_llm_calls += llm_calls
+                    
+                    # DB 저장
+                    saved_count = self._save_table_entities(files_info, all_results)
+                    ungrouped_files_processed = saved_count
+                    self.log(f"✅ Saved {saved_count} table entities", indent=2)
+            else:
+                self.log("✅ All ungrouped files already analyzed", indent=1)
         else:
             self.log("⚠️ No ungrouped files to analyze", indent=1)
         
@@ -667,6 +687,65 @@ class EntityIdentificationNode(BaseNode, LLMMixin, DatabaseMixin):
                 f"Ungrouped: {ungrouped_files_processed}, LLM calls: {total_llm_calls}"
             ]
         }
+    
+    # =========================================================================
+    # Skip Already Analyzed
+    # =========================================================================
+    
+    def _filter_unanalyzed_groups_entity(
+        self, 
+        groups: List[Dict[str, Any]]
+    ) -> tuple:
+        """
+        이미 Entity 분석이 완료된 그룹 필터링
+        
+        Args:
+            groups: 그룹 목록
+        
+        Returns:
+            (분석할 그룹 목록, 스킵된 그룹 수)
+        """
+        if not groups:
+            return [], 0
+        
+        group_repo = self._get_group_repo()
+        
+        # llm_analyzed_at이 NULL인 그룹만 (get_groups_for_entity_analysis가 이미 필터링하지만 확인용)
+        to_process = []
+        for group in groups:
+            group_id = group.get('group_id')
+            full_group = group_repo.get_group_by_id(group_id)
+            if full_group and full_group.get('llm_analyzed_at') is None:
+                to_process.append(group)
+        
+        skipped_count = len(groups) - len(to_process)
+        return to_process, skipped_count
+    
+    def _filter_unanalyzed_files_entity(
+        self, 
+        file_paths: List[str]
+    ) -> List[str]:
+        """
+        이미 Entity 분석이 완료된 파일 필터링
+        
+        table_entities에 해당 파일이 없는 것만 반환
+        
+        Args:
+            file_paths: 파일 경로 목록
+        
+        Returns:
+            분석할 파일 경로 목록
+        """
+        if not file_paths:
+            return []
+        
+        # table_entities에 없는 파일만 필터링
+        to_process = []
+        for file_path in file_paths:
+            if not self.entity_repo.has_entity_for_file_path(file_path):
+                to_process.append(file_path)
+        
+        return to_process
     
     @classmethod
     def run_standalone(cls, data_files: List[str]) -> Dict[str, Any]:

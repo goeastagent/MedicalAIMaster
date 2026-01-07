@@ -37,16 +37,23 @@ class NodeRegistry:
     """
     
     _instance = None
-    _node_classes: Dict[str, Type[BaseNode]] = {}
-    _disabled_nodes: Set[str] = set()
+    # 클래스 레벨에서 직접 데이터 저장 (모듈 경로와 무관하게 공유)
+    _global_node_classes: Dict[str, Type[BaseNode]] = {}
+    _global_disabled_nodes: Set[str] = set()
     
     def __new__(cls):
         """Singleton pattern"""
         if cls._instance is None:
             cls._instance = super().__new__(cls)
-            cls._instance._node_classes = {}
-            cls._instance._disabled_nodes = set()
         return cls._instance
+    
+    @property
+    def _node_classes(self) -> Dict[str, Type[BaseNode]]:
+        return NodeRegistry._global_node_classes
+    
+    @property
+    def _disabled_nodes(self) -> Set[str]:
+        return NodeRegistry._global_disabled_nodes
     
     @classmethod
     def register(cls, node_class: Type[BaseNode]) -> Type[BaseNode]:
@@ -66,14 +73,15 @@ class NodeRegistry:
         if name == "base":
             raise ValueError(f"Node class {node_class} must define a unique 'name' attribute")
         
-        # Singleton 인스턴스 확보
-        instance = cls()
-        
-        if name in instance._node_classes:
-            existing = instance._node_classes[name]
+        # 클래스 레벨 딕셔너리에 직접 등록 (모듈 경로 무관)
+        if name in cls._global_node_classes:
+            existing = cls._global_node_classes[name]
+            # 같은 클래스면 스킵
+            if existing.__name__ == node_class.__name__:
+                return node_class
             print(f"⚠️ Overwriting node '{name}': {existing} -> {node_class}")
         
-        instance._node_classes[name] = node_class
+        cls._global_node_classes[name] = node_class
         return node_class
     
     def get_node_class(self, name: str) -> Optional[Type[BaseNode]]:

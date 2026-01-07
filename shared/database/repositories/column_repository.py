@@ -378,6 +378,26 @@ class ColumnRepository(BaseRepository):
         
         return row[0] if row else 0
     
+    def has_unclassified_columns(self, file_path: str) -> bool:
+        """
+        파일에 column_role이 설정되지 않은 컬럼이 있는지 확인
+        
+        [420] column_classification 스킵 로직에서 사용
+        
+        Args:
+            file_path: 파일 경로
+        
+        Returns:
+            True if column_role이 NULL인 컬럼이 1개 이상 있음
+        """
+        row = self._execute_query("""
+            SELECT COUNT(*) FROM column_metadata cm
+            JOIN file_catalog fc ON cm.file_id = fc.file_id
+            WHERE fc.file_path = %s AND cm.column_role IS NULL
+        """, (file_path,), fetch="one")
+        
+        return (row[0] if row else 0) > 0
+    
     def get_unique_column_count(self) -> int:
         """유니크 컬럼 수 조회"""
         row = self._execute_query("""

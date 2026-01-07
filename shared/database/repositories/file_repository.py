@@ -247,6 +247,60 @@ class FileRepository(BaseRepository):
         
         return [str(row[0]) for row in rows]
     
+    # =========================================================================
+    # [Phase 1] Skip Already Analyzed - 스킵 로직 지원 메서드
+    # =========================================================================
+    
+    def get_files_without_classification(
+        self, 
+        file_ids: List[str]
+    ) -> List[str]:
+        """
+        주어진 file_ids 중 아직 분류되지 않은 (llm_analyzed_at IS NULL) 파일만 반환
+        
+        [400] file_classification 노드에서 사용
+        
+        Args:
+            file_ids: 체크할 파일 ID 목록
+        
+        Returns:
+            분류되지 않은 file_id 목록
+        """
+        if not file_ids:
+            return []
+        
+        placeholders = ','.join(['%s'] * len(file_ids))
+        rows = self._execute_query(f"""
+            SELECT file_id FROM file_catalog
+            WHERE file_id IN ({placeholders})
+              AND llm_analyzed_at IS NULL
+            ORDER BY file_name
+        """, tuple(file_ids), fetch="all")
+        
+        return [str(row[0]) for row in rows]
+    
+    def get_already_classified_count(self, file_ids: List[str]) -> int:
+        """
+        이미 분류된 파일 수 조회 (스킵 로그용)
+        
+        Args:
+            file_ids: 체크할 파일 ID 목록
+            
+        Returns:
+            llm_analyzed_at IS NOT NULL인 파일 수
+        """
+        if not file_ids:
+            return 0
+        
+        placeholders = ','.join(['%s'] * len(file_ids))
+        row = self._execute_query(f"""
+            SELECT COUNT(*) FROM file_catalog
+            WHERE file_id IN ({placeholders})
+              AND llm_analyzed_at IS NOT NULL
+        """, tuple(file_ids), fetch="one")
+        
+        return row[0] if row else 0
+    
     def get_files_by_dir_id(self, dir_id: str) -> List[Dict[str, Any]]:
         """
         특정 디렉토리의 파일 목록 조회

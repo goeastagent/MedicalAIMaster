@@ -163,7 +163,7 @@ def test_datacontext_summary():
                         {"term": "HR", "param_keys": ["Solar8000/HR"], "semantic_name": "Heart Rate", "unit": "bpm"}
                     ],
                     "temporal_alignment": {
-                        "type": "surgery_window",
+                        "type": "procedure_window",
                         "margin_seconds": 300
                     }
                 }

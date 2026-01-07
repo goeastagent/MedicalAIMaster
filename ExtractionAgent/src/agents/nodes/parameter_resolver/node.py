@@ -12,7 +12,7 @@ from typing import Dict, Any, List
 from src.agents.base import BaseNode
 from src.agents.registry import register_node
 from src.agents.state import VitalExtractionState
-from src.agents.config import VitalExtractionConfig, LLMConfig
+from src.config import VitalExtractionConfig, LLMConfig
 from src.agents.nodes.parameter_resolver.prompts import build_resolution_prompt
 from shared.database.connection import get_db_manager
 from shared.llm.client import get_llm_client

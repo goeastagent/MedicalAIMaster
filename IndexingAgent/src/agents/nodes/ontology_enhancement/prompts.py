@@ -10,7 +10,7 @@ Neo4j 온톨로지 확장을 위한 다중 LLM 프롬프트:
 """
 
 from src.agents.prompts import MultiPromptTemplate
-from src.agents.models.llm_responses import (
+from src.models.llm_responses import (
     SubCategoryResult,
     SemanticEdge,
     MedicalTermMapping,

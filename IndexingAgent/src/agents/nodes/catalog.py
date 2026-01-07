@@ -12,6 +12,7 @@ LLM 호출 없이 순수하게 규칙 기반으로 데이터 수집만 수행합
 
 import os
 import json
+import hashlib
 from typing import Dict, Any, List, Optional
 from datetime import datetime
 
@@ -352,8 +353,39 @@ class FileCatalogNode(BaseNode, DatabaseMixin):
     # Helper Methods: DB Query
     # =========================================================================
     
+    def _compute_file_hash(self, file_path: str) -> str:
+        """
+        파일 내용의 SHA-256 해시 계산
+        
+        대용량 파일을 위해 청크 단위로 읽어서 계산
+        
+        Args:
+            file_path: 파일 경로
+        
+        Returns:
+            64자리 16진수 해시 문자열
+        """
+        sha256 = hashlib.sha256()
+        try:
+            with open(file_path, 'rb') as f:
+                # 64KB 청크 단위로 읽기
+                for chunk in iter(lambda: f.read(65536), b''):
+                    sha256.update(chunk)
+            return sha256.hexdigest()
+        except Exception as e:
+            self.log(f"⚠️ Hash computation failed: {e}", indent=2)
+            return ""
+    
     def _file_unchanged_in_catalog(self, file_path: str, modified_time: datetime) -> Optional[str]:
-        """파일이 카탈로그에 있고 modified_time이 같은지 확인"""
+        """
+        파일이 카탈로그에 있고 내용이 변경되지 않았는지 확인 (해시 기반)
+        
+        1차 체크: file_modified_at (빠름)
+        2차 체크: file_content_hash (정확함) - modified_at이 다를 때만
+        
+        Returns:
+            변경되지 않았으면 file_id, 변경됐거나 새 파일이면 None
+        """
         db = get_db_manager()
         conn = db.get_connection()
         
@@ -365,15 +397,34 @@ class FileCatalogNode(BaseNode, DatabaseMixin):
         cursor = conn.cursor()
         
         try:
+            # 기존 레코드 조회
             cursor.execute(
                 """
-                SELECT file_id FROM file_catalog 
-                WHERE file_path = %s AND file_modified_at = %s
+                SELECT file_id, file_modified_at, file_content_hash
+                FROM file_catalog 
+                WHERE file_path = %s
                 """,
-                (file_path, modified_time)
+                (file_path,)
             )
             result = cursor.fetchone()
-            return str(result[0]) if result else None
+            
+            if not result:
+                return None  # 새 파일
+            
+            file_id, db_modified_at, db_hash = result
+            
+            # 1차 체크: modified_time이 같으면 스킵 (빠름)
+            if db_modified_at and db_modified_at == modified_time:
+                return str(file_id)
+            
+            # 2차 체크: 해시 비교 (정확함) - DB에 해시가 있는 경우만
+            if db_hash:
+                current_hash = self._compute_file_hash(file_path)
+                if current_hash and current_hash == db_hash:
+                    return str(file_id)  # 내용 동일
+            
+            return None  # 변경됨 → 재처리 필요
+            
         except Exception:
             conn.rollback()
             return None
@@ -389,7 +440,7 @@ class FileCatalogNode(BaseNode, DatabaseMixin):
     # =========================================================================
     
     def _insert_file_catalog(self, file_path: str, metadata: Dict[str, Any]) -> str:
-        """file_catalog 테이블에 파일 정보 삽입"""
+        """file_catalog 테이블에 파일 정보 삽입 (해시 포함)"""
         db = get_db_manager()
         conn = db.get_connection()
         cursor = conn.cursor()
@@ -398,16 +449,17 @@ class FileCatalogNode(BaseNode, DatabaseMixin):
         file_meta = self._extract_file_metadata(metadata, processor_type)
         is_text_readable = self._is_text_readable(file_path)
         file_modified_at = self._get_file_modified_time(file_path)
+        file_content_hash = self._compute_file_hash(file_path)
         dir_id = self._get_dir_id_for_file(file_path)
         
         cursor.execute("""
             INSERT INTO file_catalog (
                 file_path, file_name, file_extension, 
-                file_size_bytes, file_size_mb, file_modified_at,
+                file_size_bytes, file_size_mb, file_modified_at, file_content_hash,
                 processor_type, is_text_readable, file_metadata, raw_stats,
                 dir_id
             ) VALUES (
-                %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s
+                %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s
             )
             ON CONFLICT (file_path) DO UPDATE SET
                 file_name = EXCLUDED.file_name,
@@ -415,11 +467,23 @@ class FileCatalogNode(BaseNode, DatabaseMixin):
                 file_size_bytes = EXCLUDED.file_size_bytes,
                 file_size_mb = EXCLUDED.file_size_mb,
                 file_modified_at = EXCLUDED.file_modified_at,
+                file_content_hash = EXCLUDED.file_content_hash,
                 processor_type = EXCLUDED.processor_type,
                 is_text_readable = EXCLUDED.is_text_readable,
                 file_metadata = EXCLUDED.file_metadata,
                 raw_stats = EXCLUDED.raw_stats,
-                dir_id = EXCLUDED.dir_id
+                dir_id = EXCLUDED.dir_id,
+                -- 파일 내용이 변경되면 LLM 분석 결과 초기화
+                llm_analyzed_at = CASE 
+                    WHEN file_catalog.file_content_hash IS DISTINCT FROM EXCLUDED.file_content_hash 
+                    THEN NULL 
+                    ELSE file_catalog.llm_analyzed_at 
+                END,
+                is_metadata = CASE 
+                    WHEN file_catalog.file_content_hash IS DISTINCT FROM EXCLUDED.file_content_hash 
+                    THEN NULL 
+                    ELSE file_catalog.is_metadata 
+                END
             RETURNING file_id
         """, (
             file_path,
@@ -428,6 +492,7 @@ class FileCatalogNode(BaseNode, DatabaseMixin):
             metadata.get("file_size_bytes"),
             metadata.get("file_size_mb"),
             file_modified_at,
+            file_content_hash,
             processor_type,
             is_text_readable,
             json.dumps(file_meta),
