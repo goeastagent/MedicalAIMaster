@@ -8,7 +8,7 @@ Note: 이 프롬프트는 Pydantic 모델이 없는 복잡한 JSON 응답을 반
       custom_output_format을 사용하여 Output Format을 직접 정의합니다.
 """
 
-from src.agents.prompts import PromptTemplate
+from IndexingAgent.src.agents.prompts import PromptTemplate
 
 
 class DirectoryPatternPrompt(PromptTemplate):

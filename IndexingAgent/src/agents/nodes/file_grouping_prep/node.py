@@ -23,8 +23,8 @@ from collections import defaultdict
 
 from shared.database.repositories import DirectoryRepository, FileRepository
 
-from ...base import BaseNode, DatabaseMixin
-from ...registry import register_node
+from shared.langgraph import BaseNode, DatabaseMixin
+from shared.langgraph import register_node
 
 
 @register_node

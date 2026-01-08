@@ -255,7 +255,7 @@ class LoggingLLMClient(AbstractLLMClient):
     LLM 클라이언트를 감싸서 모든 호출의 입력/출력을 파일에 저장하는 래퍼
     
     사용법:
-        from src.utils.llm_client import enable_llm_logging
+        from shared.llm import enable_llm_logging
         enable_llm_logging("./data/llm_logs")
     """
     
@@ -376,7 +376,7 @@ def enable_llm_logging(log_dir: str = "./data/llm_logs") -> Path:
         세션 로그 디렉토리 경로
     
     사용법:
-        from src.utils.llm_client import enable_llm_logging
+        from shared.llm import enable_llm_logging
         session_dir = enable_llm_logging()
         # ... 파이프라인 실행 ...
         print(f"Logs saved to: {session_dir}")

@@ -11,7 +11,7 @@ File Grouping 프롬프트
 - 분할된 대용량 테이블
 """
 
-from src.agents.prompts import PromptTemplate
+from IndexingAgent.src.agents.prompts import PromptTemplate
 
 
 class FileGroupingPrompt(PromptTemplate):

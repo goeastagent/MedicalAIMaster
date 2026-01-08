@@ -21,14 +21,8 @@ Output:
 }
 """
 
-import sys
-from pathlib import Path
 from typing import Dict, Any, List, Optional
 from dataclasses import dataclass, field
-
-# shared 패키지 경로 추가
-project_root = Path(__file__).parent.parent.parent.parent.parent
-sys.path.insert(0, str(project_root))
 
 from shared.database.connection import get_db_manager
 from shared.database.repositories import (

@@ -8,6 +8,7 @@ import sys
 import time
 import traceback
 import threading
+import logging
 from io import StringIO
 from typing import Dict, Any, Optional, TYPE_CHECKING
 from contextlib import contextmanager
@@ -17,6 +18,8 @@ from ..config import DEFAULT_CONFIG
 
 if TYPE_CHECKING:
     from ..config import SandboxConfig
+
+logger = logging.getLogger("AnalysisAgent.code_gen.sandbox")
 
 # RestrictedPython 사용 여부
 try:
@@ -114,6 +117,9 @@ class SandboxExecutor:
         start_time = time.time()
         stdout_capture = StringIO() if self.capture_stdout else None
         
+        logger.info("⚙️ Executing generated code in sandbox...")
+        logger.debug(f"   Code preview: {code[:100]}{'...' if len(code) > 100 else ''}")
+        
         try:
             # 실행 환경 구성
             exec_globals = self._create_exec_globals(runtime_data)
@@ -139,6 +145,9 @@ class SandboxExecutor:
                 if printed_output:
                     stdout_output = (stdout_output + printed_output).strip()
                 
+                logger.info(f"✅ Code executed successfully ({execution_time_ms:.1f}ms)")
+                logger.debug(f"   Result type: {type(result).__name__}")
+                
                 return ExecutionResult(
                     success=True,
                     result=result,
@@ -151,6 +160,7 @@ class SandboxExecutor:
                     sys.stdout = old_stdout
         
         except ExecutionTimeoutError:
+            logger.error(f"⏰ Execution timed out after {self.timeout_seconds}s")
             return ExecutionResult(
                 success=False,
                 error=f"Execution timed out after {self.timeout_seconds} seconds",
@@ -159,6 +169,7 @@ class SandboxExecutor:
             )
         
         except MemoryError:
+            logger.error("💾 Memory limit exceeded")
             return ExecutionResult(
                 success=False,
                 error="Memory limit exceeded",
@@ -168,6 +179,7 @@ class SandboxExecutor:
         except Exception as e:
             execution_time_ms = (time.time() - start_time) * 1000
             error_msg = f"{type(e).__name__}: {str(e)}"
+            logger.error(f"❌ Runtime error: {error_msg}")
             
             return ExecutionResult(
                 success=False,

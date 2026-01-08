@@ -5,9 +5,9 @@ Parameter Semantic 프롬프트
 parameter 테이블의 각 parameter를 분석하고 data_dictionary와 매칭하기 위한 LLM 프롬프트
 """
 
-from src.agents.prompts import PromptTemplate
-from src.models.llm_responses import ParameterSemanticResult
-from src.models.enums import ConceptCategory
+from IndexingAgent.src.agents.prompts import PromptTemplate
+from IndexingAgent.src.models.llm_responses import ParameterSemanticResult
+from shared.models.enums import ConceptCategory
 
 
 # =============================================================================

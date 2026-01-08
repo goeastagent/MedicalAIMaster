@@ -5,8 +5,8 @@ Relationship Inference 프롬프트
 테이블 간 FK 관계를 추론하기 위한 LLM 프롬프트
 """
 
-from src.agents.prompts import PromptTemplate
-from src.models.llm_responses import TableRelationship
+from IndexingAgent.src.agents.prompts import PromptTemplate
+from IndexingAgent.src.models.llm_responses import TableRelationship
 
 
 class RelationshipInferencePrompt(PromptTemplate):

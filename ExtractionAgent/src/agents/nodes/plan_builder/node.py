@@ -11,9 +11,8 @@ Responsibilities:
 
 from typing import Dict, Any, List
 from datetime import datetime
-from src.agents.base import BaseNode
-from src.agents.registry import register_node
-from src.config import VitalExtractionConfig
+from shared.langgraph import BaseNode, register_node
+from ExtractionAgent.src.config import VitalExtractionConfig
 
 
 @register_node

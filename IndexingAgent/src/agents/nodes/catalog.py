@@ -16,15 +16,14 @@ import hashlib
 from typing import Dict, Any, List, Optional
 from datetime import datetime
 
-from src.agents.nodes.common import processors
+from IndexingAgent.src.agents.nodes.common import processors
 from shared.database import (
     get_db_manager,
     CatalogSchemaManager,
     get_directory_by_path,
 )
 
-from ..base import BaseNode, DatabaseMixin
-from ..registry import register_node
+from shared.langgraph import BaseNode, DatabaseMixin, register_node
 
 
 # 텍스트로 읽을 수 있는 파일 확장자

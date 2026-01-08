@@ -29,9 +29,9 @@ import json
 from typing import Dict, Any, List, Optional
 from datetime import datetime
 
-from ...base import BaseNode, LLMMixin, DatabaseMixin
-from ...registry import register_node
-from src.config import DirectoryPatternConfig, IndexingConfig
+from shared.langgraph import BaseNode, LLMMixin, DatabaseMixin
+from shared.langgraph import register_node
+from IndexingAgent.src.config import DirectoryPatternConfig, IndexingConfig
 from shared.database.repositories import FileGroupRepository
 from .prompts import DirectoryPatternPrompt, GroupPatternPrompt
 

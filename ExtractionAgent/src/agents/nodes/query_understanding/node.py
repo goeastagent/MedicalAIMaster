@@ -8,24 +8,13 @@ Responsibilities:
 3. 사용자 쿼리 분석 (intent, parameters, filters, temporal)
 """
 
-import sys
-from pathlib import Path
 from typing import Dict, Any
 
-# shared 패키지 경로 추가
-project_root = Path(__file__).parent.parent.parent.parent.parent
-sys.path.insert(0, str(project_root))
-
-from src.agents.base import BaseNode
-from src.agents.registry import register_node
-from src.agents.context import SchemaContextBuilder
-from src.config import get_config
-
-# shared LLM client
+from shared.langgraph import BaseNode, register_node
 from shared.llm.client import get_llm_client
-
-# 프롬프트 템플릿
-from .prompts import build_system_prompt, build_user_prompt
+from ExtractionAgent.src.agents.context import SchemaContextBuilder
+from ExtractionAgent.src.config import get_config
+from ExtractionAgent.src.agents.nodes.query_understanding.prompts import build_system_prompt, build_user_prompt
 
 
 @register_node

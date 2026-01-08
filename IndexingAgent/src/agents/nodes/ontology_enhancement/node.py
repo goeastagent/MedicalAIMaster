@@ -14,17 +14,17 @@ Tasks:
 from datetime import datetime
 from typing import Dict, List, Any, Tuple
 
-from ...models.llm_responses import (
+from IndexingAgent.src.models.llm_responses import (
     SubCategoryResult,
     SemanticEdge,
     MedicalTermMapping,
     CrossTableSemantic,
     OntologyEnhancementResult,
 )
-from ...base import BaseNode, LLMMixin, DatabaseMixin, Neo4jMixin
-from ...registry import register_node
+from shared.langgraph import BaseNode, LLMMixin, DatabaseMixin, Neo4jMixin
+from shared.langgraph import register_node
 from shared.database import OntologySchemaManager, OntologyRepository
-from src.config import OntologyEnhancementConfig
+from IndexingAgent.src.config import OntologyEnhancementConfig
 from shared.config import LLMConfig, Neo4jConfig
 from .prompts import OntologyEnhancementPrompts
 

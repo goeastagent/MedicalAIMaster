@@ -6,8 +6,8 @@ Entity Identification 프롬프트
 고유 식별자 컬럼이 무엇인지 분석하기 위한 LLM 프롬프트
 """
 
-from src.agents.prompts import PromptTemplate
-from src.models.llm_responses import TableEntityResult
+from IndexingAgent.src.agents.prompts import PromptTemplate
+from IndexingAgent.src.models.llm_responses import TableEntityResult
 
 
 class EntityIdentificationPrompt(PromptTemplate):

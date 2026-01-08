@@ -34,6 +34,9 @@ class OrchestratorConfig:
     cache_signals: bool = True
     """Signal 데이터 캐싱 활성화"""
     
+    max_signal_cases: int = 10
+    """Signal 로드 시 최대 케이스 수 (0이면 무제한, 테스트 시 제한 권장)"""
+    
     # === 힌트 생성 ===
     generate_hints: bool = True
     """질의 기반 구현 힌트 자동 생성"""

@@ -23,6 +23,7 @@ DataContext - Execution Plan 기반 데이터 로드 및 관리
 """
 
 import sys
+import logging
 from pathlib import Path
 from typing import Dict, Any, List, Optional, Iterator, Tuple
 from datetime import datetime
@@ -35,6 +36,8 @@ if str(project_root) not in sys.path:
 
 from shared.processors import SignalProcessor, TabularProcessor
 from shared.database.connection import get_db_manager
+
+logger = logging.getLogger(__name__)
 
 
 class DataContext:
@@ -190,7 +193,10 @@ class DataContext:
         self, 
         caseid: Optional[str] = None,
         param_keys: Optional[List[str]] = None,
-        apply_temporal: bool = True
+        apply_temporal: bool = True,
+        max_cases: Optional[int] = None,
+        parallel: bool = True,
+        max_workers: int = 4
     ) -> pd.DataFrame:
         """
         Signal 데이터 반환
@@ -199,6 +205,9 @@ class DataContext:
             caseid: 특정 케이스만 (None이면 로드된 전체)
             param_keys: 특정 파라미터만 (None이면 plan의 모든 파라미터)
             apply_temporal: temporal_alignment 적용 여부
+            max_cases: 최대 로드할 케이스 수 (None이면 전체)
+            parallel: 병렬 로딩 활성화 (기본 True)
+            max_workers: 병렬 처리 워커 수 (기본 4)
         
         Returns:
             DataFrame with columns: [caseid, Time, param1, param2, ...]
@@ -207,22 +216,222 @@ class DataContext:
         
         if caseid:
             # 단일 케이스
+            logger.info(f"📡 Loading signal for case: {caseid}")
             return self._get_signal_for_case(caseid, params, apply_temporal)
         else:
             # 모든 케이스
-            cohort = self.get_cohort()
             case_ids = self.get_case_ids()
+            total_cases = len(case_ids)
             
-            all_signals = []
-            for cid in case_ids:
-                df = self._get_signal_for_case(str(cid), params, apply_temporal)
+            # 케이스 수 제한
+            if max_cases and total_cases > max_cases:
+                logger.warning(f"⚠️ Limiting to {max_cases} cases (total: {total_cases})")
+                case_ids = case_ids[:max_cases]
+            
+            n_cases = len(case_ids)
+            
+            if parallel and n_cases > 1:
+                return self._load_signals_parallel(case_ids, params, apply_temporal, max_workers)
+            else:
+                return self._load_signals_sequential(case_ids, params, apply_temporal)
+    
+    def _load_signals_parallel(
+        self,
+        case_ids: List[Any],
+        params: List[str],
+        apply_temporal: bool,
+        max_workers: int
+    ) -> pd.DataFrame:
+        """병렬로 Signal 로드"""
+        from concurrent.futures import ThreadPoolExecutor, as_completed
+        import time
+        
+        n_cases = len(case_ids)
+        logger.info(f"📡 Loading signals for {n_cases} cases (parallel, {max_workers} workers)...")
+        start_time = time.time()
+        
+        all_signals = []
+        completed = 0
+        
+        def load_case(cid):
+            df = self._get_signal_for_case(str(cid), params, apply_temporal)
+            if not df.empty:
+                df[self._join_config["signal_key"]] = cid
+            return cid, df
+        
+        with ThreadPoolExecutor(max_workers=max_workers) as executor:
+            futures = {executor.submit(load_case, cid): cid for cid in case_ids}
+            
+            for future in as_completed(futures):
+                cid, df = future.result()
+                completed += 1
+                
                 if not df.empty:
-                    df[self._join_config["signal_key"]] = cid
                     all_signals.append(df)
+                
+                # 진행률 로그 (25% 단위)
+                if completed % max(1, n_cases // 4) == 0 or completed == n_cases:
+                    elapsed = time.time() - start_time
+                    logger.info(f"   Progress: {completed}/{n_cases} cases ({elapsed:.1f}s)")
+        
+        if all_signals:
+            result = pd.concat(all_signals, ignore_index=True)
+            total_time = time.time() - start_time
+            logger.info(f"✅ Signal loading complete: {len(result)} rows from {len(all_signals)} cases ({total_time:.1f}s)")
+            return result
+        
+        logger.warning("⚠️ No signal data loaded")
+        return pd.DataFrame()
+    
+    def _load_signals_sequential(
+        self,
+        case_ids: List[Any],
+        params: List[str],
+        apply_temporal: bool
+    ) -> pd.DataFrame:
+        """순차적으로 Signal 로드"""
+        import time
+        
+        n_cases = len(case_ids)
+        logger.info(f"📡 Loading signals for {n_cases} cases (sequential)...")
+        start_time = time.time()
+        
+        all_signals = []
+        for i, cid in enumerate(case_ids):
+            logger.debug(f"   [{i+1}/{n_cases}] Loading case {cid}...")
+            df = self._get_signal_for_case(str(cid), params, apply_temporal)
+            if not df.empty:
+                df[self._join_config["signal_key"]] = cid
+                all_signals.append(df)
+                
+            # 진행률 로그 (매 5개마다)
+            if (i + 1) % 5 == 0:
+                elapsed = time.time() - start_time
+                logger.info(f"   Progress: {i+1}/{n_cases} cases ({elapsed:.1f}s)")
+        
+        if all_signals:
+            result = pd.concat(all_signals, ignore_index=True)
+            total_time = time.time() - start_time
+            logger.info(f"✅ Signal loading complete: {len(result)} rows from {len(all_signals)} cases ({total_time:.1f}s)")
+            return result
+        
+        logger.warning("⚠️ No signal data loaded")
+        return pd.DataFrame()
+    
+    def get_signals_dict(
+        self,
+        case_ids: Optional[List[str]] = None,
+        param_keys: Optional[List[str]] = None,
+        apply_temporal: bool = True,
+        max_cases: Optional[int] = None,
+        parallel: bool = True,
+        max_workers: int = 4
+    ) -> Dict[str, pd.DataFrame]:
+        """
+        케이스별 DataFrame Dict 반환 (케이스 단위 보존)
+        
+        Args:
+            case_ids: 로드할 케이스 ID 목록 (None이면 전체)
+            param_keys: 특정 파라미터만 (None이면 plan의 모든 파라미터)
+            apply_temporal: temporal_alignment 적용 여부
+            max_cases: 최대 로드할 케이스 수 (None이면 전체)
+            parallel: 병렬 로딩 활성화 (기본 True)
+            max_workers: 병렬 처리 워커 수 (기본 4)
+        
+        Returns:
+            Dict[caseid, DataFrame] - 각 케이스별 독립 시계열 DataFrame
+            예: {"case1": DataFrame([Time, HR, SpO2, ...]), "case2": ...}
+        """
+        params = param_keys or self._param_keys
+        target_cases = case_ids or self.get_case_ids()
+        total_cases = len(target_cases)
+        
+        # 케이스 수 제한
+        if max_cases and total_cases > max_cases:
+            logger.warning(f"⚠️ Limiting to {max_cases} cases (total: {total_cases})")
+            target_cases = target_cases[:max_cases]
+        
+        n_cases = len(target_cases)
+        
+        if parallel and n_cases > 1:
+            return self._load_signals_dict_parallel(target_cases, params, apply_temporal, max_workers)
+        else:
+            return self._load_signals_dict_sequential(target_cases, params, apply_temporal)
+    
+    def _load_signals_dict_parallel(
+        self,
+        case_ids: List[Any],
+        params: List[str],
+        apply_temporal: bool,
+        max_workers: int
+    ) -> Dict[str, pd.DataFrame]:
+        """병렬로 Signal Dict 로드"""
+        from concurrent.futures import ThreadPoolExecutor, as_completed
+        import time
+        
+        n_cases = len(case_ids)
+        logger.info(f"📡 Loading signals dict for {n_cases} cases (parallel, {max_workers} workers)...")
+        start_time = time.time()
+        
+        result_dict: Dict[str, pd.DataFrame] = {}
+        completed = 0
+        
+        def load_case(cid):
+            df = self._get_signal_for_case(str(cid), params, apply_temporal)
+            return str(cid), df
+        
+        with ThreadPoolExecutor(max_workers=max_workers) as executor:
+            futures = {executor.submit(load_case, cid): cid for cid in case_ids}
             
-            if all_signals:
-                return pd.concat(all_signals, ignore_index=True)
-            return pd.DataFrame()
+            for future in as_completed(futures):
+                cid, df = future.result()
+                completed += 1
+                
+                if not df.empty:
+                    result_dict[cid] = df
+                
+                # 진행률 로그 (25% 단위)
+                if completed % max(1, n_cases // 4) == 0 or completed == n_cases:
+                    elapsed = time.time() - start_time
+                    logger.info(f"   Progress: {completed}/{n_cases} cases ({elapsed:.1f}s)")
+        
+        total_time = time.time() - start_time
+        total_rows = sum(len(df) for df in result_dict.values())
+        logger.info(f"✅ Signal dict loading complete: {len(result_dict)} cases, {total_rows} total rows ({total_time:.1f}s)")
+        
+        return result_dict
+    
+    def _load_signals_dict_sequential(
+        self,
+        case_ids: List[Any],
+        params: List[str],
+        apply_temporal: bool
+    ) -> Dict[str, pd.DataFrame]:
+        """순차적으로 Signal Dict 로드"""
+        import time
+        
+        n_cases = len(case_ids)
+        logger.info(f"📡 Loading signals dict for {n_cases} cases (sequential)...")
+        start_time = time.time()
+        
+        result_dict: Dict[str, pd.DataFrame] = {}
+        
+        for i, cid in enumerate(case_ids):
+            logger.debug(f"   [{i+1}/{n_cases}] Loading case {cid}...")
+            df = self._get_signal_for_case(str(cid), params, apply_temporal)
+            if not df.empty:
+                result_dict[str(cid)] = df
+                
+            # 진행률 로그 (매 5개마다)
+            if (i + 1) % 5 == 0:
+                elapsed = time.time() - start_time
+                logger.info(f"   Progress: {i+1}/{n_cases} cases ({elapsed:.1f}s)")
+        
+        total_time = time.time() - start_time
+        total_rows = sum(len(df) for df in result_dict.values())
+        logger.info(f"✅ Signal dict loading complete: {len(result_dict)} cases, {total_rows} total rows ({total_time:.1f}s)")
+        
+        return result_dict
     
     def get_merged_data(self, how: str = "inner") -> pd.DataFrame:
         """
@@ -434,6 +643,121 @@ class DataContext:
             "signals": signal_info,
             "original_query": self._plan.get("original_query", "") if self._plan else ""
         }
+    
+    def generate_access_guide(
+        self,
+        signals_dict: Optional[Dict[str, pd.DataFrame]] = None,
+        cohort_df: Optional[pd.DataFrame] = None,
+        include_examples: bool = True
+    ) -> str:
+        """
+        현재 데이터 구조에 기반한 동적 접근 가이드 생성
+        
+        LLM이 코드를 생성할 때 데이터 접근 방식을 이해할 수 있도록
+        실제 데이터 구조를 분석하여 가이드를 자동 생성합니다.
+        
+        Args:
+            signals_dict: 케이스별 Signal DataFrame Dict
+            cohort_df: Cohort DataFrame
+            include_examples: 코드 예시 포함 여부
+        
+        Returns:
+            LLM 프롬프트에 삽입할 데이터 접근 가이드 문자열
+        """
+        guide_parts = ["## Available Data\n"]
+        
+        # ─────────────────────────────────────────────────────────────
+        # Signals 가이드
+        # ─────────────────────────────────────────────────────────────
+        if signals_dict and len(signals_dict) > 0:
+            case_ids = list(signals_dict.keys())
+            sample_cid = case_ids[0]
+            sample_df = signals_dict[sample_cid]
+            columns = list(sample_df.columns)
+            
+            # 컬럼별 타입 분석
+            numeric_cols = [c for c in columns if c != 'Time' and sample_df[c].dtype in ['float64', 'int64', 'float32', 'int32']]
+            
+            guide_parts.append(f"""### signals: Dict[caseid → DataFrame]
+- **Type**: Case-level independent time series data
+- **Loaded cases**: {case_ids[:5]}{'...' if len(case_ids) > 5 else ''} (total: {len(case_ids)})
+- **Total cases in dataset**: {len(self.get_case_ids())}
+- **Each DataFrame**:
+  - Columns: {columns}
+  - Numeric columns for analysis: {numeric_cols}
+  - Sample shape: {sample_df.shape}
+""")
+            
+            if include_examples:
+                guide_parts.append("""
+**Access Patterns:**
+```python
+# Single case access
+signals['caseid']['ColumnName'].mean()
+
+# Iterate all cases (RECOMMENDED for statistics)
+case_stats = {cid: df['ColumnName'].mean() for cid, df in signals.items()}
+overall_mean = np.mean(list(case_stats.values()))  # Mean of case means
+
+# Conditional analysis (with cohort)
+target_cases = cohort[cohort['column'] == 'value']['caseid'].astype(str).tolist()
+filtered_signals = {cid: signals[cid] for cid in target_cases if cid in signals}
+
+# Per-case correlation
+case_corrs = {cid: df['Col1'].corr(df['Col2']) for cid, df in signals.items()}
+mean_corr = np.nanmean(list(case_corrs.values()))
+```
+
+⚠️ **WARNING**: Do NOT concat all cases into one DataFrame and compute statistics directly.
+   Each case has independent time axis. Use per-case computation then aggregate.
+""")
+        
+        # ─────────────────────────────────────────────────────────────
+        # Cohort 가이드
+        # ─────────────────────────────────────────────────────────────
+        if cohort_df is not None and not cohort_df.empty:
+            cohort_columns = list(cohort_df.columns)
+            
+            # 주요 컬럼 분류
+            id_cols = [c for c in cohort_columns if 'id' in c.lower() or 'case' in c.lower()]
+            numeric_cols = [c for c in cohort_columns if cohort_df[c].dtype in ['float64', 'int64', 'float32', 'int32']][:10]
+            categorical_cols = [c for c in cohort_columns if cohort_df[c].dtype == 'object'][:10]
+            
+            guide_parts.append(f"""
+### cohort: DataFrame
+- **Shape**: {cohort_df.shape}
+- **ID columns**: {id_cols}
+- **Sample numeric columns**: {numeric_cols}{'...' if len(numeric_cols) >= 10 else ''}
+- **Sample categorical columns**: {categorical_cols}{'...' if len(categorical_cols) >= 10 else ''}
+- **All columns**: {cohort_columns[:20]}{'...' if len(cohort_columns) > 20 else ''}
+""")
+            
+            if include_examples:
+                guide_parts.append("""
+**Access Patterns:**
+```python
+# Filter by condition
+filtered = cohort[cohort['sex'] == 'M']
+case_list = cohort[cohort['age'] > 60]['caseid'].astype(str).tolist()
+
+# Get metadata for specific case
+case_info = cohort[cohort['caseid'] == int(caseid)].iloc[0]
+```
+""")
+        
+        # ─────────────────────────────────────────────────────────────
+        # 일반 가이드라인
+        # ─────────────────────────────────────────────────────────────
+        guide_parts.append("""
+## Analysis Guidelines
+
+1. **Statistics across cases**: Always compute per-case first, then aggregate
+2. **Join signals with cohort**: Use caseid to link cohort metadata with signal data
+3. **Handle missing data**: Use `dropna()` or check for NaN before calculations
+4. **Result variable**: Assign final result to `result` variable
+""")
+        
+        return "\n".join(guide_parts)
     
     def compute_statistics(
         self,
@@ -916,11 +1240,15 @@ class DataContext:
             return signals_df
         
         # Unix timestamp로 변환
-        start_sec = self._to_seconds(start_time) - margin
-        end_sec = self._to_seconds(end_time) + margin
+        start_sec = self._to_seconds(start_time)
+        end_sec = self._to_seconds(end_time)
         
         if start_sec is None or end_sec is None:
             return signals_df
+        
+        # margin 적용
+        start_sec = start_sec - margin
+        end_sec = end_sec + margin
         
         # 필터링
         if "Time" in signals_df.columns:

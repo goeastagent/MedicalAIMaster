@@ -14,15 +14,15 @@ from datetime import datetime
 
 from shared.database import FileRepository
 from shared.config import LLMConfig
-from src.config import FileClassificationConfig, IndexingConfig
-from src.models.llm_responses import (
+from IndexingAgent.src.config import FileClassificationConfig, IndexingConfig
+from IndexingAgent.src.models.llm_responses import (
     FileClassificationItem,
     FileClassificationResult,
 )
 from shared.llm import get_llm_client
 
-from ...base import BaseNode, LLMMixin, DatabaseMixin
-from ...registry import register_node
+from shared.langgraph import BaseNode, LLMMixin, DatabaseMixin
+from shared.langgraph import register_node
 from .prompts import FileClassificationPrompt
 
 

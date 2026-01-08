@@ -2,6 +2,8 @@
 """
 Base classes and mixins for agent nodes
 
+Re-exports from shared.langgraph for backward compatibility.
+
 Provides:
 - BaseNode: Abstract base class for all nodes
 - LLMMixin: Mixin for nodes that use LLM
@@ -10,8 +12,13 @@ Provides:
 - Neo4jMixin: Mixin for Neo4j graph database connection
 """
 
-from .node import BaseNode
-from .mixins import LLMMixin, DatabaseMixin, LoggingMixin, Neo4jMixin
+from shared.langgraph import (
+    BaseNode,
+    LLMMixin,
+    DatabaseMixin,
+    LoggingMixin,
+    Neo4jMixin,
+)
 
 __all__ = [
     "BaseNode",
@@ -20,4 +27,3 @@ __all__ = [
     "LoggingMixin",
     "Neo4jMixin",
 ]
-

@@ -1,10 +1,53 @@
-"""AnalysisAgent 설정
+"""AnalysisAgent Configuration
 
-Code Generation 시스템의 중앙 설정 관리.
+Central configuration management for AnalysisAgent.
+Includes settings for CodeGen, Sandbox, and the main Agent.
 """
 
 from dataclasses import dataclass, field
 from typing import List, Tuple
+
+
+# =============================================================================
+# AnalysisAgent Configuration
+# =============================================================================
+
+@dataclass
+class AnalysisAgentConfig:
+    """Configuration for AnalysisAgent"""
+    
+    # Planning
+    use_llm_planning: bool = True
+    """Use LLM for planning (False = rule-based only)"""
+    
+    planning_max_tokens: int = 2000
+    """Max tokens for planning LLM response"""
+    
+    max_plan_steps: int = 10
+    """Maximum allowed steps in a plan"""
+    
+    # Execution
+    code_gen_max_retries: int = 2
+    """Max retries for code generation"""
+    
+    code_gen_timeout: int = 30
+    """Timeout for code execution (seconds)"""
+    
+    # Caching
+    use_cache: bool = True
+    """Enable result caching"""
+    
+    cache_ttl_minutes: int = 60
+    """Cache TTL in minutes"""
+    
+    # Debugging
+    debug_mode: bool = False
+    """Enable debug logging"""
+
+
+# =============================================================================
+# CodeGen Configuration
+# =============================================================================
 
 
 @dataclass

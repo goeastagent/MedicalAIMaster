@@ -71,7 +71,7 @@ Pipeline Flow (order 기반):
               END
 
 Usage:
-    from src.agents.graph import build_agent
+    from IndexingAgent.src.agents.graph import build_agent
     from langgraph.checkpoint.memory import MemorySaver
     
     # Create workflow with checkpointer (for Human-in-the-Loop)
@@ -91,14 +91,14 @@ Usage:
 """
 
 from typing import List, Optional
-from langgraph.graph import StateGraph, END
-from src.agents.state import AgentState
 
-# 노드 클래스 임포트 (이 시점에 @register_node가 자동으로 등록)
-# 직접 사용하지 않지만 import로 registry에 등록됨
-import src.agents.nodes  # noqa: F401
+from shared.langgraph import build_sequential_graph, build_partial_graph, get_registry
+from IndexingAgent.src.agents.state import AgentState
 
-from src.agents.registry import get_registry
+
+# Constants
+_NODE_MODULE = "IndexingAgent.src.agents.nodes"
+_AGENT_NAME = "IndexingAgent"
 
 
 def build_agent(
@@ -131,50 +131,17 @@ def build_agent(
         # 특정 노드 제외
         workflow = build_agent(exclude_nodes=["ontology_enhancement"])
     """
-    registry = get_registry()
-    
-    # 활성화된 노드를 order 순으로 가져오기
-    nodes = registry.get_ordered_nodes(include=include_nodes, exclude=exclude_nodes)
-    
-    if not nodes:
-        raise ValueError("No nodes to build pipeline. Check include/exclude filters.")
-    
-    print(f"\n{'='*60}")
-    print("🔧 Building Dynamic Pipeline")
-    print(f"{'='*60}")
-    print(f"📋 Nodes ({len(nodes)}):")
-    for node in nodes:
-        llm_badge = "🤖" if node.requires_llm else "📏"
-        print(f"   [{node.order:04d}] {node.name} {llm_badge} - {node.description}")
-    print(f"{'='*60}\n")
-    
-    workflow = StateGraph(AgentState)
-    
-    # 노드 추가
-    for node in nodes:
-        workflow.add_node(node.name, node)
-    
-    # Entry point (첫 번째 노드)
-    workflow.set_entry_point(nodes[0].name)
-    
-    # 순차적 엣지 추가
-    for i in range(len(nodes) - 1):
-        current_node = nodes[i]
-        next_node = nodes[i + 1]
-        workflow.add_edge(current_node.name, next_node.name)
-    
-    # 마지막 노드 → END
-    workflow.add_edge(nodes[-1].name, END)
-    
-    # Compile
-    compile_config = {}
-    if checkpointer:
-        compile_config["checkpointer"] = checkpointer
-    
-    return workflow.compile(**compile_config)
+    return build_sequential_graph(
+        state_class=AgentState,
+        node_module=_NODE_MODULE,
+        include_nodes=include_nodes,
+        exclude_nodes=exclude_nodes,
+        checkpointer=checkpointer,
+        agent_name=_AGENT_NAME,
+    )
 
 
-def build_partial_agent(
+def build_indexing_partial_agent(
     until_node: str = None,
     until_order: int = None,
     checkpointer=None
@@ -192,26 +159,19 @@ def build_partial_agent(
     
     Examples:
         # file_classification까지만 실행
-        workflow = build_partial_agent(until_node="file_classification")
+        workflow = build_indexing_partial_agent(until_node="file_classification")
         
         # order 600까지 실행 (data_semantic 포함)
-        workflow = build_partial_agent(until_order=600)
+        workflow = build_indexing_partial_agent(until_order=600)
     """
-    registry = get_registry()
-    all_nodes = registry.get_ordered_nodes()
-    
-    if until_node:
-        include_nodes = []
-        for node in all_nodes:
-            include_nodes.append(node.name)
-            if node.name == until_node:
-                break
-    elif until_order:
-        include_nodes = [node.name for node in all_nodes if node.order <= until_order]
-    else:
-        raise ValueError("Either until_node or until_order must be provided")
-    
-    return build_agent(checkpointer=checkpointer, include_nodes=include_nodes)
+    return build_partial_graph(
+        state_class=AgentState,
+        until_node=until_node,
+        until_order=until_order,
+        node_module=_NODE_MODULE,
+        checkpointer=checkpointer,
+        agent_name=_AGENT_NAME,
+    )
 
 
 def build_custom_agent(node_names: List[str], checkpointer=None):
@@ -237,9 +197,11 @@ def build_custom_agent(node_names: List[str], checkpointer=None):
 
 def list_available_nodes() -> List[dict]:
     """사용 가능한 모든 노드 목록 반환"""
+    import IndexingAgent.src.agents.nodes  # noqa: F401
     return get_registry().list_nodes()
 
 
 def print_pipeline_info():
     """파이프라인 구성 정보 출력"""
+    import IndexingAgent.src.agents.nodes  # noqa: F401
     get_registry().print_pipeline()

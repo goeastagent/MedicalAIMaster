@@ -11,9 +11,9 @@ Import 시 자동으로 NodeRegistry에 등록됩니다.
 """
 
 # 각 노드 import (registry 자동 등록)
-from .query_understanding import QueryUnderstandingNode
-from .parameter_resolver import ParameterResolverNode
-from .plan_builder import PlanBuilderNode
+from ExtractionAgent.src.agents.nodes.query_understanding import QueryUnderstandingNode
+from ExtractionAgent.src.agents.nodes.parameter_resolver import ParameterResolverNode
+from ExtractionAgent.src.agents.nodes.plan_builder import PlanBuilderNode
 
 __all__ = [
     "QueryUnderstandingNode",

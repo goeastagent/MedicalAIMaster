@@ -21,18 +21,18 @@ import json
 from datetime import datetime
 from typing import Dict, List, Any, Optional, Tuple
 
-from ...models.llm_responses import (
+from IndexingAgent.src.models.llm_responses import (
     ParameterSemanticResult,
     ParameterSemanticResponse,
 )
-from ...base import BaseNode, LLMMixin, DatabaseMixin
-from ...registry import register_node
+from shared.langgraph import BaseNode, LLMMixin, DatabaseMixin
+from shared.langgraph import register_node
 from shared.database import (
     FileRepository,
     DictionaryRepository,
 )
 from shared.database.repositories import ParameterRepository
-from src.config import DataSemanticConfig, IndexingConfig
+from IndexingAgent.src.config import DataSemanticConfig, IndexingConfig
 from shared.config import LLMConfig
 from .prompts import ParameterSemanticPrompt
 

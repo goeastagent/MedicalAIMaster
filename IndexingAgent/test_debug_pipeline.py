@@ -83,7 +83,7 @@ DEBUG_STORAGE = DebugStorage()
 
 def patch_llm_client():
     """LLM 클라이언트를 패치하여 모든 호출을 로깅"""
-    from src.utils import llm_client
+    from shared import llm as llm_client
     
     original_ask_json = None
     original_ask_text = None

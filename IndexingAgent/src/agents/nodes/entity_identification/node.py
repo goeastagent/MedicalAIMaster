@@ -15,15 +15,15 @@ import time
 from datetime import datetime
 from typing import Dict, List, Any, Optional, Tuple
 
-from ...models.llm_responses import (
+from IndexingAgent.src.models.llm_responses import (
     TableEntityResult,
     EntityIdentificationResult,
 )
-from ...base import BaseNode, LLMMixin, DatabaseMixin
-from ...registry import register_node
+from shared.langgraph import BaseNode, LLMMixin, DatabaseMixin
+from shared.langgraph import register_node
 from shared.database import OntologySchemaManager
 from shared.database.repositories import FileGroupRepository
-from src.config import EntityIdentificationConfig, IndexingConfig
+from IndexingAgent.src.config import EntityIdentificationConfig, IndexingConfig
 from shared.config import LLMConfig
 from .prompts import EntityIdentificationPrompt, GroupEntityPrompt
 

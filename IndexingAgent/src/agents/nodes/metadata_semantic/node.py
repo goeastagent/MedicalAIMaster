@@ -20,13 +20,13 @@ from shared.database import (
     DictionarySchemaManager,
 )
 from shared.config import LLMConfig
-from src.models.llm_responses import (
+from IndexingAgent.src.models.llm_responses import (
     ColumnRoleMapping,
     MetadataSemanticResult,
 )
 
-from ...base import BaseNode, LLMMixin, DatabaseMixin
-from ...registry import register_node
+from shared.langgraph import BaseNode, LLMMixin, DatabaseMixin
+from shared.langgraph import register_node
 from .prompts import ColumnRoleMappingPrompt
 
 

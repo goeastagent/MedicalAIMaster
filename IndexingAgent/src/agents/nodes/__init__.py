@@ -27,19 +27,19 @@ Phase 4 (LLM-based 온톨로지 강화):
 """
 
 # 각 노드 파일 임포트 시 @register_node 데코레이터가 자동으로 NodeRegistry에 등록
-from src.agents.nodes.directory_catalog import DirectoryCatalogNode
-from src.agents.nodes.catalog import FileCatalogNode
-from src.agents.nodes.file_grouping_prep import FileGroupingPrepNode  # [250] Rule-based
-from src.agents.nodes.aggregator import SchemaAggregationNode
-from src.agents.nodes.file_grouping import FileGroupingNode  # [350] LLM-based - NEW!
-from src.agents.nodes.file_classification import FileClassificationNode  # folder
-from src.agents.nodes.column_classification import ColumnClassificationNode  # folder
-from src.agents.nodes.metadata_semantic import MetadataSemanticNode  # folder
-from src.agents.nodes.parameter_semantic import ParameterSemanticNode  # folder (renamed from data_semantic)
-from src.agents.nodes.directory_pattern import DirectoryPatternNode  # folder
-from src.agents.nodes.entity_identification import EntityIdentificationNode  # folder
-from src.agents.nodes.relationship_inference import RelationshipInferenceNode  # folder
-from src.agents.nodes.ontology_enhancement import OntologyEnhancementNode  # folder
+from IndexingAgent.src.agents.nodes.directory_catalog import DirectoryCatalogNode
+from IndexingAgent.src.agents.nodes.catalog import FileCatalogNode
+from IndexingAgent.src.agents.nodes.file_grouping_prep import FileGroupingPrepNode  # [250] Rule-based
+from IndexingAgent.src.agents.nodes.aggregator import SchemaAggregationNode
+from IndexingAgent.src.agents.nodes.file_grouping import FileGroupingNode  # [350] LLM-based - NEW!
+from IndexingAgent.src.agents.nodes.file_classification import FileClassificationNode  # folder
+from IndexingAgent.src.agents.nodes.column_classification import ColumnClassificationNode  # folder
+from IndexingAgent.src.agents.nodes.metadata_semantic import MetadataSemanticNode  # folder
+from IndexingAgent.src.agents.nodes.parameter_semantic import ParameterSemanticNode  # folder (renamed from data_semantic)
+from IndexingAgent.src.agents.nodes.directory_pattern import DirectoryPatternNode  # folder
+from IndexingAgent.src.agents.nodes.entity_identification import EntityIdentificationNode  # folder
+from IndexingAgent.src.agents.nodes.relationship_inference import RelationshipInferenceNode  # folder
+from IndexingAgent.src.agents.nodes.ontology_enhancement import OntologyEnhancementNode  # folder
 
 
 __all__ = [

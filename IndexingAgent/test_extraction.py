@@ -17,7 +17,7 @@ from typing import List, Dict, Any
 # ============================================================================
 # Imports
 # ============================================================================
-from src.utils.llm_client import get_llm_client
+from shared.llm import get_llm_client
 from src.database import get_db_manager, get_neo4j_connection
 
 

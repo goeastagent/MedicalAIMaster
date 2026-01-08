@@ -26,10 +26,9 @@ from shared.database import (
     DirectorySchemaManager,
     insert_directory,
 )
-from src.config import DirectoryCatalogConfig
+from IndexingAgent.src.config import DirectoryCatalogConfig
 
-from ..base import BaseNode, DatabaseMixin
-from ..registry import register_node
+from shared.langgraph import BaseNode, DatabaseMixin, register_node
 
 
 @register_node

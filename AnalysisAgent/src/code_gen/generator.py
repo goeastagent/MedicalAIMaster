@@ -5,6 +5,7 @@
 """
 
 import re
+import logging
 from typing import Optional, Protocol, runtime_checkable, TYPE_CHECKING
 
 from ..models import CodeRequest, GenerationResult
@@ -14,6 +15,8 @@ from .prompts import build_prompt, build_error_fix_prompt
 
 if TYPE_CHECKING:
     from ..config import GeneratorConfig
+
+logger = logging.getLogger("AnalysisAgent.code_gen.generator")
 
 
 @runtime_checkable
@@ -87,18 +90,29 @@ class CodeGenerator:
         Returns:
             GenerationResult with code and validation info
         """
+        logger.info(f"🔧 Generating code for: '{request.task_description[:50]}...'")
+        
         # 1. 프롬프트 생성
         system_prompt, user_prompt = build_prompt(request)
+        logger.debug(f"   Prompt length: {len(system_prompt) + len(user_prompt)} chars")
         
         # 2. LLM 호출
         full_prompt = f"{system_prompt}\n\n{user_prompt}"
+        logger.debug("   Calling LLM...")
         response = self.llm.ask_text(full_prompt, max_tokens=self.max_tokens)
+        logger.debug(f"   LLM response length: {len(response)} chars")
         
         # 3. 코드 추출
         code = self._extract_code(response)
+        logger.debug(f"   Extracted code:\n{code[:200]}{'...' if len(code) > 200 else ''}")
         
         # 4. 검증
         validation = self.validator.validate(code)
+        
+        if validation.is_valid:
+            logger.info("✅ Code generated and validated successfully")
+        else:
+            logger.warning(f"⚠️ Code validation failed: {validation.errors}")
         
         return GenerationResult(
             code=code,
@@ -123,6 +137,8 @@ class CodeGenerator:
         Returns:
             GenerationResult
         """
+        logger.info(f"🔄 Regenerating code to fix error: {error_message[:50]}...")
+        
         system_prompt, user_prompt = build_error_fix_prompt(
             request, previous_code, error_message
         )
@@ -132,6 +148,11 @@ class CodeGenerator:
         
         code = self._extract_code(response)
         validation = self.validator.validate(code)
+        
+        if validation.is_valid:
+            logger.info("✅ Fixed code generated successfully")
+        else:
+            logger.warning(f"⚠️ Fixed code validation failed: {validation.errors}")
         
         return GenerationResult(
             code=code,

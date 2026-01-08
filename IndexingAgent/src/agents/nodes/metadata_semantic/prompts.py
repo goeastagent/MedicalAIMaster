@@ -5,8 +5,8 @@ Metadata Semantic 프롬프트
 metadata 파일에서 컬럼 역할(key/desc/unit)을 추론하기 위한 LLM 프롬프트
 """
 
-from src.agents.prompts import PromptTemplate
-from src.models.llm_responses import ColumnRoleMapping
+from IndexingAgent.src.agents.prompts import PromptTemplate
+from IndexingAgent.src.models.llm_responses import ColumnRoleMapping
 
 
 class ColumnRoleMappingPrompt(PromptTemplate):

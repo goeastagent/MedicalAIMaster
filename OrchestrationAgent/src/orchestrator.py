@@ -8,10 +8,13 @@
 """
 
 import time
+import logging
 from typing import Dict, Any, Optional, Tuple
 
 from .models import OrchestrationResult, DataSummary
 from .config import OrchestratorConfig, DEFAULT_CONFIG
+
+logger = logging.getLogger("OrchestrationAgent.orchestrator")
 
 
 class Orchestrator:
@@ -75,11 +78,15 @@ class Orchestrator:
         max_retries = max_retries if max_retries is not None else self.config.max_retries
         timeout = timeout_seconds if timeout_seconds is not None else self.config.timeout_seconds
         
+        logger.info(f"🚀 Starting pipeline for query: '{query[:50]}{'...' if len(query) > 50 else ''}'")
+        
         try:
             # Step 1: Extraction - 실행 계획 생성
+            logger.info("📝 Step 1/3: Running ExtractionAgent...")
             extraction_result = self._run_extraction(query)
             
             if not extraction_result.get("execution_plan"):
+                logger.error("❌ Extraction failed: No execution plan generated")
                 return OrchestrationResult(
                     status="error",
                     error_message="Extraction failed: No execution plan generated",
@@ -91,11 +98,15 @@ class Orchestrator:
             execution_plan = extraction_result["execution_plan"]
             extraction_confidence = extraction_result.get("confidence", 0.0)
             ambiguities = extraction_result.get("ambiguities", [])
+            logger.info(f"✅ Extraction complete (confidence: {extraction_confidence:.2f})")
+            logger.debug(f"   Plan: {execution_plan}")
             
             # Step 2: Data Load - 데이터 로드
+            logger.info("📦 Step 2/3: Loading data via DataContext...")
             runtime_data, data_summary = self._load_data(execution_plan)
             
             if not runtime_data:
+                logger.error("❌ Data loading failed: No data available")
                 return OrchestrationResult(
                     status="error",
                     error_message="Data loading failed: No data available",
@@ -105,7 +116,13 @@ class Orchestrator:
                     execution_time_ms=(time.time() - start_time) * 1000
                 )
             
+            signals_count = len(runtime_data.get("signals", {}))
+            total_rows = sum(len(df) for df in runtime_data.get("signals", {}).values())
+            cohort_shape = runtime_data.get("cohort", {}).shape if hasattr(runtime_data.get("cohort", {}), "shape") else "N/A"
+            logger.info(f"✅ Data loaded (signals: {signals_count} cases, {total_rows} rows, cohort: {cohort_shape})")
+            
             # Step 3: Analysis - 코드 생성 및 실행
+            logger.info("🧮 Step 3/3: Running AnalysisAgent (CodeGen)...")
             analysis_result = self._run_analysis(
                 query=query,
                 runtime_data=runtime_data,
@@ -115,6 +132,11 @@ class Orchestrator:
             )
             
             execution_time = (time.time() - start_time) * 1000
+            
+            if analysis_result["success"]:
+                logger.info(f"✅ Analysis complete ({execution_time:.1f}ms, retries: {analysis_result.get('retry_count', 0)})")
+            else:
+                logger.error(f"❌ Analysis failed: {analysis_result.get('error')}")
             
             return OrchestrationResult(
                 status="success" if analysis_result["success"] else "error",
@@ -131,6 +153,7 @@ class Orchestrator:
             )
         
         except Exception as e:
+            logger.exception(f"❌ Unexpected error: {e}")
             return OrchestrationResult(
                 status="error",
                 error_message=f"Unexpected error: {str(e)}",
@@ -225,8 +248,11 @@ class Orchestrator:
         start_time = time.time()
         max_retries = max_retries if max_retries is not None else self.config.max_retries
         
+        logger.info(f"🧮 Running analysis only for: '{query[:50]}{'...' if len(query) > 50 else ''}'")
+        
         # 데이터 요약 생성
         data_summary = self._create_data_summary(runtime_data)
+        logger.debug(f"   Data summary: {data_summary}")
         
         # Analysis
         analysis_result = self._run_analysis(
@@ -236,13 +262,20 @@ class Orchestrator:
             max_retries=max_retries
         )
         
+        execution_time = (time.time() - start_time) * 1000
+        
+        if analysis_result["success"]:
+            logger.info(f"✅ Analysis complete ({execution_time:.1f}ms, retries: {analysis_result.get('retry_count', 0)})")
+        else:
+            logger.error(f"❌ Analysis failed: {analysis_result.get('error')}")
+        
         return OrchestrationResult(
             status="success" if analysis_result["success"] else "error",
             result=analysis_result.get("result"),
             generated_code=analysis_result.get("code"),
             error_message=analysis_result.get("error"),
             error_stage="analysis" if not analysis_result["success"] else None,
-            execution_time_ms=(time.time() - start_time) * 1000,
+            execution_time_ms=execution_time,
             data_summary=data_summary,
             retry_count=analysis_result.get("retry_count", 0)
         )
@@ -290,10 +323,17 @@ class Orchestrator:
         self, 
         execution_plan: Dict[str, Any]
     ) -> Tuple[Dict[str, Any], Dict[str, Any]]:
-        """DataContext로 데이터 로드
+        """DataContext로 데이터 로드 (케이스별 Dict 형태)
         
         Returns:
             (runtime_data, data_summary)
+            
+        runtime_data 구조:
+            - signals: Dict[caseid, DataFrame] - 케이스별 시계열 데이터
+            - cohort: DataFrame - 전체 메타데이터
+            - case_ids: List[str] - 로드된 케이스 ID
+            - total_cases: int - 전체 케이스 수
+            - _access_guide: str - LLM용 동적 데이터 접근 가이드
         """
         from shared.data.context import DataContext
         
@@ -303,22 +343,34 @@ class Orchestrator:
         # runtime_data 구성
         runtime_data = {}
         
-        # Cohort
+        # Cohort (전체)
         cohort = ctx.get_cohort()
         if cohort is not None and not cohort.empty:
             runtime_data["cohort"] = cohort
         
-        # Signals
-        signals = ctx.get_signals()
-        if signals is not None and not signals.empty:
-            runtime_data["df"] = signals
+        # Signals - Dict[caseid, DataFrame] 형태로!
+        max_cases = self.config.max_signal_cases if self.config.max_signal_cases > 0 else None
+        signals_dict = ctx.get_signals_dict(max_cases=max_cases)
+        if signals_dict:
+            runtime_data["signals"] = signals_dict
         
         # 메타데이터
-        runtime_data["case_ids"] = ctx.get_case_ids()
+        runtime_data["case_ids"] = list(signals_dict.keys()) if signals_dict else []
+        runtime_data["total_cases"] = len(ctx.get_case_ids())
         runtime_data["param_keys"] = ctx.get_available_parameters()
         
+        # 동적 접근 가이드 생성 (LLM 프롬프트용)
+        access_guide = ctx.generate_access_guide(signals_dict, cohort)
+        runtime_data["_access_guide"] = access_guide
+        
         # 요약 생성
-        data_summary = ctx.summary()
+        data_summary = {
+            "signals_count": len(signals_dict) if signals_dict else 0,
+            "total_cases": runtime_data["total_cases"],
+            "cohort_shape": cohort.shape if cohort is not None and not cohort.empty else None,
+            "param_keys": runtime_data["param_keys"],
+            "loaded_case_ids": runtime_data["case_ids"][:10],  # 샘플
+        }
         
         # DataContext 저장 (재사용 가능)
         self._data_context = ctx
@@ -329,12 +381,17 @@ class Orchestrator:
         """runtime_data에서 요약 생성"""
         summary = {}
         
-        if "df" in runtime_data:
-            df = runtime_data["df"]
-            summary["signals"] = {
-                "shape": df.shape,
-                "columns": list(df.columns)
-            }
+        if "signals" in runtime_data:
+            signals_dict = runtime_data["signals"]
+            if signals_dict:
+                sample_cid = list(signals_dict.keys())[0]
+                sample_df = signals_dict[sample_cid]
+                summary["signals"] = {
+                    "case_count": len(signals_dict),
+                    "total_rows": sum(len(df) for df in signals_dict.values()),
+                    "sample_shape": sample_df.shape,
+                    "columns": list(sample_df.columns)
+                }
         
         if "cohort" in runtime_data:
             cohort = runtime_data["cohort"]
@@ -344,6 +401,7 @@ class Orchestrator:
             }
         
         summary["case_count"] = len(runtime_data.get("case_ids", []))
+        summary["total_cases"] = runtime_data.get("total_cases", 0)
         summary["param_keys"] = runtime_data.get("param_keys", [])
         
         return summary
@@ -369,11 +427,14 @@ class Orchestrator:
         if self._code_generator is None:
             self._init_code_gen_components(timeout)
         
+        # 동적 접근 가이드 추출 (LLM 프롬프트용)
+        access_guide = runtime_data.pop("_access_guide", None)
+        
         # ExecutionContext 생성
         exec_context = self._build_execution_context(runtime_data, data_summary)
         
-        # CodeRequest 생성
-        request = self._build_code_request(query, exec_context, data_summary)
+        # CodeRequest 생성 (동적 가이드 포함)
+        request = self._build_code_request(query, exec_context, data_summary, access_guide)
         
         # 생성 + 실행 (with retry)
         last_error = None
@@ -440,13 +501,17 @@ class Orchestrator:
         # 사용 가능한 변수 설명
         available_variables = {}
         
-        if "df" in runtime_data:
-            df = runtime_data["df"]
-            cols = list(df.columns)[:10]
-            cols_str = str(cols) + ("..." if len(df.columns) > 10 else "")
-            available_variables["df"] = (
-                f"pandas DataFrame - Signal 데이터, "
-                f"shape: {df.shape}, columns: {cols_str}"
+        # signals: Dict[caseid, DataFrame]
+        if "signals" in runtime_data and runtime_data["signals"]:
+            signals_dict = runtime_data["signals"]
+            case_count = len(signals_dict)
+            sample_cid = list(signals_dict.keys())[0]
+            sample_df = signals_dict[sample_cid]
+            cols = list(sample_df.columns)[:10]
+            cols_str = str(cols) + ("..." if len(sample_df.columns) > 10 else "")
+            available_variables["signals"] = (
+                f"Dict[caseid, DataFrame] - 케이스별 시계열 데이터, "
+                f"{case_count} cases, columns: {cols_str}"
             )
         
         if "cohort" in runtime_data:
@@ -459,17 +524,24 @@ class Orchestrator:
             )
         
         case_ids = runtime_data.get("case_ids", [])
-        available_variables["case_ids"] = f"List[str] - {len(case_ids)}개 케이스 ID"
+        available_variables["case_ids"] = f"List[str] - {len(case_ids)}개 로드된 케이스 ID"
+        
+        total_cases = runtime_data.get("total_cases", len(case_ids))
+        available_variables["total_cases"] = f"int - 전체 케이스 수: {total_cases}"
         
         param_keys = runtime_data.get("param_keys", [])
         available_variables["param_keys"] = f"List[str] - 파라미터 키: {param_keys}"
         
         # 샘플 데이터 (LLM 참고용)
         sample_data = {}
-        if "df" in runtime_data and not runtime_data["df"].empty:
-            sample_df = runtime_data["df"].head(3)
-            # 숫자 반올림
-            sample_data["df_head"] = sample_df.round(4).to_dict(orient="records")
+        if "signals" in runtime_data and runtime_data["signals"]:
+            signals_dict = runtime_data["signals"]
+            sample_cid = list(signals_dict.keys())[0]
+            sample_df = signals_dict[sample_cid].head(3)
+            sample_data["signals_sample"] = {
+                "caseid": sample_cid,
+                "data": sample_df.round(4).to_dict(orient="records")
+            }
         
         if "cohort" in runtime_data and not runtime_data["cohort"].empty:
             sample_cohort = runtime_data["cohort"].head(3)
@@ -484,60 +556,74 @@ class Orchestrator:
         self, 
         query: str,
         exec_context,
-        data_summary: Dict[str, Any]
+        data_summary: Dict[str, Any],
+        access_guide: Optional[str] = None
     ):
         """CodeRequest 생성"""
         from AnalysisAgent.src.models import CodeRequest
         
-        # 힌트 생성
-        hints = None
+        # 동적 접근 가이드 + 기존 힌트 결합
+        hints_parts = []
+        
+        # 1. 동적 데이터 접근 가이드 (우선)
+        if access_guide:
+            hints_parts.append(access_guide)
+        
+        # 2. 질의 기반 추가 힌트
         if self.config.generate_hints:
-            hints = self._generate_hints(query, data_summary)
+            additional_hints = self._generate_hints(query, data_summary)
+            if additional_hints:
+                hints_parts.append("\n## Additional Hints\n" + additional_hints)
+        
+        hints = "\n".join(hints_parts) if hints_parts else None
         
         return CodeRequest(
             task_description=query,
-            expected_output="분석 결과를 result 변수에 저장. 숫자, 딕셔너리, 또는 리스트 형태.",
+            expected_output="Assign final result to `result` variable. Can be number, dict, or list.",
             execution_context=exec_context,
             hints=hints,
             constraints=[
-                "NaN 값은 dropna() 또는 fillna()로 처리",
-                "result 변수에 최종 결과 저장 필수",
-                "루프 대신 pandas/numpy 벡터 연산 사용 권장"
+                "Handle NaN with dropna() or fillna()",
+                "Must assign final result to `result` variable",
+                "For case-level statistics: compute per-case first, then aggregate",
+                "Use signals[caseid] to access individual case DataFrame"
             ]
         )
     
     def _generate_hints(self, query: str, data_summary: Dict[str, Any]) -> Optional[str]:
-        """질의 기반 구현 힌트 생성"""
+        """질의 기반 추가 힌트 생성 (동적 가이드 보완용)"""
         hints = []
         query_lower = query.lower()
         
-        # 키워드 기반 힌트
+        # 키워드 기반 힌트 (signals Dict 기반)
         if "평균" in query_lower or "mean" in query_lower:
-            hints.append("평균 계산: df['column'].mean() 또는 df.groupby('group')['column'].mean()")
+            hints.append("Mean calculation (per-case recommended):")
+            hints.append("  case_means = {cid: df['col'].mean() for cid, df in signals.items()}")
+            hints.append("  result = np.mean(list(case_means.values()))")
         
         if "비교" in query_lower or "그룹" in query_lower or "성별" in query_lower:
-            hints.append("그룹 비교: cohort DataFrame에서 그룹 정보 참조 (예: cohort['sex'])")
-            hints.append("df와 cohort 조인이 필요할 수 있음: pd.merge(df, cohort, on='caseid')")
+            hints.append("Group comparison: use cohort to filter cases by group")
+            hints.append("  male_cases = cohort[cohort['sex'] == 'M']['caseid'].astype(str).tolist()")
+            hints.append("  male_signals = {cid: signals[cid] for cid in male_cases if cid in signals}")
         
         if "상관" in query_lower or "correlation" in query_lower:
-            hints.append("상관관계: scipy.stats.pearsonr(x, y) 또는 df.corr()")
+            hints.append("Correlation (per-case, then aggregate):")
+            hints.append("  from scipy import stats")
+            hints.append("  def case_corr(df):")
+            hints.append("      clean = df[['col1', 'col2']].dropna()")
+            hints.append("      if len(clean) < 3: return np.nan")
+            hints.append("      r = stats.pearsonr(clean['col1'], clean['col2'])")
+            hints.append("      return r.statistic  # Use .statistic, NOT tuple unpacking!")
+            hints.append("  case_corrs = {cid: case_corr(df) for cid, df in signals.items()}")
+            hints.append("  result = np.nanmean(list(case_corrs.values()))")
         
         if "분포" in query_lower or "distribution" in query_lower:
-            hints.append("분포 분석: df['column'].describe() 또는 df['column'].value_counts()")
-        
-        if "표준편차" in query_lower or "std" in query_lower:
-            hints.append("표준편차: df['column'].std()")
-        
-        if "최대" in query_lower or "max" in query_lower:
-            hints.append("최대값: df['column'].max()")
-        
-        if "최소" in query_lower or "min" in query_lower:
-            hints.append("최소값: df['column'].min()")
+            hints.append("Distribution: compute per-case, then combine")
         
         # 데이터 구조 힌트
         param_keys = data_summary.get("param_keys", [])
         if param_keys:
-            hints.append(f"사용 가능한 signal 파라미터: {param_keys[:5]}")
+            hints.append(f"Available signal parameters: {param_keys[:5]}")
         
         return "\n".join(hints) if hints else None
     

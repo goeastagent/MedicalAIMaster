@@ -5,8 +5,8 @@ File Classification 프롬프트
 파일을 metadata/data로 분류하기 위한 LLM 프롬프트 정의
 """
 
-from src.agents.prompts import PromptTemplate
-from src.models.llm_responses import FileClassificationItem
+from IndexingAgent.src.agents.prompts import PromptTemplate
+from IndexingAgent.src.models.llm_responses import FileClassificationItem
 
 
 class FileClassificationPrompt(PromptTemplate):

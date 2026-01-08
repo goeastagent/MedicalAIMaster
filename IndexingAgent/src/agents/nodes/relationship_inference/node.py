@@ -17,15 +17,15 @@ import time
 from datetime import datetime
 from typing import Dict, List, Any, Tuple, Set
 
-from ...models.llm_responses import (
+from IndexingAgent.src.models.llm_responses import (
     TableRelationship,
     RelationshipInferenceResult,
 )
-from ...base import BaseNode, LLMMixin, DatabaseMixin, Neo4jMixin
-from ...registry import register_node
+from shared.langgraph import BaseNode, LLMMixin, DatabaseMixin, Neo4jMixin
+from shared.langgraph import register_node
 from shared.database import OntologySchemaManager
 from shared.database.repositories import ParameterRepository, FileGroupRepository
-from src.config import RelationshipInferenceConfig, IndexingConfig
+from IndexingAgent.src.config import RelationshipInferenceConfig, IndexingConfig
 from shared.config import LLMConfig, Neo4jConfig
 from .prompts import RelationshipInferencePrompt
 

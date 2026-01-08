@@ -21,22 +21,21 @@ from datetime import datetime
 
 from shared.database import FileRepository, ColumnRepository
 from shared.database.repositories import ParameterRepository, FileGroupRepository
-from src.config import ColumnClassificationConfig, IndexingConfig
 from shared.config import LLMConfig
-from src.models import (
+from shared.llm import get_llm_client
+from shared.langgraph import BaseNode, LLMMixin, DatabaseMixin, register_node
+
+from IndexingAgent.src.config import ColumnClassificationConfig, IndexingConfig
+from IndexingAgent.src.models import (
     ColumnRole,
     SourceType,
     ColumnClassificationItem,
     ColumnClassificationResult,
 )
-from shared.llm import get_llm_client
-from src.agents.prompts import (
+from IndexingAgent.src.agents.prompts import (
     ColumnClassificationPrompt,
     build_columns_info_batch,
 )
-
-from ...base import BaseNode, LLMMixin, DatabaseMixin
-from ...registry import register_node
 
 
 @register_node

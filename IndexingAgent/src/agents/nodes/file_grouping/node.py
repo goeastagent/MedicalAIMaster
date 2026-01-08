@@ -18,8 +18,8 @@ from typing import Dict, List, Any, Optional, Tuple
 from shared.database.repositories import FileRepository, DirectoryRepository, FileGroupRepository
 from shared.config import LLMConfig
 
-from ...base import BaseNode, LLMMixin, DatabaseMixin
-from ...registry import register_node
+from shared.langgraph import BaseNode, LLMMixin, DatabaseMixin
+from shared.langgraph import register_node
 from .prompts import FileGroupingPrompt
 
 

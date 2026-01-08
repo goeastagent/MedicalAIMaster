@@ -15,10 +15,9 @@ from typing import Dict, Any, List
 from datetime import datetime
 
 from shared.database.connection import get_db_manager
-from src.config import SchemaAggregationConfig, MetadataSemanticConfig
+from IndexingAgent.src.config import SchemaAggregationConfig, MetadataSemanticConfig
 
-from ..base import BaseNode, DatabaseMixin
-from ..registry import register_node
+from shared.langgraph import BaseNode, DatabaseMixin, register_node
 
 
 @register_node

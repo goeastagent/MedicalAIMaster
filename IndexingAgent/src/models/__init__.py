@@ -30,9 +30,9 @@ Pydantic 모델 패키지
 """
 
 # =============================================================================
-# enums.py - 열거형 타입
+# enums - shared.models에서 re-export
 # =============================================================================
-from .enums import (
+from shared.models.enums import (
     ColumnRole,
     SourceType,
     DictMatchStatus,

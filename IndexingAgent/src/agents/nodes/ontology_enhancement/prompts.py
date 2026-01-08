@@ -9,8 +9,8 @@ Neo4j 온톨로지 확장을 위한 다중 LLM 프롬프트:
 4. cross_table: 테이블 간 시맨틱 관계
 """
 
-from src.agents.prompts import MultiPromptTemplate
-from src.models.llm_responses import (
+from IndexingAgent.src.agents.prompts import MultiPromptTemplate
+from IndexingAgent.src.models.llm_responses import (
     SubCategoryResult,
     SemanticEdge,
     MedicalTermMapping,

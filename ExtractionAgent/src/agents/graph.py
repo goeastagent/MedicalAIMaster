@@ -28,7 +28,7 @@ VitalExtractionAgent LangGraph Pipeline Builder
               END
 
 Usage:
-    from src.agents.graph import build_agent
+    from ExtractionAgent.src.agents.graph import build_agent
     
     # Create workflow
     workflow = build_agent()
@@ -43,8 +43,14 @@ Usage:
 """
 
 from typing import List, Optional
-from langgraph.graph import StateGraph, END
+
+from shared.langgraph import build_sequential_graph, build_partial_graph, get_registry
 from .state import VitalExtractionState
+
+
+# Constants
+_NODE_MODULE = "ExtractionAgent.src.agents.nodes"
+_AGENT_NAME = "VitalExtractionAgent"
 
 
 def build_agent(
@@ -77,58 +83,14 @@ def build_agent(
         # 특정 노드 제외
         workflow = build_agent(exclude_nodes=["parameter_resolver"])
     """
-    # 노드 클래스 임포트 (이 시점에 @register_node가 자동으로 등록)
-    # 직접 사용하지 않지만 import로 registry에 등록됨
-    from . import nodes  # noqa: F401
-    
-    from .registry import get_registry
-    
-    registry = get_registry()
-    
-    # 활성화된 노드를 order 순으로 가져오기
-    nodes = registry.get_ordered_nodes(include=include_nodes, exclude=exclude_nodes)
-    
-    if not nodes:
-        raise ValueError("No nodes to build pipeline. Check include/exclude filters.")
-    
-    print(f"\n{'='*60}")
-    print("🔧 Building VitalExtractionAgent Pipeline")
-    print(f"{'='*60}")
-    print(f"📋 Nodes ({len(nodes)}):")
-    for node in nodes:
-        badges = []
-        if node.requires_llm:
-            badges.append("🤖")
-        if node.requires_db:
-            badges.append("📊")
-        badge_str = "".join(badges) if badges else "📏"
-        print(f"   [{node.order:03d}] {node.name} {badge_str} - {node.description}")
-    print(f"{'='*60}\n")
-    
-    workflow = StateGraph(VitalExtractionState)
-    
-    # 노드 추가
-    for node in nodes:
-        workflow.add_node(node.name, node)
-    
-    # Entry point (첫 번째 노드)
-    workflow.set_entry_point(nodes[0].name)
-    
-    # 순차적 엣지 추가
-    for i in range(len(nodes) - 1):
-        current_node = nodes[i]
-        next_node = nodes[i + 1]
-        workflow.add_edge(current_node.name, next_node.name)
-    
-    # 마지막 노드 → END
-    workflow.add_edge(nodes[-1].name, END)
-    
-    # Compile
-    compile_config = {}
-    if checkpointer:
-        compile_config["checkpointer"] = checkpointer
-    
-    return workflow.compile(**compile_config)
+    return build_sequential_graph(
+        state_class=VitalExtractionState,
+        node_module=_NODE_MODULE,
+        include_nodes=include_nodes,
+        exclude_nodes=exclude_nodes,
+        checkpointer=checkpointer,
+        agent_name=_AGENT_NAME,
+    )
 
 
 def build_custom_agent(node_names: List[str], checkpointer=None):
@@ -154,15 +116,12 @@ def build_custom_agent(node_names: List[str], checkpointer=None):
 def list_available_nodes() -> List[dict]:
     """사용 가능한 모든 노드 목록 반환"""
     # Import to ensure nodes are registered
-    import src.agents.nodes  # noqa: F401
-    from .registry import get_registry
+    import ExtractionAgent.src.agents.nodes  # noqa: F401
     return get_registry().list_nodes()
 
 
 def print_pipeline_info():
     """파이프라인 구성 정보 출력"""
     # Import to ensure nodes are registered
-    import src.agents.nodes  # noqa: F401
-    from .registry import get_registry
+    import ExtractionAgent.src.agents.nodes  # noqa: F401
     get_registry().print_pipeline()
-
