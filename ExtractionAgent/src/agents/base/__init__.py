@@ -1,6 +1,6 @@
 # src/agents/base/__init__.py
 """
-Base classes for VitalExtractionAgent nodes.
+Base classes for ExtractionAgent nodes.
 
 Re-exports from shared.langgraph for backward compatibility.
 """

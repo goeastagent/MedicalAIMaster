@@ -39,7 +39,7 @@ def build_sequential_graph(
     START → node1 → node2 → ... → END 구조의 파이프라인을 생성합니다.
     
     Args:
-        state_class: LangGraph State 클래스 (예: AgentState, VitalExtractionState)
+        state_class: LangGraph State 클래스 (예: AgentState, ExtractionState)
         node_module: 노드가 정의된 모듈 경로 (예: "IndexingAgent.src.agents.nodes")
                      import_nodes=True일 때 이 모듈을 import하여 노드 등록을 트리거
         include_nodes: (선택) 포함할 노드 이름 목록. None이면 모든 활성 노드 포함.

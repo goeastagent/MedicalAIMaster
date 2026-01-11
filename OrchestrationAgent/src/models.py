@@ -53,7 +53,7 @@ class OrchestrationResult(BaseModel):
     error_message: Optional[str] = None
     """에러 메시지"""
     
-    error_stage: Optional[Literal["extraction", "data_load", "analysis"]] = None
+    error_stage: Optional[Literal["extraction", "data_load", "analysis", "code_generation", "execution", "unknown"]] = None
     """실패한 단계"""
     
     # === 메타데이터 ===
@@ -75,6 +75,9 @@ class OrchestrationResult(BaseModel):
     
     ambiguities: Optional[List[Dict[str, Any]]] = None
     """발견된 모호성 목록"""
+    
+    metadata: Optional[Dict[str, Any]] = None
+    """추가 메타데이터 (Map-Reduce 모드 정보 등)"""
 
 
 class DataSummary(BaseModel):
@@ -82,6 +85,12 @@ class DataSummary(BaseModel):
     
     case_count: int = 0
     """총 케이스 수"""
+    
+    signals_count: int = 0
+    """로드된 Signal 케이스 수"""
+    
+    total_rows: int = 0
+    """전체 행 수"""
     
     param_keys: List[str] = Field(default_factory=list)
     """사용 가능한 파라미터 키 목록"""

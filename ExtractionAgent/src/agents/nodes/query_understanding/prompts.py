@@ -81,6 +81,14 @@ Respond ONLY in the following JSON format:
 5. Consider both Korean and English medical terminology
 6. **IMPORTANT**: Always specify expected_categories using the "Parameter Category Guide" section above to help filter irrelevant database matches
 7. If no valid filter column exists for a condition (e.g., diagnosis), omit the filter and note in reasoning
+8. **TIME RANGE EXPRESSIONS ARE NOT PARAMETERS**: Expressions describing when/during what period data should be analyzed are TIME RANGES, not data parameters.
+   - Examples: "during surgery", "수술 중", "procedure time", "treatment period", "from X to Y", "X부터 Y까지"
+   - These describe WHEN to analyze, not WHAT to analyze
+   - Do NOT include time range expressions in requested_parameters
+   - Instead, set temporal_context.type appropriately:
+     * "procedure_window" for surgery/procedure time
+     * "treatment_window" for treatment/admission period
+     * "custom_window" for specific time ranges
 """
 
 

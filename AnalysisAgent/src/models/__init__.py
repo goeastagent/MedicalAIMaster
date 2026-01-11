@@ -13,6 +13,10 @@ from .code_gen import (
     GenerationResult,
     ExecutionResult,
     CodeResult,
+    # Map-Reduce models
+    MapReduceRequest,
+    MapReduceGenerationResult,
+    MapReduceExecutionResult,
 )
 
 # I/O models (Step execution)
@@ -46,6 +50,10 @@ __all__ = [
     "GenerationResult",
     "ExecutionResult",
     "CodeResult",
+    # Map-Reduce
+    "MapReduceRequest",
+    "MapReduceGenerationResult",
+    "MapReduceExecutionResult",
     # I/O (Step Execution)
     "StepInput",
     "StepOutput",

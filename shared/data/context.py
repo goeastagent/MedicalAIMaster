@@ -3,11 +3,11 @@
 DataContext - Execution Plan 기반 데이터 로드 및 관리
 
 역할:
-1. ExtractionAgent의 execution_plan JSON 해석
+1. ExtractionAgent의 execution_plan JSON 해석 → PlanParser 위임
 2. DB에서 파일 경로 resolve
 3. Processor를 사용하여 데이터 로드
 4. 캐싱 (클래스 레벨, 모든 인스턴스 공유)
-5. AnalysisAgent를 위한 분석 컨텍스트 제공
+5. AnalysisAgent를 위한 분석 컨텍스트 제공 → AnalysisContextBuilder 위임
 
 사용 예시:
     ctx = DataContext()
@@ -36,6 +36,10 @@ if str(project_root) not in sys.path:
 
 from shared.processors import SignalProcessor, TabularProcessor
 from shared.database.connection import get_db_manager
+from shared.data.plan_parser import PlanParser
+from shared.data.analysis_context import AnalysisContextBuilder
+from shared.models.plan import ParsedPlan
+from shared.utils import lazy_property
 
 logger = logging.getLogger(__name__)
 
@@ -47,7 +51,7 @@ class DataContext:
     특징:
     - 클래스 레벨 캐시: 모든 인스턴스가 signal/cohort 데이터 공유
     - Lazy Loading: 요청 시에만 데이터 로드
-    - Temporal Filter: surgery_window 등 자동 적용
+    - Temporal Filter: procedure_window 등 자동 적용
     - AnalysisAgent 지원: LLM용 컨텍스트 생성
     """
     
@@ -61,35 +65,124 @@ class DataContext:
         """DataContext 초기화"""
         # Instance state
         self._plan: Optional[Dict[str, Any]] = None
+        self._parsed_plan: Optional[ParsedPlan] = None  # PlanParser 결과
         self._loaded_at: Optional[datetime] = None
         
-        # Parsed plan components
+        # ═══════════════════════════════════════════════════════════════════════════
+        # Metadata from Execution Plan (ExtractionAgent가 DB에서 조회한 정보)
+        # _parsed_plan에서 복사되어 기존 코드와의 호환성 유지
+        # ═══════════════════════════════════════════════════════════════════════════
+        # Cohort metadata
         self._cohort_file_id: Optional[str] = None
         self._cohort_file_path: Optional[str] = None
-        self._cohort_entity_id: Optional[str] = None
+        self._cohort_file_name: Optional[str] = None
+        self._cohort_entity_id: Optional[str] = None  # entity_identifier (예: "caseid")
+        self._cohort_row_represents: Optional[str] = None  # 행이 나타내는 것 (예: "surgical_case")
         self._cohort_filters: List[Dict[str, Any]] = []
         
+        # Signal metadata
         self._signal_group_id: Optional[str] = None
+        self._signal_group_name: Optional[str] = None  # 그룹명 (예: "vital_signals_by_case")
+        self._signal_entity_id_key: Optional[str] = None  # entity_identifier_key (예: "caseid")
+        self._signal_row_represents: Optional[str] = None  # 행이 나타내는 것
         self._signal_files: List[Dict[str, Any]] = []  # [{file_id, file_path, caseid}, ...]
         self._param_keys: List[str] = []
         self._param_info: List[Dict[str, Any]] = []  # [{term, param_key, semantic_name, unit}, ...]
         self._temporal_config: Dict[str, Any] = {}
         
+        # Join configuration
         self._join_config: Dict[str, Any] = {}
         
-        # Processors
+        # ═══════════════════════════════════════════════════════════════════════════
+        # Processors & Helpers
+        # ═══════════════════════════════════════════════════════════════════════════
         self._signal_processor = SignalProcessor()
         self._tabular_processor = TabularProcessor()
+        self._plan_parser: Optional[PlanParser] = None
+        self._analysis_builder: Optional[AnalysisContextBuilder] = None
         
         # DB
         self._db = None
     
-    @property
+    @lazy_property
     def db(self):
         """Lazy DB connection"""
-        if self._db is None:
-            self._db = get_db_manager()
-        return self._db
+        return get_db_manager()
+    
+    # ═══════════════════════════════════════════════════════════════════════════
+    # Metadata Properties (Execution Plan에서 추출한 정보)
+    # ═══════════════════════════════════════════════════════════════════════════
+    
+    @property
+    def entity_id_column(self) -> Optional[str]:
+        """
+        주요 엔티티 식별자 컬럼명 반환
+        
+        Signal의 entity_identifier_key를 우선 사용, 없으면 cohort의 entity_identifier
+        
+        Returns:
+            식별자 컬럼명 (예: "caseid", "subject_id") 또는 None
+        """
+        return self._signal_entity_id_key or self._cohort_entity_id
+    
+    @property
+    def cohort_entity_column(self) -> Optional[str]:
+        """Cohort 테이블의 엔티티 식별자 컬럼명"""
+        return self._cohort_entity_id
+    
+    @property
+    def signal_entity_column(self) -> Optional[str]:
+        """Signal 파일의 엔티티 식별자 키"""
+        return self._signal_entity_id_key
+    
+    @property
+    def join_keys(self) -> Dict[str, str]:
+        """
+        Join에 사용할 키 반환
+        
+        Returns:
+            {"cohort_key": "caseid", "signal_key": "caseid"}
+        """
+        return {
+            "cohort_key": self._join_config.get("cohort_key"),
+            "signal_key": self._join_config.get("signal_key"),
+        }
+    
+    def get_plan_metadata(self) -> Dict[str, Any]:
+        """
+        Execution Plan에서 추출한 메타데이터 반환
+        
+        동적 가이드 생성, 힌트 생성 등에서 활용
+        
+        Returns:
+            {
+                "entity_id_column": "caseid",
+                "cohort": {"file_name": "clinical_data.csv", "entity_identifier": "caseid", ...},
+                "signal": {"group_name": "vital_signals_by_case", "entity_identifier_key": "caseid", ...},
+                "join": {"cohort_key": "caseid", "signal_key": "caseid"},
+                "parameters": [...]
+            }
+        """
+        return {
+            "entity_id_column": self.entity_id_column,
+            "cohort": {
+                "file_id": self._cohort_file_id,
+                "file_name": self._cohort_file_name,
+                "file_path": self._cohort_file_path,
+                "entity_identifier": self._cohort_entity_id,
+                "row_represents": self._cohort_row_represents,
+            },
+            "signal": {
+                "group_id": self._signal_group_id,
+                "group_name": self._signal_group_name,
+                "entity_identifier_key": self._signal_entity_id_key,
+                "row_represents": self._signal_row_represents,
+                "file_count": len(self._signal_files),
+            },
+            "join": self._join_config,
+            "parameters": self._param_info,
+            "param_keys": self._param_keys,
+        }
     
     # ═══════════════════════════════════════════════════════════════════════════
     # Main Interface
@@ -103,6 +196,8 @@ class DataContext:
         """
         Execution Plan을 해석하고 데이터 로드 준비
         
+        PlanParser를 사용하여 파싱하고, 결과를 내부 속성에 매핑합니다.
+        
         Args:
             execution_plan: ExtractionAgent가 생성한 plan JSON
             preload_cohort: cohort 데이터를 미리 로드할지 (기본 True)
@@ -111,47 +206,54 @@ class DataContext:
             self (method chaining 지원)
         """
         self._plan = execution_plan
-        plan = execution_plan.get("execution_plan", {})
         
-        # 1. Cohort source 파싱
-        cohort_source = plan.get("cohort_source", {})
-        if cohort_source:
-            self._cohort_file_id = cohort_source.get("file_id")
-            self._cohort_entity_id = cohort_source.get("entity_identifier", "caseid")
-            self._cohort_filters = cohort_source.get("filters", [])
-            
-            # DB에서 파일 경로 resolve
-            if self._cohort_file_id:
-                self._cohort_file_path = self._resolve_file_path(self._cohort_file_id)
+        # ═══════════════════════════════════════════════════════════════════════════
+        # PlanParser를 사용하여 파싱
+        # ═══════════════════════════════════════════════════════════════════════════
+        if self._plan_parser is None:
+            self._plan_parser = PlanParser(db_manager=self._db)
         
-        # 2. Signal source 파싱
-        signal_source = plan.get("signal_source", {})
-        if signal_source:
-            self._signal_group_id = signal_source.get("group_id")
-            self._temporal_config = signal_source.get("temporal_alignment", {})
-            
-            # Parameters 파싱
-            parameters = signal_source.get("parameters", [])
-            self._param_info = parameters
-            self._param_keys = []
-            for p in parameters:
-                self._param_keys.extend(p.get("param_keys", []))
-            
-            # DB에서 signal 파일들 resolve
-            if self._signal_group_id:
-                self._signal_files = self._resolve_signal_files(self._signal_group_id)
+        self._parsed_plan = self._plan_parser.parse(execution_plan, resolve_paths=True)
         
-        # 3. Join 설정 파싱
-        join_spec = plan.get("join_specification", {})
+        # ═══════════════════════════════════════════════════════════════════════════
+        # ParsedPlan에서 내부 속성으로 복사 (기존 코드 호환성 유지)
+        # ═══════════════════════════════════════════════════════════════════════════
+        # Cohort metadata
+        cohort = self._parsed_plan.cohort
+        self._cohort_file_id = cohort.file_id
+        self._cohort_file_path = cohort.file_path
+        self._cohort_file_name = cohort.file_name
+        self._cohort_entity_id = cohort.entity_identifier
+        self._cohort_row_represents = cohort.row_represents
+        self._cohort_filters = cohort.filters
+        
+        # Signal metadata
+        signal = self._parsed_plan.signal
+        self._signal_group_id = signal.group_id
+        self._signal_group_name = signal.group_name
+        self._signal_entity_id_key = signal.entity_identifier_key
+        self._signal_row_represents = signal.row_represents
+        self._signal_files = signal.files
+        self._param_keys = signal.param_keys
+        self._param_info = signal.param_info
+        self._temporal_config = signal.temporal_config
+        
+        # Join configuration
+        join = self._parsed_plan.join
         self._join_config = {
-            "cohort_key": join_spec.get("cohort_key", self._cohort_entity_id),
-            "signal_key": join_spec.get("signal_key", self._cohort_entity_id),
-            "type": join_spec.get("type", "inner")
+            "cohort_key": join.cohort_key,
+            "signal_key": join.signal_key,
+            "type": join.join_type
         }
         
         self._loaded_at = datetime.now()
         
-        # 4. Cohort 미리 로드 (선택적)
+        # ═══════════════════════════════════════════════════════════════════════════
+        # AnalysisContextBuilder 초기화
+        # ═══════════════════════════════════════════════════════════════════════════
+        self._analysis_builder = AnalysisContextBuilder(self)
+        
+        # Cohort 미리 로드 (선택적)
         if preload_cohort and self._cohort_file_path:
             self._load_cohort_to_cache()
         
@@ -201,8 +303,10 @@ class DataContext:
         """
         Signal 데이터 반환
         
+        cohort 필터가 적용된 경우, 필터된 케이스 중 signal 파일이 있는 케이스만 로드합니다.
+        
         Args:
-            caseid: 특정 케이스만 (None이면 로드된 전체)
+            caseid: 특정 케이스만 (None이면 cohort 필터 적용된 유효 케이스)
             param_keys: 특정 파라미터만 (None이면 plan의 모든 파라미터)
             apply_temporal: temporal_alignment 적용 여부
             max_cases: 최대 로드할 케이스 수 (None이면 전체)
@@ -219,8 +323,8 @@ class DataContext:
             logger.info(f"📡 Loading signal for case: {caseid}")
             return self._get_signal_for_case(caseid, params, apply_temporal)
         else:
-            # 모든 케이스
-            case_ids = self.get_case_ids()
+            # cohort 필터가 적용된 케이스 중 signal 파일이 있는 케이스만 (교집합)
+            case_ids = self.get_available_case_ids()
             total_cases = len(case_ids)
             
             # 케이스 수 제한
@@ -330,8 +434,10 @@ class DataContext:
         """
         케이스별 DataFrame Dict 반환 (케이스 단위 보존)
         
+        cohort 필터가 적용된 경우, 필터된 케이스 중 signal 파일이 있는 케이스만 로드합니다.
+        
         Args:
-            case_ids: 로드할 케이스 ID 목록 (None이면 전체)
+            case_ids: 로드할 케이스 ID 목록 (None이면 cohort 필터 적용된 유효 케이스)
             param_keys: 특정 파라미터만 (None이면 plan의 모든 파라미터)
             apply_temporal: temporal_alignment 적용 여부
             max_cases: 최대 로드할 케이스 수 (None이면 전체)
@@ -343,7 +449,8 @@ class DataContext:
             예: {"case1": DataFrame([Time, HR, SpO2, ...]), "case2": ...}
         """
         params = param_keys or self._param_keys
-        target_cases = case_ids or self.get_case_ids()
+        # cohort 필터가 적용된 케이스 중 signal 파일이 있는 케이스만 (교집합)
+        target_cases = case_ids or self.get_available_case_ids()
         total_cases = len(target_cases)
         
         # 케이스 수 제한
@@ -451,8 +558,10 @@ class DataContext:
         if signals_df.empty:
             return cohort_df
         
-        cohort_key = self._join_config.get("cohort_key", "caseid")
-        signal_key = self._join_config.get("signal_key", "caseid")
+        # 메타데이터 기반 join 키 (fallback: entity_id_column)
+        default_key = self.entity_id_column or "id"
+        cohort_key = self._join_config.get("cohort_key") or self._cohort_entity_id or default_key
+        signal_key = self._join_config.get("signal_key") or self._signal_entity_id_key or default_key
         
         # 키 타입 맞추기
         if cohort_key in cohort_df.columns and signal_key in signals_df.columns:
@@ -478,7 +587,7 @@ class DataContext:
         
         Yields:
             {
-                "caseid": str,
+                "entity_id": str,         # 엔티티 식별자 값
                 "cohort": pd.Series,      # 해당 케이스의 메타데이터
                 "signals": pd.DataFrame,  # 해당 케이스의 신호 데이터
                 "temporal_range": (start, end) or None
@@ -487,10 +596,13 @@ class DataContext:
         cohort_df = self.get_cohort()
         case_ids = self.get_case_ids()
         
+        # 메타데이터 기반 cohort 키
+        default_key = self.entity_id_column or "id"
+        cohort_key = self._join_config.get("cohort_key") or self._cohort_entity_id or default_key
+        
         for cid in case_ids:
             # Cohort row
-            cohort_key = self._join_config.get("cohort_key", "caseid")
-            cohort_row = cohort_df[cohort_df[cohort_key].astype(str) == str(cid)]
+            cohort_row = cohort_df[cohort_df[cohort_key].astype(str) == str(cid)] if cohort_key in cohort_df.columns else pd.DataFrame()
             cohort_series = cohort_row.iloc[0] if not cohort_row.empty else pd.Series()
             
             # Signals
@@ -502,11 +614,164 @@ class DataContext:
                 temporal_range = self._get_temporal_range(cohort_series)
             
             yield {
-                "caseid": str(cid),
+                "entity_id": str(cid),
                 "cohort": cohort_series,
                 "signals": signals,
                 "temporal_range": temporal_range
             }
+    
+    def iter_cases_batch(
+        self,
+        batch_size: int = 100,
+        param_keys: Optional[List[str]] = None,
+        apply_temporal: bool = True,
+        max_cases: Optional[int] = None,
+        parallel: bool = True,
+        max_workers: int = 4,
+    ) -> Iterator[Dict[str, Any]]:
+        """
+        케이스를 배치 단위로 순회 (대용량 Map-Reduce 처리용)
+        
+        메모리 효율적인 처리를 위해 배치 단위로 시그널을 로드하고,
+        각 배치 처리 후 메모리를 해제할 수 있도록 합니다.
+        
+        Args:
+            batch_size: 배치당 케이스 수 (기본 100)
+            param_keys: 로드할 파라미터 목록 (None이면 plan의 모든 파라미터)
+            apply_temporal: temporal_alignment 적용 여부
+            max_cases: 최대 처리할 케이스 수 (None이면 전체)
+            parallel: 배치 내 병렬 로딩 활성화
+            max_workers: 병렬 처리 워커 수
+        
+        Yields:
+            {
+                "batch_index": int,           # 현재 배치 인덱스 (0부터 시작)
+                "total_batches": int,         # 전체 배치 수
+                "batch_size": int,            # 현재 배치의 케이스 수
+                "entity_ids": List[str],      # 배치 내 엔티티 ID 목록
+                "signals": Dict[str, DataFrame],  # 배치 내 시그널 {entity_id: df}
+                "metadata_rows": DataFrame,   # 배치 내 메타데이터 행들
+            }
+        
+        Example:
+            # 대용량 데이터 Map-Reduce 처리
+            import gc
+            
+            all_results = []
+            for batch in ctx.iter_cases_batch(batch_size=100):
+                print(f"Processing batch {batch['batch_index']+1}/{batch['total_batches']}")
+                
+                for entity_id, signals_df in batch["signals"].items():
+                    # map_func 호출
+                    result = map_func(entity_id, signals_df, ...)
+                    all_results.append(result)
+                
+                # 배치 처리 후 메모리 해제
+                del batch
+                gc.collect()
+            
+            # 최종 집계
+            final = reduce_func(all_results, cohort)
+        """
+        # 사용 가능한 케이스 ID (cohort + signal 교집합)
+        all_case_ids = self.get_available_case_ids()
+        
+        # max_cases 적용
+        if max_cases and len(all_case_ids) > max_cases:
+            logger.warning(f"⚠️ Limiting to {max_cases} cases (total: {len(all_case_ids)})")
+            all_case_ids = all_case_ids[:max_cases]
+        
+        total_cases = len(all_case_ids)
+        total_batches = (total_cases + batch_size - 1) // batch_size
+        
+        if total_cases == 0:
+            logger.warning("⚠️ No cases available for batch iteration")
+            return
+        
+        logger.info(f"📦 Starting batch iteration: {total_cases} cases in {total_batches} batches (size={batch_size})")
+        
+        # Cohort 전체 로드 (메타데이터는 작으므로 전체 로드)
+        cohort_df = self.get_cohort()
+        
+        # 메타데이터 기반 cohort 키
+        default_key = self.entity_id_column or "id"
+        cohort_key = self._join_config.get("cohort_key") or self._cohort_entity_id or default_key
+        
+        for batch_idx in range(total_batches):
+            start_idx = batch_idx * batch_size
+            end_idx = min(start_idx + batch_size, total_cases)
+            batch_case_ids = all_case_ids[start_idx:end_idx]
+            
+            # 배치 내 시그널 로드
+            signals_dict = self.get_signals_dict(
+                case_ids=batch_case_ids,
+                param_keys=param_keys,
+                apply_temporal=apply_temporal,
+                parallel=parallel,
+                max_workers=max_workers,
+            )
+            
+            # 배치 내 메타데이터 행 추출
+            metadata_rows = pd.DataFrame()
+            if not cohort_df.empty and cohort_key in cohort_df.columns:
+                batch_case_ids_str = [str(c) for c in batch_case_ids]
+                metadata_rows = cohort_df[
+                    cohort_df[cohort_key].astype(str).isin(batch_case_ids_str)
+                ].copy()
+            
+            # 실제 로드된 entity_ids (시그널이 있는 것만)
+            loaded_entity_ids = list(signals_dict.keys())
+            
+            yield {
+                "batch_index": batch_idx,
+                "total_batches": total_batches,
+                "batch_size": len(loaded_entity_ids),
+                "entity_ids": loaded_entity_ids,
+                "signals": signals_dict,
+                "metadata_rows": metadata_rows,
+            }
+    
+    def get_batch_metadata_row(
+        self,
+        metadata_rows: pd.DataFrame,
+        entity_id: str,
+    ) -> pd.Series:
+        """배치 메타데이터에서 특정 엔티티의 행 추출
+        
+        iter_cases_batch()와 함께 사용하는 헬퍼 메서드.
+        
+        Args:
+            metadata_rows: iter_cases_batch()가 반환한 metadata_rows
+            entity_id: 엔티티 ID
+        
+        Returns:
+            해당 엔티티의 메타데이터 Series (없으면 빈 Series)
+        
+        Example:
+            for batch in ctx.iter_cases_batch():
+                for entity_id, signals in batch["signals"].items():
+                    metadata_row = ctx.get_batch_metadata_row(
+                        batch["metadata_rows"], 
+                        entity_id
+                    )
+                    result = map_func(entity_id, signals, metadata_row)
+        """
+        if metadata_rows.empty:
+            return pd.Series()
+        
+        # 메타데이터 기반 cohort 키
+        default_key = self.entity_id_column or "id"
+        cohort_key = self._join_config.get("cohort_key") or self._cohort_entity_id or default_key
+        
+        if cohort_key not in metadata_rows.columns:
+            return pd.Series()
+        
+        row = metadata_rows[metadata_rows[cohort_key].astype(str) == str(entity_id)]
+        
+        if row.empty:
+            return pd.Series()
+        
+        return row.iloc[0]
     
     # ═══════════════════════════════════════════════════════════════════════════
     # Query Helpers
@@ -523,15 +788,16 @@ class DataContext:
             케이스 ID 문자열 리스트
         """
         if signals_only:
-            # Signal 파일이 있는 케이스만
-            return [f.get("caseid") for f in self._signal_files if f.get("caseid")]
+            # Signal 파일이 있는 케이스만 (entity_id 키 사용)
+            return [f.get("entity_id") for f in self._signal_files if f.get("entity_id")]
         else:
             # Cohort 전체 케이스
             cohort = self.get_cohort()
             if cohort.empty:
                 return []
             
-            entity_col = self._cohort_entity_id or "caseid"
+            # 메타데이터 기반 entity 컬럼
+            entity_col = self._cohort_entity_id or self.entity_id_column or "id"
             if entity_col in cohort.columns:
                 return cohort[entity_col].astype(str).unique().tolist()
             return []
@@ -601,6 +867,8 @@ class DataContext:
         """
         LLM 분석을 위한 전체 컨텍스트 반환
         
+        AnalysisContextBuilder에 위임합니다.
+        
         Returns:
             {
                 "description": str,
@@ -609,40 +877,10 @@ class DataContext:
                 "original_query": str
             }
         """
-        cohort = self.get_cohort()
-        case_ids = self.get_case_ids()
+        if self._analysis_builder is None:
+            self._analysis_builder = AnalysisContextBuilder(self)
         
-        # Cohort 정보
-        cohort_info = {
-            "total_cases": len(case_ids),
-            "filters_applied": self._cohort_filters,
-            "entity_identifier": self._cohort_entity_id,
-            "columns": self._get_cohort_column_info(cohort)
-        }
-        
-        # Signal 정보
-        signal_info = {
-            "parameters": self._param_info,
-            "param_keys": self._param_keys,
-            "temporal_setting": {
-                "type": self._temporal_config.get("type", "full_record"),
-                "margin_seconds": self._temporal_config.get("margin_seconds", 0),
-                "start_column": self._temporal_config.get("start_column"),
-                "end_column": self._temporal_config.get("end_column"),
-                "description": self._get_temporal_description()
-            },
-            "available_files": len(self._signal_files)
-        }
-        
-        # Description 생성
-        description = self._generate_description(cohort_info, signal_info)
-        
-        return {
-            "description": description,
-            "cohort": cohort_info,
-            "signals": signal_info,
-            "original_query": self._plan.get("original_query", "") if self._plan else ""
-        }
+        return self._analysis_builder.build_analysis_context().to_dict()
     
     def generate_access_guide(
         self,
@@ -653,8 +891,7 @@ class DataContext:
         """
         현재 데이터 구조에 기반한 동적 접근 가이드 생성
         
-        LLM이 코드를 생성할 때 데이터 접근 방식을 이해할 수 있도록
-        실제 데이터 구조를 분석하여 가이드를 자동 생성합니다.
+        AnalysisContextBuilder에 위임합니다.
         
         Args:
             signals_dict: 케이스별 Signal DataFrame Dict
@@ -664,100 +901,14 @@ class DataContext:
         Returns:
             LLM 프롬프트에 삽입할 데이터 접근 가이드 문자열
         """
-        guide_parts = ["## Available Data\n"]
+        if self._analysis_builder is None:
+            self._analysis_builder = AnalysisContextBuilder(self)
         
-        # ─────────────────────────────────────────────────────────────
-        # Signals 가이드
-        # ─────────────────────────────────────────────────────────────
-        if signals_dict and len(signals_dict) > 0:
-            case_ids = list(signals_dict.keys())
-            sample_cid = case_ids[0]
-            sample_df = signals_dict[sample_cid]
-            columns = list(sample_df.columns)
-            
-            # 컬럼별 타입 분석
-            numeric_cols = [c for c in columns if c != 'Time' and sample_df[c].dtype in ['float64', 'int64', 'float32', 'int32']]
-            
-            guide_parts.append(f"""### signals: Dict[caseid → DataFrame]
-- **Type**: Case-level independent time series data
-- **Loaded cases**: {case_ids[:5]}{'...' if len(case_ids) > 5 else ''} (total: {len(case_ids)})
-- **Total cases in dataset**: {len(self.get_case_ids())}
-- **Each DataFrame**:
-  - Columns: {columns}
-  - Numeric columns for analysis: {numeric_cols}
-  - Sample shape: {sample_df.shape}
-""")
-            
-            if include_examples:
-                guide_parts.append("""
-**Access Patterns:**
-```python
-# Single case access
-signals['caseid']['ColumnName'].mean()
-
-# Iterate all cases (RECOMMENDED for statistics)
-case_stats = {cid: df['ColumnName'].mean() for cid, df in signals.items()}
-overall_mean = np.mean(list(case_stats.values()))  # Mean of case means
-
-# Conditional analysis (with cohort)
-target_cases = cohort[cohort['column'] == 'value']['caseid'].astype(str).tolist()
-filtered_signals = {cid: signals[cid] for cid in target_cases if cid in signals}
-
-# Per-case correlation
-case_corrs = {cid: df['Col1'].corr(df['Col2']) for cid, df in signals.items()}
-mean_corr = np.nanmean(list(case_corrs.values()))
-```
-
-⚠️ **WARNING**: Do NOT concat all cases into one DataFrame and compute statistics directly.
-   Each case has independent time axis. Use per-case computation then aggregate.
-""")
-        
-        # ─────────────────────────────────────────────────────────────
-        # Cohort 가이드
-        # ─────────────────────────────────────────────────────────────
-        if cohort_df is not None and not cohort_df.empty:
-            cohort_columns = list(cohort_df.columns)
-            
-            # 주요 컬럼 분류
-            id_cols = [c for c in cohort_columns if 'id' in c.lower() or 'case' in c.lower()]
-            numeric_cols = [c for c in cohort_columns if cohort_df[c].dtype in ['float64', 'int64', 'float32', 'int32']][:10]
-            categorical_cols = [c for c in cohort_columns if cohort_df[c].dtype == 'object'][:10]
-            
-            guide_parts.append(f"""
-### cohort: DataFrame
-- **Shape**: {cohort_df.shape}
-- **ID columns**: {id_cols}
-- **Sample numeric columns**: {numeric_cols}{'...' if len(numeric_cols) >= 10 else ''}
-- **Sample categorical columns**: {categorical_cols}{'...' if len(categorical_cols) >= 10 else ''}
-- **All columns**: {cohort_columns[:20]}{'...' if len(cohort_columns) > 20 else ''}
-""")
-            
-            if include_examples:
-                guide_parts.append("""
-**Access Patterns:**
-```python
-# Filter by condition
-filtered = cohort[cohort['sex'] == 'M']
-case_list = cohort[cohort['age'] > 60]['caseid'].astype(str).tolist()
-
-# Get metadata for specific case
-case_info = cohort[cohort['caseid'] == int(caseid)].iloc[0]
-```
-""")
-        
-        # ─────────────────────────────────────────────────────────────
-        # 일반 가이드라인
-        # ─────────────────────────────────────────────────────────────
-        guide_parts.append("""
-## Analysis Guidelines
-
-1. **Statistics across cases**: Always compute per-case first, then aggregate
-2. **Join signals with cohort**: Use caseid to link cohort metadata with signal data
-3. **Handle missing data**: Use `dropna()` or check for NaN before calculations
-4. **Result variable**: Assign final result to `result` variable
-""")
-        
-        return "\n".join(guide_parts)
+        return self._analysis_builder.generate_access_guide(
+            signals_dict=signals_dict,
+            cohort_df=cohort_df,
+            include_examples=include_examples
+        )
     
     def compute_statistics(
         self,
@@ -768,64 +919,24 @@ case_info = cohort[cohort['caseid'] == int(caseid)].iloc[0]
         """
         파라미터별 통계 계산
         
+        AnalysisContextBuilder에 위임합니다.
+        
         Args:
             param_keys: 계산할 파라미터 (None이면 전체)
             percentiles: 계산할 백분위수
             sample_size: 샘플링할 케이스 수 (None이면 전체)
         
         Returns:
-            {
-                "Solar8000/HR": {
-                    "count": int,
-                    "mean": float,
-                    "std": float,
-                    "min": float,
-                    "max": float,
-                    "percentiles": {"25%": ..., "50%": ..., "75%": ...}
-                }
-            }
+            파라미터별 통계 딕셔너리
         """
-        params = param_keys or self._param_keys
-        case_ids = self.get_case_ids()
+        if self._analysis_builder is None:
+            self._analysis_builder = AnalysisContextBuilder(self)
         
-        if sample_size and sample_size < len(case_ids):
-            import random
-            case_ids = random.sample(case_ids, sample_size)
-        
-        # 모든 케이스의 데이터 수집
-        all_data = {p: [] for p in params}
-        
-        for cid in case_ids:
-            signals = self._get_signal_for_case(cid, params, apply_temporal=True)
-            if signals.empty:
-                continue
-            
-            for p in params:
-                if p in signals.columns:
-                    values = signals[p].dropna().tolist()
-                    all_data[p].extend(values)
-        
-        # 통계 계산
-        stats = {}
-        for p in params:
-            values = all_data[p]
-            if not values:
-                stats[p] = {"count": 0, "error": "No data available"}
-                continue
-            
-            series = pd.Series(values)
-            pct_dict = {f"{int(q*100)}%": series.quantile(q) for q in percentiles}
-            
-            stats[p] = {
-                "count": len(values),
-                "mean": round(series.mean(), 4),
-                "std": round(series.std(), 4),
-                "min": round(series.min(), 4),
-                "max": round(series.max(), 4),
-                "percentiles": {k: round(v, 4) for k, v in pct_dict.items()}
-            }
-        
-        return stats
+        return self._analysis_builder.compute_statistics(
+            param_keys=param_keys,
+            percentiles=percentiles,
+            sample_size=sample_size
+        )
     
     def get_sample_data(
         self,
@@ -835,43 +946,22 @@ case_info = cohort[cohort['caseid'] == int(caseid)].iloc[0]
         """
         LLM에게 보여줄 샘플 데이터
         
+        AnalysisContextBuilder에 위임합니다.
+        
         Args:
             n_cases: 샘플링할 케이스 수
             n_rows_per_case: 케이스당 샘플 행 수
         
         Returns:
-            [
-                {
-                    "caseid": str,
-                    "cohort_sample": {...},
-                    "signal_sample": [...]
-                }
-            ]
+            케이스별 샘플 데이터 리스트
         """
-        case_ids = self.get_case_ids()[:n_cases]
-        cohort = self.get_cohort()
+        if self._analysis_builder is None:
+            self._analysis_builder = AnalysisContextBuilder(self)
         
-        samples = []
-        for cid in case_ids:
-            # Cohort 샘플
-            cohort_key = self._join_config.get("cohort_key", "caseid")
-            cohort_row = cohort[cohort[cohort_key].astype(str) == str(cid)]
-            cohort_sample = cohort_row.iloc[0].to_dict() if not cohort_row.empty else {}
-            
-            # Signal 샘플
-            signals = self._get_signal_for_case(str(cid), apply_temporal=True)
-            signal_sample = []
-            if not signals.empty:
-                sample_df = signals.head(n_rows_per_case)
-                signal_sample = sample_df.to_dict(orient="records")
-            
-            samples.append({
-                "caseid": str(cid),
-                "cohort_sample": cohort_sample,
-                "signal_sample": signal_sample
-            })
-        
-        return samples
+        return self._analysis_builder.get_sample_data(
+            n_cases=n_cases,
+            n_rows_per_case=n_rows_per_case
+        )
     
     def get_parameter_info(self, param_key: str) -> Optional[Dict[str, Any]]:
         """특정 파라미터의 상세 정보"""
@@ -1084,17 +1174,28 @@ case_info = cohort[cohort['caseid'] == int(caseid)].iloc[0]
             rows = cursor.fetchall()
             conn.commit()
             
+            # 메타데이터에서 entity_id 키 결정 (동적)
+            # DB의 filename_values에서 어떤 키로 엔티티 ID를 가져올지
+            entity_key = self._signal_entity_id_key or "caseid"  # plan에서 받은 키 사용
+            
             files = []
             for row in rows:
                 file_id, file_path, filename_values = row
-                caseid = None
+                entity_id = None
                 if filename_values and isinstance(filename_values, dict):
-                    caseid = filename_values.get("caseid")
+                    # entity_key로 먼저 시도, 없으면 일반적인 ID 패턴들 시도
+                    entity_id = filename_values.get(entity_key)
+                    if entity_id is None:
+                        # fallback: 다른 ID 패턴 시도
+                        for key in ["caseid", "case_id", "subject_id", "id"]:
+                            if key in filename_values:
+                                entity_id = filename_values[key]
+                                break
                 
                 files.append({
                     "file_id": str(file_id),
                     "file_path": file_path,
-                    "caseid": str(caseid) if caseid else None
+                    "entity_id": str(entity_id) if entity_id else None
                 })
             
             return files
@@ -1122,21 +1223,21 @@ case_info = cohort[cohort['caseid'] == int(caseid)].iloc[0]
     
     def _get_signal_for_case(
         self, 
-        caseid: str, 
+        entity_id: str, 
         param_keys: Optional[List[str]] = None,
         apply_temporal: bool = True
     ) -> pd.DataFrame:
-        """특정 케이스의 signal 데이터 로드"""
+        """특정 엔티티의 signal 데이터 로드"""
         params = param_keys or self._param_keys
         
         # 캐시 확인
-        if caseid in DataContext._signal_cache:
-            df = DataContext._signal_cache[caseid]
+        if entity_id in DataContext._signal_cache:
+            df = DataContext._signal_cache[entity_id]
         else:
             # 파일 찾기
             file_info = None
             for f in self._signal_files:
-                if f.get("caseid") == caseid:
+                if f.get("entity_id") == entity_id:
                     file_info = f
                     break
             
@@ -1149,21 +1250,26 @@ case_info = cohort[cohort['caseid'] == int(caseid)].iloc[0]
                     file_info["file_path"],
                     columns=params
                 )
-                DataContext._signal_cache[caseid] = df
+                DataContext._signal_cache[entity_id] = df
             except Exception as e:
-                print(f"[DataContext] Error loading signal for {caseid}: {e}")
+                print(f"[DataContext] Error loading signal for {entity_id}: {e}")
                 return pd.DataFrame()
         
         # 파라미터 필터링
         if params:
-            available_cols = ["Time"] + [p for p in params if p in df.columns]
-            df = df[available_cols] if available_cols else df
+            # Time 컬럼이 존재하는 경우에만 포함 (일부 데이터셋에는 없을 수 있음)
+            time_cols = ["Time"] if "Time" in df.columns else []
+            available_cols = time_cols + [p for p in params if p in df.columns]
+            if available_cols:
+                df = df[available_cols]
         
         # Temporal 필터 적용
         if apply_temporal and self._temporal_config.get("type", "full_record") != "full_record":
             cohort = self.get_cohort()
-            cohort_key = self._join_config.get("cohort_key", "caseid")
-            cohort_row = cohort[cohort[cohort_key].astype(str) == str(caseid)]
+            # 메타데이터 기반 cohort 키
+            default_key = self.entity_id_column or "id"
+            cohort_key = self._join_config.get("cohort_key") or self._cohort_entity_id or default_key
+            cohort_row = cohort[cohort[cohort_key].astype(str) == str(entity_id)] if cohort_key in cohort.columns else pd.DataFrame()
             
             if not cohort_row.empty:
                 df = self._apply_temporal_filter(df, cohort_row.iloc[0])
@@ -1250,14 +1356,58 @@ case_info = cohort[cohort['caseid'] == int(caseid)].iloc[0]
         start_sec = start_sec - margin
         end_sec = end_sec + margin
         
-        # 필터링
-        if "Time" in signals_df.columns:
+        # 시간 컬럼 동적 감지
+        time_column = self._find_time_column(signals_df)
+        
+        if time_column:
             return signals_df[
-                (signals_df["Time"] >= start_sec) & 
-                (signals_df["Time"] <= end_sec)
+                (signals_df[time_column] >= start_sec) & 
+                (signals_df[time_column] <= end_sec)
             ].copy()
         
         return signals_df
+    
+    def _find_time_column(self, df: pd.DataFrame) -> Optional[str]:
+        """
+        DataFrame에서 시간/timestamp 컬럼을 동적으로 감지
+        
+        감지 우선순위:
+        1. 'Time' (기존 호환성)
+        2. datetime64 dtype 컬럼
+        3. 시간 관련 이름 패턴 매칭
+        
+        Args:
+            df: 분석할 DataFrame
+            
+        Returns:
+            시간 컬럼명 (없으면 None)
+        """
+        # 시간 관련 컬럼명 패턴 (우선순위 순)
+        time_patterns = [
+            'Time', 'time',  # 기존 호환성 우선
+            'timestamp', 'Timestamp', 'TIMESTAMP',
+            'datetime', 'DateTime', 'DATETIME',
+            'date', 'Date', 'DATE',
+            'dt', 'DT',
+        ]
+        
+        # 1. 우선순위 패턴과 정확히 일치하는 컬럼
+        for pattern in time_patterns:
+            if pattern in df.columns:
+                return pattern
+        
+        # 2. datetime64 dtype 컬럼
+        for col in df.columns:
+            if pd.api.types.is_datetime64_any_dtype(df[col]):
+                return col
+        
+        # 3. 컬럼명에 시간 관련 키워드 포함 (소문자 비교)
+        for col in df.columns:
+            col_lower = col.lower()
+            if any(p in col_lower for p in ['time', 'timestamp', 'datetime']):
+                return col
+        
+        return None
     
     def _to_seconds(self, value: Any) -> Optional[float]:
         """값을 초 단위로 변환"""
@@ -1330,8 +1480,8 @@ case_info = cohort[cohort['caseid'] == int(caseid)].iloc[0]
         
         descriptions = {
             "full_record": "전체 기록 (시간 제한 없음)",
-            "surgery_window": f"수술 시간 범위 (마진: {margin}초)",
-            "anesthesia_window": f"마취 시간 범위 (마진: {margin}초)",
+            "procedure_window": f"시술/수술 시간 범위 (마진: {margin}초)",
+            "treatment_window": f"치료 시간 범위 (마진: {margin}초)",
             "custom_window": f"사용자 지정 시간 범위 (마진: {margin}초)"
         }
         

@@ -10,12 +10,14 @@ IndexingAgent와 ExtractionAgent가 공유하는 핵심 인프라 모듈입니�
 - models/: 공유 열거형 및 데이터 모델
 - config/: 데이터베이스, LLM 설정
 - llm/: LLM 클라이언트 (OpenAI, Anthropic)
+- utils/: 공통 유틸리티 (lazy_property 등)
 
 사용법:
     from shared.database import get_db_manager, FileRepository
     from shared.models import ColumnRole, ConceptCategory
     from shared.config import Neo4jConfig, LLMConfig
     from shared.llm import get_llm_client
+    from shared.utils import lazy_property, LazyMixin
 """
 
 __version__ = "0.1.0"
@@ -41,6 +43,11 @@ from .config import (
     LLMConfig,
 )
 
+from .utils import (
+    lazy_property,
+    LazyMixin,
+)
+
 __all__ = [
     '__version__',
     # Database connections
@@ -57,4 +64,7 @@ __all__ = [
     'PostgresConfig',
     'Neo4jConfig',
     'LLMConfig',
+    # Utils
+    'lazy_property',
+    'LazyMixin',
 ]

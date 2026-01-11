@@ -43,6 +43,10 @@ class ExtractionResult:
     has_ambiguity: bool = False
     ambiguities: Optional[List[Dict[str, Any]]] = None
     
+    # 검증 정보
+    validation: Optional[Dict[str, Any]] = None
+    confidence: float = 0.0
+    
     # 메타데이터
     original_query: str = ""
     execution_time_seconds: float = 0.0
@@ -62,6 +66,8 @@ class ExtractionResult:
             "temporal_context": self.temporal_context,
             "has_ambiguity": self.has_ambiguity,
             "ambiguities": self.ambiguities,
+            "validation": self.validation,
+            "confidence": self.confidence,
             "original_query": self.original_query,
             "execution_time_seconds": self.execution_time_seconds,
             "logs": self.logs,
@@ -102,7 +108,7 @@ class ExtractionFacade:
         """Lazy workflow initialization"""
         if self._workflow is None:
             from shared.langgraph import get_registry, build_sequential_graph
-            from ExtractionAgent.src.agents.state import VitalExtractionState
+            from ExtractionAgent.src.agents.state import ExtractionState
             
             # Registry 초기화 (다른 Agent와 충돌 방지)
             registry = get_registry()
@@ -119,9 +125,9 @@ class ExtractionFacade:
             
             try:
                 self._workflow = build_sequential_graph(
-                    state_class=VitalExtractionState,
+                    state_class=ExtractionState,
                     node_module="ExtractionAgent.src.agents.nodes",
-                    agent_name="VitalExtractionAgent",
+                    agent_name="ExtractionAgent",
                     verbose=self.verbose,
                 )
             finally:
@@ -142,7 +148,7 @@ class ExtractionFacade:
             {
                 "version": "1.0",
                 "generated_at": "...",
-                "agent": "VitalExtractionAgent",
+                "agent": "ExtractionAgent",
                 "original_query": "...",
                 "execution_plan": {
                     "cohort_source": {...},
@@ -218,6 +224,8 @@ class ExtractionFacade:
             execution_plan = final_state.get("execution_plan")
             has_ambiguity = final_state.get("has_ambiguity", False)
             error_message = final_state.get("error_message")
+            validation = final_state.get("validation", {})
+            confidence = validation.get("confidence", 0.0) if validation else 0.0
             
             # 성공 여부 판단
             success = execution_plan is not None and error_message is None
@@ -231,6 +239,8 @@ class ExtractionFacade:
                 temporal_context=final_state.get("temporal_context"),
                 has_ambiguity=has_ambiguity,
                 ambiguities=final_state.get("ambiguities"),
+                validation=validation,
+                confidence=confidence,
                 original_query=query,
                 execution_time_seconds=execution_time,
                 logs=final_state.get("logs", []),

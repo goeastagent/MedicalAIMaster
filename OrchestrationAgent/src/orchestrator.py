@@ -8,8 +8,10 @@
 """
 
 import time
+import gc
 import logging
-from typing import Dict, Any, Optional, Tuple
+from typing import Dict, Any, Optional, Tuple, List, Callable, Iterator
+from concurrent.futures import ThreadPoolExecutor, as_completed
 
 from .models import OrchestrationResult, DataSummary
 from .config import OrchestratorConfig, DEFAULT_CONFIG
@@ -47,6 +49,7 @@ class Orchestrator:
         self._data_context = None
         self._code_generator = None
         self._sandbox = None
+        self._code_execution_engine = None  # 통합 실행 엔진
         self._llm_client = None
     
     # =========================================================================
@@ -230,25 +233,33 @@ class Orchestrator:
         
         Args:
             query: 분석 질의
-            runtime_data: 이미 로드된 데이터 {"df": ..., "cohort": ...}
+            runtime_data: 이미 로드된 데이터
+                - 새 형식: {"signals": Dict[caseid, DataFrame], "cohort": DataFrame}
+                - 기존 형식: {"df": DataFrame, "cohort": DataFrame} (하위호환)
             max_retries: 재시도 횟수
         
         Returns:
             OrchestrationResult
         
-        Example:
+        Example (새 형식):
+            runtime_data = {
+                "signals": {"case1": df1, "case2": df2},
+                "cohort": cohort_df,
+            }
+            
+        Example (기존 형식 - 하위호환):
             runtime_data = {
                 "df": signals_df,
                 "cohort": cohort_df,
-                "case_ids": ["1", "2", "3"],
-                "param_keys": ["HR", "SpO2"]
             }
-            result = orchestrator.run_analysis_only("HR 평균 구해줘", runtime_data)
         """
         start_time = time.time()
         max_retries = max_retries if max_retries is not None else self.config.max_retries
         
         logger.info(f"🧮 Running analysis only for: '{query[:50]}{'...' if len(query) > 50 else ''}'")
+        
+        # 동적 접근 가이드 생성 (데이터 구조에 맞게)
+        runtime_data = self._prepare_runtime_data_with_guide(runtime_data)
         
         # 데이터 요약 생성
         data_summary = self._create_data_summary(runtime_data)
@@ -294,9 +305,10 @@ class Orchestrator:
         result = self._extraction_agent.invoke({"user_query": query})
         
         # 결과에서 plan 추출
+        validation = result.get("validation", {}) or {}
         return {
             "execution_plan": result.get("validated_plan") or result.get("execution_plan"),
-            "confidence": result.get("overall_confidence", 0.0),
+            "confidence": validation.get("confidence", 0.0),
             "ambiguities": result.get("ambiguities", []),
             "intent": result.get("intent")
         }
@@ -378,22 +390,30 @@ class Orchestrator:
         return runtime_data, data_summary
     
     def _create_data_summary(self, runtime_data: Dict[str, Any]) -> Dict[str, Any]:
-        """runtime_data에서 요약 생성"""
+        """runtime_data에서 요약 생성 (새 형식 + 기존 형식 지원)"""
         summary = {}
         
-        if "signals" in runtime_data:
+        # 새 형식: signals Dict
+        if "signals" in runtime_data and runtime_data["signals"]:
             signals_dict = runtime_data["signals"]
-            if signals_dict:
-                sample_cid = list(signals_dict.keys())[0]
-                sample_df = signals_dict[sample_cid]
-                summary["signals"] = {
-                    "case_count": len(signals_dict),
-                    "total_rows": sum(len(df) for df in signals_dict.values()),
-                    "sample_shape": sample_df.shape,
-                    "columns": list(sample_df.columns)
-                }
+            sample_cid = list(signals_dict.keys())[0]
+            sample_df = signals_dict[sample_cid]
+            summary["signals"] = {
+                "case_count": len(signals_dict),
+                "total_rows": sum(len(df) for df in signals_dict.values()),
+                "sample_shape": sample_df.shape,
+                "columns": list(sample_df.columns)
+            }
         
-        if "cohort" in runtime_data:
+        # 기존 형식: df (하위호환)
+        elif "df" in runtime_data and hasattr(runtime_data["df"], "shape"):
+            df = runtime_data["df"]
+            summary["signals"] = {
+                "shape": df.shape,
+                "columns": list(df.columns)
+            }
+        
+        if "cohort" in runtime_data and hasattr(runtime_data["cohort"], "shape"):
             cohort = runtime_data["cohort"]
             summary["cohort"] = {
                 "shape": cohort.shape,
@@ -405,6 +425,103 @@ class Orchestrator:
         summary["param_keys"] = runtime_data.get("param_keys", [])
         
         return summary
+    
+    def _prepare_runtime_data_with_guide(self, runtime_data: Dict[str, Any]) -> Dict[str, Any]:
+        """runtime_data에 동적 접근 가이드 추가 (기존 df 형태도 지원)"""
+        # 이미 가이드가 있으면 그대로 반환
+        if "_access_guide" in runtime_data:
+            return runtime_data
+        
+        # 메타데이터에서 동적으로 entity_id 컬럼 가져오기
+        entity_col = "id"  # 기본값
+        if self._data_context and self._data_context.entity_id_column:
+            entity_col = self._data_context.entity_id_column
+        elif "_plan_metadata" in runtime_data:
+            entity_col = runtime_data["_plan_metadata"].get("entity_id_column") or "id"
+        
+        guide_parts = ["## Available Data\n"]
+        
+        # 새 형식: signals Dict
+        if "signals" in runtime_data and runtime_data["signals"]:
+            signals_dict = runtime_data["signals"]
+            sample_cid = list(signals_dict.keys())[0]
+            sample_df = signals_dict[sample_cid]
+            columns = list(sample_df.columns)
+            # Time 컬럼 제외한 실제 데이터 컬럼
+            data_columns = [c for c in columns if c != "Time"]
+            first_col = data_columns[0] if data_columns else "col"
+            
+            guide_parts.append(f"""### signals: Dict[{entity_col} → DataFrame]
+- Type: Case-level independent time series data
+- Entity identifier: `{entity_col}`
+- Loaded cases: {list(signals_dict.keys())[:5]}{'...' if len(signals_dict) > 5 else ''} (total: {len(signals_dict)})
+- **EXACT DataFrame columns: {columns}**
+- Sample shape: {sample_df.shape}
+
+⚠️ **CRITICAL: Use EXACT column names from the list above!**
+Column names contain device prefixes like 'Solar8000/HR', NOT just 'HR'.
+
+**Access Patterns (using actual column name):**
+```python
+# Single case - USE EXACT COLUMN NAME
+signals['{sample_cid}']['{first_col}'].dropna().mean()
+
+# All cases (RECOMMENDED for statistics)
+case_stats = {{cid: df['{first_col}'].dropna().mean() for cid, df in signals.items()}}
+overall_mean = np.nanmean(list(case_stats.values()))
+```
+""")
+        
+        # 기존 형식: df (하위호환)
+        elif "df" in runtime_data and hasattr(runtime_data["df"], "columns"):
+            df = runtime_data["df"]
+            columns = list(df.columns)
+            
+            # df에서 가능한 entity 컬럼 찾기
+            possible_entity_cols = [c for c in columns if 'id' in c.lower() or 'case' in c.lower()]
+            detected_entity = possible_entity_cols[0] if possible_entity_cols else entity_col
+            
+            guide_parts.append(f"""### df: pandas DataFrame
+- Type: Signal data (all cases concatenated)
+- Shape: {df.shape}
+- Columns: {columns}
+
+**Access Patterns:**
+```python
+# Direct access
+df['ColumnName'].mean()
+
+# Group by entity (if available)
+df.groupby('{detected_entity}')['ColumnName'].mean()
+```
+""")
+        
+        # Cohort
+        if "cohort" in runtime_data and hasattr(runtime_data["cohort"], "columns"):
+            cohort = runtime_data["cohort"]
+            columns = list(cohort.columns)[:15]
+            
+            guide_parts.append(f"""
+### cohort: pandas DataFrame
+- Shape: {cohort.shape}
+- Entity identifier: `{entity_col}`
+- Columns: {columns}{'...' if len(cohort.columns) > 15 else ''}
+
+**Access:**
+```python
+cohort[cohort['column'] == 'value']
+case_list = cohort[cohort['filter'] == 'value']['{entity_col}'].astype(str).tolist()
+```
+""")
+        
+        guide_parts.append("""
+## Analysis Guidelines
+1. Assign final result to `result` variable
+2. Handle NaN with dropna() or fillna()
+""")
+        
+        runtime_data["_access_guide"] = "\n".join(guide_parts)
+        return runtime_data
     
     # =========================================================================
     # Step 3: Analysis (CodeGen)
@@ -418,14 +535,14 @@ class Orchestrator:
         max_retries: int = 2,
         timeout: int = 30
     ) -> Dict[str, Any]:
-        """CodeGenerator로 분석 코드 생성 및 실행
+        """CodeExecutionEngine으로 분석 코드 생성 및 실행
         
         Returns:
             {"success": bool, "result": Any, "code": str, "error": str, "retry_count": int}
         """
         # 컴포넌트 초기화
-        if self._code_generator is None:
-            self._init_code_gen_components(timeout)
+        if self._code_execution_engine is None:
+            self._init_code_gen_components(timeout, max_retries)
         
         # 동적 접근 가이드 추출 (LLM 프롬프트용)
         access_guide = runtime_data.pop("_access_guide", None)
@@ -433,55 +550,29 @@ class Orchestrator:
         # ExecutionContext 생성
         exec_context = self._build_execution_context(runtime_data, data_summary)
         
-        # CodeRequest 생성 (동적 가이드 포함)
-        request = self._build_code_request(query, exec_context, data_summary, access_guide)
+        # CodeRequest 생성 (동적 가이드 + 메타데이터 기반 힌트 포함)
+        request = self._build_code_request(
+            query, exec_context, data_summary, 
+            runtime_data=runtime_data, 
+            access_guide=access_guide
+        )
         
-        # 생성 + 실행 (with retry)
-        last_error = None
-        generated_code = None
+        # CodeExecutionEngine으로 생성 + 실행 (with retry)
+        result = self._code_execution_engine.execute(
+            request, 
+            runtime_data,
+            log_prefix="[Orchestrator] "
+        )
         
-        for attempt in range(max_retries + 1):
-            # 첫 시도 또는 재시도
-            if attempt == 0:
-                gen_result = self._code_generator.generate(request)
-            else:
-                gen_result = self._code_generator.generate_with_fix(
-                    request, 
-                    generated_code, 
-                    last_error
-                )
-            
-            generated_code = gen_result.code
-            
-            # 검증 실패
-            if not gen_result.is_valid:
-                last_error = f"Validation failed: {gen_result.validation_errors}"
-                continue
-            
-            # 실행
-            exec_result = self._sandbox.execute(gen_result.code, runtime_data)
-            
-            if exec_result.success:
-                return {
-                    "success": True,
-                    "result": exec_result.result,
-                    "code": gen_result.code,
-                    "retry_count": attempt
-                }
-            
-            last_error = exec_result.error
-        
-        # 모든 재시도 실패
-        return {
-            "success": False,
-            "error": last_error,
-            "code": generated_code,
-            "retry_count": max_retries + 1
-        }
+        return result.to_dict()
     
-    def _init_code_gen_components(self, timeout: int = 30):
-        """CodeGenerator와 Sandbox 초기화"""
-        from AnalysisAgent.src.code_gen import CodeGenerator, SandboxExecutor
+    def _init_code_gen_components(self, timeout: int = 30, max_retries: int = 2):
+        """CodeExecutionEngine 초기화"""
+        from AnalysisAgent.src.code_gen import (
+            CodeGenerator, 
+            SandboxExecutor, 
+            CodeExecutionEngine
+        )
         from shared.llm import get_llm_client
         
         if self._llm_client is None:
@@ -489,6 +580,11 @@ class Orchestrator:
         
         self._code_generator = CodeGenerator(llm_client=self._llm_client)
         self._sandbox = SandboxExecutor(timeout_seconds=timeout)
+        self._code_execution_engine = CodeExecutionEngine(
+            generator=self._code_generator,
+            sandbox=self._sandbox,
+            max_retries=max_retries
+        )
     
     def _build_execution_context(
         self, 
@@ -498,10 +594,17 @@ class Orchestrator:
         """CodeGen용 ExecutionContext 생성"""
         from AnalysisAgent.src.models import ExecutionContext
         
+        # 메타데이터에서 동적으로 entity_id 컬럼 가져오기
+        entity_col = "id"
+        if self._data_context and self._data_context.entity_id_column:
+            entity_col = self._data_context.entity_id_column
+        elif "_plan_metadata" in runtime_data:
+            entity_col = runtime_data["_plan_metadata"].get("entity_id_column") or "id"
+        
         # 사용 가능한 변수 설명
         available_variables = {}
         
-        # signals: Dict[caseid, DataFrame]
+        # signals: Dict[entity_id, DataFrame]
         if "signals" in runtime_data and runtime_data["signals"]:
             signals_dict = runtime_data["signals"]
             case_count = len(signals_dict)
@@ -510,7 +613,7 @@ class Orchestrator:
             cols = list(sample_df.columns)[:10]
             cols_str = str(cols) + ("..." if len(sample_df.columns) > 10 else "")
             available_variables["signals"] = (
-                f"Dict[caseid, DataFrame] - 케이스별 시계열 데이터, "
+                f"Dict[{entity_col}, DataFrame] - 케이스별 시계열 데이터, "
                 f"{case_count} cases, columns: {cols_str}"
             )
         
@@ -524,13 +627,13 @@ class Orchestrator:
             )
         
         case_ids = runtime_data.get("case_ids", [])
-        available_variables["case_ids"] = f"List[str] - {len(case_ids)}개 로드된 케이스 ID"
+        available_variables["case_ids"] = f"List[str] - {len(case_ids)} loaded entity IDs"
         
         total_cases = runtime_data.get("total_cases", len(case_ids))
-        available_variables["total_cases"] = f"int - 전체 케이스 수: {total_cases}"
+        available_variables["total_cases"] = f"int - total entities: {total_cases}"
         
         param_keys = runtime_data.get("param_keys", [])
-        available_variables["param_keys"] = f"List[str] - 파라미터 키: {param_keys}"
+        available_variables["param_keys"] = f"List[str] - parameter keys: {param_keys}"
         
         # 샘플 데이터 (LLM 참고용)
         sample_data = {}
@@ -539,7 +642,7 @@ class Orchestrator:
             sample_cid = list(signals_dict.keys())[0]
             sample_df = signals_dict[sample_cid].head(3)
             sample_data["signals_sample"] = {
-                "caseid": sample_cid,
+                "entity_id": sample_cid,
                 "data": sample_df.round(4).to_dict(orient="records")
             }
         
@@ -557,10 +660,18 @@ class Orchestrator:
         query: str,
         exec_context,
         data_summary: Dict[str, Any],
+        runtime_data: Optional[Dict[str, Any]] = None,
         access_guide: Optional[str] = None
     ):
         """CodeRequest 생성"""
         from AnalysisAgent.src.models import CodeRequest
+        
+        # 메타데이터에서 동적으로 entity_id 컬럼 가져오기
+        entity_col = "id"
+        if self._data_context and self._data_context.entity_id_column:
+            entity_col = self._data_context.entity_id_column
+        elif runtime_data and "_plan_metadata" in runtime_data:
+            entity_col = runtime_data["_plan_metadata"].get("entity_id_column") or "id"
         
         # 동적 접근 가이드 + 기존 힌트 결합
         hints_parts = []
@@ -571,7 +682,7 @@ class Orchestrator:
         
         # 2. 질의 기반 추가 힌트
         if self.config.generate_hints:
-            additional_hints = self._generate_hints(query, data_summary)
+            additional_hints = self._generate_hints(query, data_summary, runtime_data)
             if additional_hints:
                 hints_parts.append("\n## Additional Hints\n" + additional_hints)
         
@@ -586,16 +697,42 @@ class Orchestrator:
                 "Handle NaN with dropna() or fillna()",
                 "Must assign final result to `result` variable",
                 "For case-level statistics: compute per-case first, then aggregate",
-                "Use signals[caseid] to access individual case DataFrame"
+                f"Use signals[{entity_col}] to access individual case DataFrame"
             ]
         )
     
-    def _generate_hints(self, query: str, data_summary: Dict[str, Any]) -> Optional[str]:
-        """질의 기반 추가 힌트 생성 (동적 가이드 보완용)"""
+    def _generate_hints(
+        self, 
+        query: str, 
+        data_summary: Dict[str, Any],
+        runtime_data: Optional[Dict[str, Any]] = None
+    ) -> Optional[str]:
+        """
+        질의 기반 추가 힌트 생성 (동적 가이드 보완용)
+        
+        Args:
+            query: 사용자 질의
+            data_summary: 데이터 요약
+            runtime_data: 런타임 데이터 (메타데이터 포함)
+        """
         hints = []
         query_lower = query.lower()
         
-        # 키워드 기반 힌트 (signals Dict 기반)
+        # 메타데이터에서 동적으로 entity_id 컬럼 가져오기
+        entity_col = "id"  # 기본값
+        if runtime_data:
+            # DataContext의 메타데이터 활용
+            if "_plan_metadata" in runtime_data:
+                meta = runtime_data["_plan_metadata"]
+                entity_col = meta.get("entity_id_column") or "id"
+            elif self._data_context:
+                entity_col = self._data_context.entity_id_column or "id"
+        
+        # param_keys 추출 (실제 컬럼명)
+        param_keys = data_summary.get("param_keys", [])
+        first_param = param_keys[0] if param_keys else "col"
+        
+        # 키워드 기반 힌트 (signals Dict 기반 - 실제 컬럼명 사용)
         if "평균" in query_lower or "mean" in query_lower:
             hints.append("Mean calculation (per-case recommended):")
             hints.append("  case_means = {cid: df['col'].mean() for cid, df in signals.items()}")
@@ -603,8 +740,9 @@ class Orchestrator:
         
         if "비교" in query_lower or "그룹" in query_lower or "성별" in query_lower:
             hints.append("Group comparison: use cohort to filter cases by group")
-            hints.append("  male_cases = cohort[cohort['sex'] == 'M']['caseid'].astype(str).tolist()")
-            hints.append("  male_signals = {cid: signals[cid] for cid in male_cases if cid in signals}")
+            # 동적 entity_col 사용 (하드코딩 제거)
+            hints.append(f"  target_cases = cohort[cohort['column'] == 'value']['{entity_col}'].astype(str).tolist()")
+            hints.append("  filtered_signals = {cid: signals[cid] for cid in target_cases if cid in signals}")
         
         if "상관" in query_lower or "correlation" in query_lower:
             hints.append("Correlation (per-case, then aggregate):")
@@ -648,4 +786,804 @@ class Orchestrator:
         self._code_generator = None
         self._sandbox = None
         self._llm_client = None
+    
+    # =========================================================================
+    # Map-Reduce Execution Mode
+    # =========================================================================
+    
+    def run_mapreduce(
+        self,
+        query: str,
+        batch_size: Optional[int] = None,
+        max_workers: Optional[int] = None,
+        max_retries: Optional[int] = None,
+        timeout_seconds: Optional[int] = None,
+        progress_callback: Optional[Callable[[int, int, int], None]] = None,
+    ) -> OrchestrationResult:
+        """
+        Map-Reduce 모드로 대용량 데이터 처리
+        
+        메모리 효율적인 배치 처리로 대량의 케이스를 분석합니다.
+        LLM이 map_func와 reduce_func를 생성하고,
+        배치 단위로 map_func를 실행한 후 최종 reduce_func로 집계합니다.
+        
+        Args:
+            query: 자연어 질의
+            batch_size: 배치당 케이스 수 (None이면 config.batch_size)
+            max_workers: 병렬 워커 수 (None이면 config.mapreduce_max_workers)
+            max_retries: 코드 생성 재시도 횟수
+            timeout_seconds: 실행 타임아웃
+            progress_callback: 진행 콜백 fn(batch_idx, total_batches, processed_count)
+        
+        Returns:
+            OrchestrationResult
+        
+        Example:
+            # 대용량 데이터 처리
+            config = OrchestratorConfig(
+                execution_mode="mapreduce",
+                max_signal_cases=0,  # 무제한
+                batch_size=100,
+            )
+            orchestrator = Orchestrator(config=config)
+            
+            def on_progress(batch_idx, total, processed):
+                print(f"Batch {batch_idx+1}/{total}: {processed} cases processed")
+            
+            result = orchestrator.run_mapreduce(
+                "모든 환자의 SBP 평균을 구해줘",
+                progress_callback=on_progress
+            )
+        """
+        start_time = time.time()
+        
+        batch_size = batch_size or self.config.batch_size
+        max_workers = max_workers or self.config.mapreduce_max_workers
+        max_retries = max_retries if max_retries is not None else self.config.max_retries
+        timeout = timeout_seconds if timeout_seconds is not None else self.config.timeout_seconds
+        
+        logger.info(f"🚀 Starting Map-Reduce pipeline for query: '{query[:50]}...'")
+        logger.info(f"   Settings: batch_size={batch_size}, max_workers={max_workers}")
+        
+        try:
+            # Step 1: Extraction - 실행 계획 생성
+            logger.info("📝 Step 1/4: Running ExtractionAgent...")
+            extraction_result = self._run_extraction(query)
+            
+            if not extraction_result.get("execution_plan"):
+                logger.error("❌ Extraction failed: No execution plan generated")
+                return OrchestrationResult(
+                    status="error",
+                    error_message="Extraction failed: No execution plan generated",
+                    error_stage="extraction",
+                    extraction_plan=extraction_result,
+                    execution_time_ms=(time.time() - start_time) * 1000
+                )
+            
+            execution_plan = extraction_result["execution_plan"]
+            extraction_confidence = extraction_result.get("confidence", 0.0)
+            logger.info(f"✅ Extraction complete (confidence: {extraction_confidence:.2f})")
+            
+            # Step 2: DataContext 초기화 및 메타데이터 로드
+            logger.info("📦 Step 2/4: Initializing DataContext...")
+            from shared.data.context import DataContext
+            
+            ctx = DataContext()
+            ctx.load_from_plan(execution_plan, preload_cohort=True)
+            self._data_context = ctx
+            
+            # 케이스 수 확인
+            total_cases = len(ctx.get_available_case_ids())
+            cohort = ctx.get_cohort()
+            param_keys = ctx.get_available_parameters()
+            
+            logger.info(f"✅ DataContext ready: {total_cases} cases, params: {param_keys[:5]}...")
+            
+            if total_cases == 0:
+                logger.error("❌ No cases available")
+                return OrchestrationResult(
+                    status="error",
+                    error_message="No cases available for processing",
+                    error_stage="data_load",
+                    extraction_plan=execution_plan,
+                    execution_time_ms=(time.time() - start_time) * 1000
+                )
+            
+            # Step 3: Map-Reduce 코드 생성
+            logger.info("🧬 Step 3/4: Generating Map-Reduce code...")
+            mapreduce_result = self._generate_mapreduce_code(
+                query=query,
+                ctx=ctx,
+                cohort=cohort,
+                param_keys=param_keys,
+                total_cases=total_cases,
+                max_retries=max_retries,
+            )
+            
+            if not mapreduce_result["success"]:
+                logger.error(f"❌ Map-Reduce code generation failed: {mapreduce_result.get('error')}")
+                return OrchestrationResult(
+                    status="error",
+                    error_message=f"Map-Reduce code generation failed: {mapreduce_result.get('error')}",
+                    error_stage="code_generation",
+                    extraction_plan=execution_plan,
+                    generated_code=mapreduce_result.get("full_code"),
+                    execution_time_ms=(time.time() - start_time) * 1000
+                )
+            
+            map_code = mapreduce_result["map_code"]
+            reduce_code = mapreduce_result["reduce_code"]
+            full_code = mapreduce_result["full_code"]
+            
+            logger.info("✅ Map-Reduce code generated")
+            
+            # Step 4: Map-Reduce 실행
+            logger.info("⚡ Step 4/4: Executing Map-Reduce...")
+            execution_result = self._execute_mapreduce(
+                ctx=ctx,
+                cohort=cohort,
+                map_code=map_code,
+                reduce_code=reduce_code,
+                param_keys=param_keys,
+                batch_size=batch_size,
+                max_workers=max_workers,
+                timeout=timeout,
+                progress_callback=progress_callback,
+            )
+            
+            execution_time = (time.time() - start_time) * 1000
+            
+            if execution_result["success"]:
+                logger.info(f"✅ Map-Reduce completed successfully in {execution_time:.0f}ms")
+                return OrchestrationResult(
+                    status="success",
+                    result=execution_result["result"],
+                    generated_code=full_code,
+                    extraction_plan=execution_plan,
+                    extraction_confidence=extraction_confidence,
+                    data_summary=DataSummary(
+                        signals_count=total_cases,
+                        total_rows=execution_result.get("total_rows", 0),
+                        cohort_shape=cohort.shape if cohort is not None else None,
+                        param_keys=param_keys,
+                    ).model_dump(),
+                    execution_time_ms=execution_time,
+                    metadata={
+                        "mode": "mapreduce",
+                        "batch_size": batch_size,
+                        "total_batches": execution_result.get("total_batches", 0),
+                        "map_success_count": execution_result.get("map_success_count", 0),
+                        "map_error_count": execution_result.get("map_error_count", 0),
+                    }
+                )
+            else:
+                logger.error(f"❌ Map-Reduce execution failed: {execution_result.get('error')}")
+                return OrchestrationResult(
+                    status="error",
+                    error_message=f"Map-Reduce execution failed: {execution_result.get('error')}",
+                    error_stage="execution",
+                    generated_code=full_code,
+                    extraction_plan=execution_plan,
+                    execution_time_ms=execution_time,
+                    metadata={
+                        "mode": "mapreduce",
+                        "map_errors": execution_result.get("map_errors", []),
+                    }
+                )
+                
+        except Exception as e:
+            logger.exception(f"❌ Map-Reduce pipeline error: {e}")
+            return OrchestrationResult(
+                status="error",
+                error_message=str(e),
+                error_stage="unknown",
+                execution_time_ms=(time.time() - start_time) * 1000
+            )
+    
+    def _generate_mapreduce_code(
+        self,
+        query: str,
+        ctx: Any,
+        cohort: Any,
+        param_keys: List[str],
+        total_cases: int,
+        max_retries: int = 2,
+    ) -> Dict[str, Any]:
+        """
+        Map-Reduce 코드 생성
+        
+        LLM을 호출하여 map_func와 reduce_func 코드를 생성합니다.
+        
+        Returns:
+            {
+                "success": bool,
+                "map_code": str,
+                "reduce_code": str,
+                "full_code": str,
+                "error": Optional[str]
+            }
+        """
+        from AnalysisAgent.src.models.code_gen import MapReduceRequest
+        from AnalysisAgent.src.code_gen.prompts import build_mapreduce_prompt
+        
+        # 샘플 데이터 준비 (첫 번째 케이스)
+        entity_data_sample = None
+        entity_data_dtypes = {}
+        entity_data_columns = []
+        
+        sample_batch = None
+        for batch in ctx.iter_cases_batch(batch_size=1, param_keys=param_keys):
+            sample_batch = batch
+            break
+        
+        # entity_id 컬럼 결정
+        entity_id_column = ctx.entity_id_column or "id"
+        
+        # 샘플 DataFrame 추출
+        sample_df = None
+        if sample_batch and sample_batch["signals"]:
+            sample_entity_id = sample_batch["entity_ids"][0]
+            sample_df = sample_batch["signals"][sample_entity_id]
+        
+        # AnalysisContextBuilder를 사용하여 풍부한 데이터 컨텍스트 생성
+        from shared.data.analysis_context import AnalysisContextBuilder
+        context_builder = AnalysisContextBuilder(ctx)
+        rich_context = context_builder.build_mapreduce_context(
+            entity_sample=sample_df,
+            cohort=cohort,
+            total_cases=total_cases,
+        )
+        
+        # 컨텍스트에서 필요한 정보 추출
+        entity_data_columns = rich_context["entity_data_columns"]
+        entity_data_dtypes = rich_context["entity_data_dtypes"]
+        entity_data_sample = rich_context["entity_data_sample"]
+        metadata_columns = rich_context["metadata_columns"]
+        metadata_dtypes = rich_context["metadata_dtypes"]
+        metadata_sample = rich_context["metadata_sample"]
+        dataset_description = rich_context["dataset_description"]
+        
+        # MapReduceRequest 생성
+        request = MapReduceRequest(
+            task_description=query,
+            expected_output="The result format depends on the query",
+            hints=self._generate_mapreduce_hints(query, param_keys, entity_data_columns),
+            dataset_description=dataset_description,
+            entity_id_column=entity_id_column,
+            total_entities=total_cases,
+            entity_data_columns=entity_data_columns,
+            entity_data_dtypes=entity_data_dtypes,
+            entity_data_sample=entity_data_sample,
+            metadata_columns=metadata_columns,
+            metadata_dtypes=metadata_dtypes,
+            metadata_sample=metadata_sample,
+        )
+        
+        # 프롬프트 생성
+        system_prompt, user_prompt = build_mapreduce_prompt(request)
+        
+        # 시스템 프롬프트와 유저 프롬프트 결합
+        full_prompt = f"""[SYSTEM INSTRUCTIONS]
+{system_prompt}
+
+[USER REQUEST]
+{user_prompt}"""
+        
+        # LLM 호출
+        llm_client = self._get_llm_client()
+        
+        for attempt in range(max_retries + 1):
+            try:
+                logger.debug(f"Map-Reduce code generation attempt {attempt + 1}/{max_retries + 1}")
+                
+                response = llm_client.ask_text(full_prompt)
+                
+                # 응답 파싱
+                parsed = self._parse_mapreduce_response(response)
+                
+                if parsed["success"]:
+                    # 코드 검증 (컬럼 검증 포함)
+                    validation_result = self._validate_mapreduce_code(
+                        parsed["map_code"],
+                        parsed["reduce_code"],
+                        entity_data_columns=entity_data_columns,
+                    )
+                    
+                    if validation_result["valid"]:
+                        return {
+                            "success": True,
+                            "map_code": parsed["map_code"],
+                            "reduce_code": parsed["reduce_code"],
+                            "full_code": parsed["full_code"],
+                        }
+                    else:
+                        # 검증 실패 시 수정 요청
+                        logger.warning(f"Map-Reduce code validation failed: {validation_result['errors']}")
+                        if attempt < max_retries:
+                            # 에러 수정 프롬프트로 재시도
+                            from AnalysisAgent.src.code_gen.prompts import build_mapreduce_error_fix_prompt
+                            error_str = "\n".join(validation_result["errors"])
+                            fix_prompt = build_mapreduce_error_fix_prompt(
+                                previous_code=parsed["full_code"],
+                                error_message=error_str,
+                                request=request,
+                                error_phase="validation",
+                            )
+                            full_prompt = f"{system_prompt}\n\n{fix_prompt}"
+                            continue
+                else:
+                    logger.warning(f"Map-Reduce response parsing failed")
+                    
+            except Exception as e:
+                logger.warning(f"Map-Reduce generation attempt {attempt + 1} failed: {e}")
+                if attempt == max_retries:
+                    return {"success": False, "error": str(e)}
+        
+        return {"success": False, "error": "Max retries exceeded"}
+    
+    def _parse_mapreduce_response(self, response: str) -> Dict[str, Any]:
+        """
+        LLM 응답에서 map_func와 reduce_func 코드 추출
+        
+        Expected format:
+        ```python
+        # MAP FUNCTION
+        def map_func(entity_id, entity_data, metadata_row):
+            ...
+            return result
+        
+        # REDUCE FUNCTION
+        def reduce_func(intermediate_results, full_metadata):
+            ...
+            return final_result
+        ```
+        """
+        import re
+        
+        # 코드 블록 추출
+        code_blocks = re.findall(r'```(?:python)?\s*([\s\S]*?)```', response)
+        
+        if not code_blocks:
+            return {"success": False, "error": "No code blocks found"}
+        
+        full_code = "\n\n".join(code_blocks)
+        
+        # map_func 추출
+        map_match = re.search(
+            r'def\s+map_func\s*\([^)]*\)\s*(?:->.*?)?:\s*([\s\S]*?)(?=\ndef\s+|\Z)',
+            full_code
+        )
+        
+        # reduce_func 추출
+        reduce_match = re.search(
+            r'def\s+reduce_func\s*\([^)]*\)\s*(?:->.*?)?:\s*([\s\S]*?)(?=\ndef\s+|\Z)',
+            full_code
+        )
+        
+        if not map_match or not reduce_match:
+            return {"success": False, "error": "Could not find map_func or reduce_func"}
+        
+        # 함수 전체 추출
+        map_func_match = re.search(
+            r'(def\s+map_func\s*\([^)]*\)\s*(?:->.*?)?:[\s\S]*?)(?=\ndef\s+|\Z)',
+            full_code
+        )
+        reduce_func_match = re.search(
+            r'(def\s+reduce_func\s*\([^)]*\)\s*(?:->.*?)?:[\s\S]*?)(?=\ndef\s+|\Z)',
+            full_code
+        )
+        
+        map_code = map_func_match.group(1).strip() if map_func_match else ""
+        reduce_code = reduce_func_match.group(1).strip() if reduce_func_match else ""
+        
+        return {
+            "success": True,
+            "map_code": map_code,
+            "reduce_code": reduce_code,
+            "full_code": full_code,
+        }
+    
+    def _validate_mapreduce_code(
+        self,
+        map_code: str,
+        reduce_code: str,
+        entity_data_columns: Optional[List[str]] = None,
+    ) -> Dict[str, Any]:
+        """
+        Map-Reduce 코드 검증
+        
+        Args:
+            map_code: map_func 코드
+            reduce_code: reduce_func 코드
+            entity_data_columns: 실제 entity_data DataFrame 컬럼 목록 (검증용)
+        
+        Returns:
+            {"valid": bool, "errors": List[str], "warnings": List[str]}
+        """
+        import re
+        
+        errors = []
+        warnings = []
+        
+        # 기본 구문 검사
+        try:
+            compile(map_code, "<map_func>", "exec")
+        except SyntaxError as e:
+            errors.append(f"map_func syntax error: {e}")
+        
+        try:
+            compile(reduce_code, "<reduce_func>", "exec")
+        except SyntaxError as e:
+            errors.append(f"reduce_func syntax error: {e}")
+        
+        # 필수 요소 검사
+        if "def map_func" not in map_code:
+            errors.append("map_func definition not found")
+        
+        if "def reduce_func" not in reduce_code:
+            errors.append("reduce_func definition not found")
+        
+        if "return" not in map_code:
+            errors.append("map_func must have a return statement")
+        
+        if "return" not in reduce_code:
+            errors.append("reduce_func must have a return statement")
+        
+        # 컬럼 참조 검증 (잘못된 컬럼 접근 패턴 감지)
+        full_code = map_code + "\n" + reduce_code
+        
+        # 흔히 잘못 가정되는 컬럼명 패턴 (존재하지 않을 가능성이 높은 컬럼)
+        common_assumed_columns = ['Time', 'Timestamp', 'DateTime', 'time', 'timestamp', 'datetime', 'Value', 'value']
+        
+        for col in common_assumed_columns:
+            # 다양한 컬럼 접근 패턴 감지
+            patterns = [
+                rf"entity_data\[[\'\"]({col})[\'\"]\]",      # entity_data['Time']
+                rf"entity_data\[\[.*[\'\"]({col})[\'\"]",    # entity_data[['Time']] 또는 entity_data[['A', 'Time']]
+                rf"entity_data\.{col}\b",                    # entity_data.Time
+                rf"\[[\'\"]({col})[\'\"]\]",                 # ['Time'] 일반 슬라이싱
+                rf"\.loc\[.*[\'\"]({col})[\'\"]",            # .loc[..., 'Time']
+                rf"\.iloc\[.*[\'\"]({col})[\'\"]",           # .iloc with Time (shouldn't happen but check)
+            ]
+            for pattern in patterns:
+                if re.search(pattern, full_code, re.IGNORECASE):
+                    # entity_data_columns가 제공되었고 해당 컬럼이 없으면 ERROR
+                    if entity_data_columns and col not in entity_data_columns and col.lower() not in [c.lower() for c in entity_data_columns]:
+                        errors.append(
+                            f"🚨 Code references '{col}' column which does NOT exist! "
+                            f"Available columns: {entity_data_columns}. "
+                            f"Use entity_data.index for row position or iloc[] for slicing."
+                        )
+                        break
+        
+        # set_index('Time') 패턴 감지
+        if re.search(r"set_index\s*\(\s*['\"]Time['\"]", full_code, re.IGNORECASE):
+            if entity_data_columns and 'Time' not in entity_data_columns:
+                errors.append(
+                    "🚨 Code uses set_index('Time') but 'Time' column does NOT exist! "
+                    f"Available columns: {entity_data_columns}. "
+                    "Use entity_data.index instead."
+                )
+        
+        # resample() 패턴 감지 (Time index가 필요)
+        if re.search(r"\.resample\s*\(", full_code):
+            if entity_data_columns and 'Time' not in entity_data_columns:
+                errors.append(
+                    "🚨 Code uses .resample() which requires DatetimeIndex. "
+                    f"Available columns: {entity_data_columns}. "
+                    "Use iloc[] slicing for segmentation instead: entity_data.iloc[start:end]"
+                )
+        
+        # 경고 로깅
+        for w in warnings:
+            logger.warning(f"⚠️ Code validation warning: {w}")
+        
+        # 에러 로깅
+        for e in errors:
+            logger.error(f"❌ Code validation error: {e}")
+        
+        return {
+            "valid": len(errors) == 0,
+            "errors": errors,
+            "warnings": warnings,
+        }
+    
+    def _execute_mapreduce(
+        self,
+        ctx: Any,
+        cohort: Any,
+        map_code: str,
+        reduce_code: str,
+        param_keys: List[str],
+        batch_size: int,
+        max_workers: int,
+        timeout: int,
+        progress_callback: Optional[Callable[[int, int, int], None]] = None,
+    ) -> Dict[str, Any]:
+        """
+        Map-Reduce 실행
+        
+        배치 단위로 데이터를 로드하고, map_func를 실행한 후,
+        최종 reduce_func로 집계합니다.
+        """
+        import pandas as pd
+        import numpy as np
+        from typing import Any, List, Dict, Optional, Tuple
+        
+        # 함수 컴파일
+        try:
+            # 안전한 실행 환경 구성
+            safe_globals = {
+                "pd": pd,
+                "np": np,
+                "pandas": pd,
+                "numpy": np,
+                "math": __import__("math"),
+                "datetime": __import__("datetime"),
+                "statistics": __import__("statistics"),
+                "collections": __import__("collections"),
+                # typing 모듈 추가 (LLM이 타입 힌트 사용 시 필요)
+                "Any": Any,
+                "List": List,
+                "Dict": Dict,
+                "Optional": Optional,
+                "Tuple": Tuple,
+            }
+            
+            # scipy 추가 (있으면)
+            try:
+                import scipy.stats as stats
+                safe_globals["stats"] = stats
+                safe_globals["scipy"] = __import__("scipy")
+            except ImportError:
+                pass
+            
+            # map_func 컴파일
+            map_globals = safe_globals.copy()
+            exec(map_code, map_globals)
+            map_func = map_globals.get("map_func")
+            
+            if not callable(map_func):
+                return {"success": False, "error": "map_func is not callable"}
+            
+            # reduce_func 컴파일
+            reduce_globals = safe_globals.copy()
+            exec(reduce_code, reduce_globals)
+            reduce_func = reduce_globals.get("reduce_func")
+            
+            if not callable(reduce_func):
+                return {"success": False, "error": "reduce_func is not callable"}
+                
+        except Exception as e:
+            return {"success": False, "error": f"Code compilation error: {e}"}
+        
+        # Map Phase
+        intermediate_results = []
+        map_errors = []
+        total_rows = 0
+        processed_count = 0
+        total_batches = 0
+        map_success_count = 0
+        map_error_count = 0
+        skipped_empty_count = 0
+        skipped_no_signal_count = 0
+        first_error_logged = False
+        
+        logger.info(f"🗺️ Starting Map Phase (batch_size={batch_size})...")
+        
+        try:
+            for batch in ctx.iter_cases_batch(
+                batch_size=batch_size,
+                param_keys=param_keys,
+                apply_temporal=True,
+                parallel=self.config.mapreduce_parallel,
+                max_workers=max_workers,
+            ):
+                batch_idx = batch["batch_index"]
+                total_batches = batch["total_batches"]
+                
+                logger.debug(f"  Processing batch {batch_idx + 1}/{total_batches} ({batch['batch_size']} cases)")
+                
+                # 배치 내 map_func 실행
+                for entity_id in batch["entity_ids"]:
+                    try:
+                        entity_data = batch["signals"].get(entity_id)
+                        
+                        # 신호 데이터가 없는 케이스 건너뛰기 (정상 동작)
+                        if entity_data is None:
+                            skipped_no_signal_count += 1
+                            continue
+                        
+                        if entity_data.empty:
+                            skipped_empty_count += 1
+                            continue
+                        
+                        # 요청한 컬럼이 있는지 확인
+                        available_cols = list(entity_data.columns)
+                        required_cols = [p for p in param_keys if p not in ['caseid', 'subjectid', 'id']]
+                        missing_cols = [c for c in required_cols if c not in available_cols]
+                        
+                        if missing_cols and len(available_cols) <= 1:  # Time만 있거나 없는 경우
+                            skipped_no_signal_count += 1
+                            continue
+                        
+                        total_rows += len(entity_data)
+                        
+                        # 메타데이터 행 추출
+                        metadata_row = ctx.get_batch_metadata_row(
+                            batch["metadata_rows"],
+                            entity_id
+                        )
+                        
+                        # map_func 호출
+                        result = map_func(entity_id, entity_data, metadata_row)
+                        
+                        if result is not None:
+                            intermediate_results.append(result)
+                            map_success_count += 1
+                        
+                    except Exception as e:
+                        map_error_count += 1
+                        error_str = str(e)
+                        
+                        # 첫 번째 에러에서 상세 정보 출력
+                        if not first_error_logged:
+                            logger.warning(f"  ⚠️ First map error for {entity_id}: {error_str}")
+                            if entity_data is not None:
+                                logger.warning(f"     entity_data columns: {list(entity_data.columns)}")
+                                logger.warning(f"     entity_data shape: {entity_data.shape}")
+                            first_error_logged = True
+                        
+                        map_errors.append({
+                            "entity_id": entity_id,
+                            "error": error_str,
+                        })
+                        
+                        # 동일 에러가 너무 많으면 조기 종료
+                        if map_error_count >= 100:
+                            logger.error(f"❌ Too many map errors ({map_error_count}), stopping early")
+                            break
+                
+                processed_count += batch["batch_size"]
+                
+                # 진행 콜백 호출
+                if progress_callback:
+                    progress_callback(batch_idx, total_batches, processed_count)
+                
+                # 에러가 너무 많으면 중단
+                if map_error_count >= 100:
+                    break
+                
+                # 배치 처리 후 메모리 정리
+                del batch
+                gc.collect()
+            
+            logger.info(f"✅ Map Phase complete:")
+            logger.info(f"   Successes: {map_success_count}")
+            logger.info(f"   Errors: {map_error_count}")
+            logger.info(f"   Skipped (no signal): {skipped_no_signal_count}")
+            logger.info(f"   Skipped (empty): {skipped_empty_count}")
+            
+        except Exception as e:
+            return {"success": False, "error": f"Map Phase error: {e}", "map_errors": map_errors}
+        
+        # Reduce Phase
+        logger.info(f"📊 Starting Reduce Phase ({len(intermediate_results)} intermediate results)...")
+        
+        try:
+            final_result = reduce_func(intermediate_results, cohort)
+            
+            logger.info("✅ Reduce Phase complete")
+            
+            return {
+                "success": True,
+                "result": final_result,
+                "total_rows": total_rows,
+                "total_batches": total_batches,
+                "map_success_count": map_success_count,
+                "map_error_count": map_error_count,
+                "map_errors": map_errors[:10],  # 처음 10개만
+            }
+            
+        except Exception as e:
+            return {
+                "success": False,
+                "error": f"Reduce Phase error: {e}",
+                "map_errors": map_errors[:10],
+            }
+    
+    def _generate_mapreduce_hints(
+        self,
+        query: str,
+        param_keys: List[str],
+        entity_data_columns: Optional[List[str]] = None,
+    ) -> str:
+        """
+        Map-Reduce용 힌트 생성 (최소화)
+        
+        철학: 컨텍스트(스키마 + 샘플 데이터)가 충분하면 LLM이 스스로 추론.
+        힌트는 최소한만 제공하고, 에러 발생 시 수정 프롬프트에서 구체적 가이드 제공.
+        """
+        # 힌트 없음 - 데이터 컨텍스트에 의존
+        # LLM은 entity_data_sample, metadata_sample을 보고 스스로 추론
+        return ""
+    
+    def _get_llm_client(self):
+        """LLM 클라이언트 반환 (Lazy init)"""
+        if self._llm_client is None:
+            from shared.llm.client import get_llm_client
+            self._llm_client = get_llm_client()
+        return self._llm_client
+    
+    # =========================================================================
+    # Auto Mode Selection
+    # =========================================================================
+    
+    def run_auto(
+        self,
+        query: str,
+        max_retries: Optional[int] = None,
+        timeout_seconds: Optional[int] = None,
+        **kwargs,
+    ) -> OrchestrationResult:
+        """
+        자동 모드 선택 실행
+        
+        케이스 수에 따라 standard 또는 mapreduce 모드를 자동 선택합니다.
+        
+        Args:
+            query: 자연어 질의
+            max_retries: 코드 생성 재시도 횟수
+            timeout_seconds: 실행 타임아웃
+            **kwargs: 모드별 추가 인자 (batch_size, max_workers 등)
+        
+        Returns:
+            OrchestrationResult
+        
+        Example:
+            config = OrchestratorConfig(
+                execution_mode="auto",
+                mapreduce_threshold=100,
+            )
+            orchestrator = Orchestrator(config=config)
+            result = orchestrator.run_auto("모든 환자의 심박수 평균을 구해줘")
+        """
+        # 먼저 Extraction으로 케이스 수 파악
+        extraction_result = self._run_extraction(query)
+        
+        if not extraction_result.get("execution_plan"):
+            return OrchestrationResult(
+                status="error",
+                error_message="Extraction failed",
+                error_stage="extraction",
+            )
+        
+        execution_plan = extraction_result["execution_plan"]
+        
+        # DataContext로 케이스 수 확인
+        from shared.data.context import DataContext
+        ctx = DataContext()
+        ctx.load_from_plan(execution_plan, preload_cohort=True)
+        
+        total_cases = len(ctx.get_available_case_ids())
+        threshold = self.config.mapreduce_threshold
+        
+        logger.info(f"🔍 Auto mode: {total_cases} cases (threshold: {threshold})")
+        
+        # 모드 선택
+        if total_cases > threshold:
+            logger.info(f"📊 Selecting Map-Reduce mode (cases > threshold)")
+            return self.run_mapreduce(
+                query=query,
+                max_retries=max_retries,
+                timeout_seconds=timeout_seconds,
+                **kwargs,
+            )
+        else:
+            logger.info(f"⚡ Selecting Standard mode (cases <= threshold)")
+            return self.run(
+                query=query,
+                max_retries=max_retries,
+                timeout_seconds=timeout_seconds,
+            )
 

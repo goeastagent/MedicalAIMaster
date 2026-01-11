@@ -139,7 +139,7 @@ def test_extraction_to_datacontext():
         sample_plan = {
             "version": "1.0",
             "generated_at": "2024-01-01T00:00:00Z",
-            "agent": "VitalExtractionAgent",
+            "agent": "ExtractionAgent",
             "original_query": "위암 환자의 수술 중 심박수 데이터",
             "execution_plan": {
                 "cohort_source": {
@@ -172,9 +172,9 @@ def test_extraction_to_datacontext():
                         }
                     ],
                     "temporal_alignment": {
-                        "type": "surgery_window",
-                        "start_column": "op_start",
-                        "end_column": "op_end",
+                        "type": "procedure_window",
+                        "start_column": "procedure_start",
+                        "end_column": "procedure_end",
                         "margin_seconds": 300
                     }
                 },

@@ -82,14 +82,13 @@ class ExecutionContext(BaseModel):
     Example:
         context = ExecutionContext(
             available_variables={
-                "df": "pandas DataFrame - Signal 데이터, columns: [Time, HR, SpO2]",
-                "cohort": "pandas DataFrame - Cohort 데이터, columns: [caseid, age, sex]",
-                "case_ids": "List[str] - 분석 가능한 케이스 ID 목록",
+                "signals": "Dict[entity_id, DataFrame] - Case-level time series data",
+                "cohort": "pandas DataFrame - Cohort metadata",
+                "case_ids": "List[str] - Available entity IDs",
             },
             available_imports=["pandas as pd", "numpy as np"],
             sample_data={
-                "df_columns": ["Time", "HR", "SpO2"],
-                "df_shape": [10000, 5],
+                "signals_sample": {"entity_id": "1", "columns": ["Time", "HR", "SpO2"]},
             }
         )
     """
@@ -164,7 +163,7 @@ class DataSummary(BaseModel):
         summary = DataSummary(
             case_count=150,
             param_keys=["HR", "SpO2", "ABP"],
-            cohort_columns=["caseid", "age", "sex", "bmi"],
+            cohort_columns=["entity_id", "age", "gender"],
             signal_columns=["Time", "HR", "SpO2", "ABP"],
             signal_shape=(150000, 4),
         )

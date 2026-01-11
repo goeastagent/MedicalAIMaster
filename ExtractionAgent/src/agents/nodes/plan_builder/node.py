@@ -12,7 +12,7 @@ Responsibilities:
 from typing import Dict, Any, List
 from datetime import datetime
 from shared.langgraph import BaseNode, register_node
-from ExtractionAgent.src.config import VitalExtractionConfig
+from ExtractionAgent.src.config import ExtractionConfig
 
 
 @register_node
@@ -42,7 +42,7 @@ class PlanBuilderNode(BaseNode):
     
     def __init__(self):
         super().__init__()
-        self.config = VitalExtractionConfig().plan_builder
+        self.config = ExtractionConfig().plan_builder
     
     def execute(self, state: Dict[str, Any]) -> Dict[str, Any]:
         """
@@ -228,7 +228,7 @@ class PlanBuilderNode(BaseNode):
         return {
             "version": "1.0",
             "generated_at": datetime.utcnow().isoformat() + "Z",
-            "agent": "VitalExtractionAgent",
+            "agent": "ExtractionAgent",
             "original_query": user_query,
             "execution_plan": {
                 "cohort_source": cohort_source_plan,

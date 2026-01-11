@@ -1,6 +1,6 @@
 # src/agents/nodes/__init__.py
 """
-VitalExtractionAgent Nodes
+ExtractionAgent Nodes
 
 3-Node Pipeline:
     [100] QueryUnderstandingNode - 동적 컨텍스트 로딩 + 쿼리 분석

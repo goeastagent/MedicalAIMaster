@@ -18,6 +18,7 @@ from .router import ExecutionRouter
 if TYPE_CHECKING:
     from ..code_gen.generator import CodeGenerator
     from ..code_gen.sandbox import SandboxExecutor
+    from ..code_gen.engine import CodeExecutionEngine
 
 logger = logging.getLogger(__name__)
 
@@ -28,7 +29,7 @@ class StepExecutor:
     
     Supports two execution modes:
     1. Tool execution: Uses pre-defined tools
-    2. Code execution: Generates and executes code via CodeGen
+    2. Code execution: Generates and executes code via CodeExecutionEngine
     
     Usage:
         executor = StepExecutor()
@@ -45,6 +46,7 @@ class StepExecutor:
         tool_registry: Optional[ToolRegistry] = None,
         code_generator: Optional["CodeGenerator"] = None,
         sandbox_executor: Optional["SandboxExecutor"] = None,
+        code_execution_engine: Optional["CodeExecutionEngine"] = None,
         max_retries: int = 2,
         timeout_seconds: int = 30,
     ):
@@ -53,6 +55,7 @@ class StepExecutor:
             tool_registry: Registry for tools
             code_generator: CodeGenerator instance (lazy init if None)
             sandbox_executor: SandboxExecutor instance (lazy init if None)
+            code_execution_engine: CodeExecutionEngine instance (lazy init if None)
             max_retries: Max retries for code execution
             timeout_seconds: Timeout for code execution
         """
@@ -61,6 +64,7 @@ class StepExecutor:
         
         self._code_generator = code_generator
         self._sandbox_executor = sandbox_executor
+        self._code_execution_engine = code_execution_engine
         
         self.max_retries = max_retries
         self.timeout_seconds = timeout_seconds
@@ -86,6 +90,14 @@ class StepExecutor:
             self._sandbox_executor = SandboxExecutor(
                 timeout_seconds=self.timeout_seconds,
                 capture_stdout=True,
+            )
+        
+        if self._code_execution_engine is None:
+            from ..code_gen.engine import CodeExecutionEngine
+            self._code_execution_engine = CodeExecutionEngine(
+                generator=self._code_generator,
+                sandbox=self._sandbox_executor,
+                max_retries=self.max_retries,
             )
         
         self._codegen_initialized = True
@@ -215,17 +227,14 @@ class StepExecutor:
         step: PlanStep,
         step_input: StepInput,
     ) -> StepOutput:
-        """Execute step using code generation."""
+        """Execute step using CodeExecutionEngine."""
         logger.debug(f"    Using code generation")
         
         # Initialize CodeGen if needed
         self._init_codegen()
         
-        start_time = time.time()
-        
         # Build code request
         from ..models.code_gen import CodeRequest
-        from ..models.context import ExecutionContext
         
         # Build execution context from step input
         exec_context = self._build_execution_context(step_input)
@@ -242,57 +251,33 @@ class StepExecutor:
             hints=step.code_hint,
         )
         
-        # Generate and execute with retry
-        last_code = ""
-        last_error = ""
+        # Execute using CodeExecutionEngine
+        runtime_data = step_input.data.copy()
+        result = self._code_execution_engine.execute(
+            request,
+            runtime_data,
+            log_prefix=f"[{step.id}] "
+        )
         
-        for attempt in range(self.max_retries + 1):
-            # Generate code
-            if attempt == 0:
-                gen_result = self._code_generator.generate(request)
-            else:
-                gen_result = self._code_generator.generate_with_fix(
-                    request, last_code, last_error
-                )
-            
-            last_code = gen_result.code
-            
-            if not gen_result.is_valid:
-                last_error = f"Validation failed: {gen_result.validation_errors}"
-                logger.warning(f"    Attempt {attempt + 1}: {last_error}")
-                continue
-            
-            # Execute code
-            runtime_data = step_input.data.copy()
-            exec_result = self._sandbox_executor.execute(gen_result.code, runtime_data)
-            
-            if exec_result.success:
-                execution_time = (time.time() - start_time) * 1000
-                
-                return StepOutput.success(
-                    step_id=step.id,
-                    result=exec_result.result,
-                    result_type=step.expected_output_type,
-                    output_key=step.output_key or f"{step.id}_result",
-                    execution_time_ms=execution_time,
-                    execution_mode="code",
-                    generated_code=gen_result.code,
-                )
-            
-            last_error = exec_result.error or "Unknown error"
-            logger.warning(f"    Attempt {attempt + 1}: {last_error}")
-        
-        # All attempts failed
-        execution_time = (time.time() - start_time) * 1000
+        if result.success:
+            return StepOutput.success(
+                step_id=step.id,
+                result=result.result,
+                result_type=step.expected_output_type,
+                output_key=step.output_key or f"{step.id}_result",
+                execution_time_ms=result.execution_time_ms,
+                execution_mode="code",
+                generated_code=result.code,
+            )
         
         return StepOutput.error(
             step_id=step.id,
-            error=last_error,
+            error=result.error,
             error_type="execution",
             output_key=step.output_key or f"{step.id}_result",
-            execution_time_ms=execution_time,
+            execution_time_ms=result.execution_time_ms,
             execution_mode="code",
-            generated_code=last_code,
+            generated_code=result.code,
         )
     
     def _build_execution_context(self, step_input: StepInput) -> "ExecutionContext":

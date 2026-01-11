@@ -1,6 +1,6 @@
 # src/agents/__init__.py
 """
-VitalExtractionAgent - 3-Node Pipeline for Vital Data Extraction
+ExtractionAgent - 3-Node Pipeline for Data Extraction
 
 Pipeline:
     [100] QueryUnderstanding - 동적 컨텍스트 로딩 + 쿼리 분석
@@ -8,12 +8,16 @@ Pipeline:
     [300] PlanBuilder        - Execution Plan 생성
 """
 
-from .state import VitalExtractionState
+from .state import ExtractionState
 from .registry import NodeRegistry, register_node, get_registry
 from .graph import build_agent, build_custom_agent
 
+# Backward compatibility alias
+VitalExtractionState = ExtractionState
+
 __all__ = [
-    "VitalExtractionState",
+    "ExtractionState",
+    "VitalExtractionState",  # backward compatibility
     "NodeRegistry",
     "register_node",
     "get_registry",

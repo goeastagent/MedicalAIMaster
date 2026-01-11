@@ -1,9 +1,12 @@
 """Code Generation 전용 모델"""
 
-from typing import Dict, List, Any, Optional, Literal
+from typing import Dict, List, Any, Optional, Literal, TYPE_CHECKING
 from pydantic import BaseModel, Field
 
 from .context import ExecutionContext
+
+if TYPE_CHECKING:
+    import pandas as pd
 
 
 class CodeRequest(BaseModel):
@@ -216,4 +219,209 @@ class CodeResult(BaseModel):
     
     Agent가 실패 후 재시도한 횟수.
     """
+
+
+# =============================================================================
+# Map-Reduce 패턴 모델 (대용량 데이터 처리용)
+# =============================================================================
+
+class MapReduceRequest(BaseModel):
+    """범용 Map-Reduce 코드 생성 요청
+    
+    대용량 데이터셋을 배치 처리할 때 사용하는 Map-Reduce 패턴 요청.
+    다양한 데이터셋 (의료, IoT, 금융 등)에서 범용적으로 사용 가능.
+    
+    Example:
+        request = MapReduceRequest(
+            task_description="각 센서별 평균 온도 계산 후 전체 평균",
+            expected_output="{sensor_id: mean_temp} 형태의 dict",
+            entity_id_column="sensor_id",
+            total_entities=5000,
+            entity_data_columns=["timestamp", "temperature", "humidity"],
+            metadata_columns=["sensor_id", "location", "install_date"],
+        )
+    """
+    
+    # === 분석 요청 ===
+    task_description: str
+    """분석 태스크 설명
+    
+    예: "각 환자별 평균 심박수 계산"
+    """
+    
+    expected_output: str
+    """기대하는 최종 출력 형태
+    
+    예: "{patient_id: mean_hr} 형태의 dictionary"
+    """
+    
+    hints: Optional[str] = None
+    """구현 힌트 (선택)
+    
+    예: "10분 단위로 segmentation 후 평균"
+    """
+    
+    constraints: Optional[List[str]] = None
+    """추가 제약사항 (선택)
+    
+    예: ["NaN 값 제외", "음수 값 무시"]
+    """
+    
+    # === 데이터셋 정보 (범용) ===
+    dataset_type: Optional[str] = None
+    """데이터셋 유형 (선택)
+    
+    예: "medical", "iot", "financial", "sensor"
+    """
+    
+    dataset_description: Optional[str] = None
+    """데이터셋 자연어 설명 (선택)
+    
+    예: "VitalDB 수술 중 생체신호 데이터"
+    """
+    
+    # === 엔티티 정보 (범용) ===
+    entity_id_column: str = "id"
+    """엔티티 식별자 컬럼명
+    
+    예: "caseid", "sensor_id", "account_id"
+    """
+    
+    total_entities: int = 0
+    """처리할 총 엔티티 수"""
+    
+    # === 스키마 정보 (동적) ===
+    entity_data_columns: List[str] = Field(default_factory=list)
+    """엔티티 데이터의 컬럼 목록
+    
+    예: ["Time", "HR", "SpO2", "BP"]
+    """
+    
+    entity_data_dtypes: Dict[str, str] = Field(default_factory=dict)
+    """엔티티 데이터 컬럼별 데이터 타입
+    
+    예: {"Time": "float64", "HR": "float32"}
+    """
+    
+    entity_data_sample: Optional[str] = None
+    """엔티티 데이터 샘플 (문자열, 프롬프트용)
+    
+    DataFrame.head().to_string() 결과
+    """
+    
+    metadata_columns: List[str] = Field(default_factory=list)
+    """메타데이터 컬럼 목록
+    
+    예: ["caseid", "age", "sex", "optype"]
+    """
+    
+    metadata_dtypes: Dict[str, str] = Field(default_factory=dict)
+    """메타데이터 컬럼별 데이터 타입"""
+    
+    metadata_sample: Optional[str] = None
+    """메타데이터 샘플 (문자열, 프롬프트용)"""
+    
+    # === 허용 임포트 ===
+    allowed_imports: List[str] = Field(default_factory=lambda: [
+        "pandas as pd", 
+        "numpy as np", 
+        "scipy.stats as stats", 
+        "math", 
+        "datetime", 
+        "statistics", 
+        "collections"
+    ])
+    """코드에서 사용 가능한 import 목록"""
+    
+    class Config:
+        """Pydantic 설정"""
+        arbitrary_types_allowed = True
+
+
+class MapReduceGenerationResult(BaseModel):
+    """Map-Reduce 코드 생성 결과
+    
+    map_func와 reduce_func 두 함수의 생성 결과.
+    
+    Example (성공):
+        result = MapReduceGenerationResult(
+            full_code="def map_func(...):\\n    ...\\ndef reduce_func(...):\\n    ...",
+            map_code="def map_func(...):\\n    ...",
+            reduce_code="def reduce_func(...):\\n    ...",
+            is_valid=True,
+        )
+    """
+    
+    full_code: str
+    """LLM이 생성한 전체 코드"""
+    
+    map_code: str
+    """추출된 map_func 코드
+    
+    빈 문자열이면 추출 실패.
+    """
+    
+    reduce_code: str
+    """추출된 reduce_func 코드
+    
+    빈 문자열이면 추출 실패.
+    """
+    
+    is_valid: bool
+    """검증 통과 여부
+    
+    False면 실행하면 안 됨.
+    """
+    
+    validation_errors: List[str] = Field(default_factory=list)
+    """검증 에러 목록"""
+    
+    validation_warnings: List[str] = Field(default_factory=list)
+    """검증 경고 목록"""
+
+
+class MapReduceExecutionResult(BaseModel):
+    """Map-Reduce 실행 결과
+    
+    전체 Map-Reduce 파이프라인 실행 결과.
+    
+    Example (성공):
+        result = MapReduceExecutionResult(
+            success=True,
+            result={"patient_1": 72.5, "patient_2": 68.3},
+            total_entities=1000,
+            successful_maps=998,
+            failed_maps=2,
+        )
+    """
+    
+    success: bool
+    """전체 실행 성공 여부"""
+    
+    result: Optional[Any] = None
+    """reduce_func의 최종 결과"""
+    
+    total_entities: int = 0
+    """처리 대상 엔티티 수"""
+    
+    successful_maps: int = 0
+    """성공한 map_func 호출 수"""
+    
+    failed_maps: int = 0
+    """실패한 map_func 호출 수"""
+    
+    map_errors: List[Dict[str, str]] = Field(default_factory=list)
+    """map_func 에러 목록 (entity_id, error)"""
+    
+    reduce_error: Optional[str] = None
+    """reduce_func 에러 메시지"""
+    
+    execution_time_ms: Optional[float] = None
+    """총 실행 시간 (밀리초)"""
+    
+    map_time_ms: Optional[float] = None
+    """Map Phase 실행 시간 (밀리초)"""
+    
+    reduce_time_ms: Optional[float] = None
+    """Reduce Phase 실행 시간 (밀리초)"""
 

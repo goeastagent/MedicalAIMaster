@@ -68,7 +68,7 @@ def main():
     
     try:
         initial_state = {
-            "user_query": test_query,  # VitalExtractionState의 키 이름
+            "user_query": test_query,  # ExtractionState의 키 이름
             "logs": []
         }
         

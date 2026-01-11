@@ -1,6 +1,6 @@
 # src/models/enums.py
 """
-VitalExtractionAgent Enums
+ExtractionAgent Enums
 
 파이프라인에서 사용되는 열거형 정의.
 """
@@ -9,7 +9,7 @@ from enum import Enum
 
 
 class Intent(str, Enum):
-    """쿼리 의도 분류 (Vital 전용이므로 항상 DATA_RETRIEVAL)"""
+    """쿼리 의도 분류"""
     DATA_RETRIEVAL = "data_retrieval"
 
 

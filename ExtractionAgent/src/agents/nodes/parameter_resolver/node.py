@@ -10,8 +10,9 @@ Responsibilities:
 
 from typing import Dict, Any, List
 from shared.langgraph import BaseNode, register_node
-from ExtractionAgent.src.agents.state import VitalExtractionState
-from ExtractionAgent.src.config import VitalExtractionConfig
+from shared.config.llm import LLMConfig
+from ExtractionAgent.src.agents.state import ExtractionState
+from ExtractionAgent.src.config import ExtractionConfig
 from ExtractionAgent.src.agents.nodes.parameter_resolver.prompts import build_resolution_prompt
 from shared.database.connection import get_db_manager
 from shared.llm.client import get_llm_client
@@ -42,11 +43,11 @@ class ParameterResolverNode(BaseNode):
     
     def __init__(self):
         super().__init__()
-        self.config = VitalExtractionConfig().parameter_resolver
+        self.config = ExtractionConfig().parameter_resolver
         self.db = get_db_manager()
         self.llm_client = get_llm_client()
     
-    def execute(self, state: VitalExtractionState) -> Dict[str, Any]:
+    def execute(self, state: ExtractionState) -> Dict[str, Any]:
         """
         Execute parameter resolution
         

@@ -1,6 +1,6 @@
 # src/models/__init__.py
 """
-VitalExtractionAgent Data Models
+ExtractionAgent Data Models
 
 Enums and Pydantic models for structured data.
 """

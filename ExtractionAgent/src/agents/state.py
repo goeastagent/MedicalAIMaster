@@ -1,6 +1,6 @@
 # src/agents/state.py
 """
-VitalExtractionAgent State Definition
+ExtractionAgent State Definition
 
 LangGraph 워크플로우에서 사용하는 상태 객체입니다.
 3-Node Pipeline:
@@ -13,9 +13,9 @@ import operator
 from typing import Annotated, List, Dict, Any, Optional, TypedDict
 
 
-class VitalExtractionState(TypedDict):
+class ExtractionState(TypedDict):
     """
-    VitalExtractionAgent 워크플로우 상태
+    ExtractionAgent 워크플로우 상태
     
     3-Node Sequential Pipeline:
         [100] QueryUnderstanding: DB 메타데이터 기반 동적 컨텍스트 생성 + LLM 쿼리 분석
@@ -125,7 +125,7 @@ class VitalExtractionState(TypedDict):
     # {
     #     "version": "1.0",
     #     "generated_at": "...",
-    #     "agent": "VitalExtractionAgent",
+    #     "agent": "ExtractionAgent",
     #     "original_query": "...",
     #     "execution_plan": {
     #         "cohort_source": {...},

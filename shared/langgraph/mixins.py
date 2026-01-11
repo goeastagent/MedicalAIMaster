@@ -29,6 +29,7 @@ Usage:
 
 from typing import Dict, Any, Optional, List, Type
 from pydantic import BaseModel
+from shared.utils import lazy_property
 
 
 # =============================================================================
@@ -56,15 +57,11 @@ class LLMMixin:
                 return {"result": response}
     """
     
-    _llm_client = None
-    
-    @property
+    @lazy_property
     def llm_client(self):
         """LLM 클라이언트 (lazy initialization)"""
-        if self._llm_client is None:
-            from shared.llm import get_llm_client
-            self._llm_client = get_llm_client()
-        return self._llm_client
+        from shared.llm import get_llm_client
+        return get_llm_client()
     
     def call_llm(
         self,
@@ -201,84 +198,57 @@ class DatabaseMixin:
                 return {"files": files}
     """
     
-    _db_manager = None
-    
-    # Repository 캐시 (lazy initialization)
-    _file_repo = None
-    _column_repo = None
-    _parameter_repo = None
-    _dictionary_repo = None
-    _entity_repo = None
-    _ontology_repo = None
-    _directory_repo = None
-    
-    @property
+    @lazy_property
     def db_manager(self):
         """DB 매니저 (lazy initialization)"""
-        if self._db_manager is None:
-            from shared.database import get_db_manager
-            self._db_manager = get_db_manager()
-        return self._db_manager
+        from shared.database import get_db_manager
+        return get_db_manager()
     
     # =========================================================================
-    # Repository Properties (Lazy Initialization)
+    # Repository Properties (Lazy Initialization via lazy_property)
     # =========================================================================
     
-    @property
+    @lazy_property
     def file_repo(self):
         """FileRepository 인스턴스"""
-        if self._file_repo is None:
-            from shared.database.repositories import FileRepository
-            self._file_repo = FileRepository(self.db_manager)
-        return self._file_repo
+        from shared.database.repositories import FileRepository
+        return FileRepository(self.db_manager)
     
-    @property
+    @lazy_property
     def column_repo(self):
         """ColumnRepository 인스턴스"""
-        if self._column_repo is None:
-            from shared.database.repositories import ColumnRepository
-            self._column_repo = ColumnRepository(self.db_manager)
-        return self._column_repo
+        from shared.database.repositories import ColumnRepository
+        return ColumnRepository(self.db_manager)
     
-    @property
+    @lazy_property
     def parameter_repo(self):
         """ParameterRepository 인스턴스"""
-        if self._parameter_repo is None:
-            from shared.database.repositories import ParameterRepository
-            self._parameter_repo = ParameterRepository(self.db_manager)
-        return self._parameter_repo
+        from shared.database.repositories import ParameterRepository
+        return ParameterRepository(self.db_manager)
     
-    @property
+    @lazy_property
     def dictionary_repo(self):
         """DictionaryRepository 인스턴스"""
-        if self._dictionary_repo is None:
-            from shared.database.repositories import DictionaryRepository
-            self._dictionary_repo = DictionaryRepository(self.db_manager)
-        return self._dictionary_repo
+        from shared.database.repositories import DictionaryRepository
+        return DictionaryRepository(self.db_manager)
     
-    @property
+    @lazy_property
     def entity_repo(self):
         """EntityRepository 인스턴스"""
-        if self._entity_repo is None:
-            from shared.database.repositories import EntityRepository
-            self._entity_repo = EntityRepository(self.db_manager)
-        return self._entity_repo
+        from shared.database.repositories import EntityRepository
+        return EntityRepository(self.db_manager)
     
-    @property
+    @lazy_property
     def ontology_repo(self):
         """OntologyRepository 인스턴스"""
-        if self._ontology_repo is None:
-            from shared.database.repositories import OntologyRepository
-            self._ontology_repo = OntologyRepository(self.db_manager)
-        return self._ontology_repo
+        from shared.database.repositories import OntologyRepository
+        return OntologyRepository(self.db_manager)
     
-    @property
+    @lazy_property
     def directory_repo(self):
         """DirectoryRepository 인스턴스"""
-        if self._directory_repo is None:
-            from shared.database.repositories import DirectoryRepository
-            self._directory_repo = DirectoryRepository(self.db_manager)
-        return self._directory_repo
+        from shared.database.repositories import DirectoryRepository
+        return DirectoryRepository(self.db_manager)
     
     # =========================================================================
     # Database Connection

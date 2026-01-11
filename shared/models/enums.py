@@ -115,6 +115,50 @@ class DictMatchStatus(str, Enum):
         return [e.value for e in cls]
 
 
+class TemporalType(str, Enum):
+    """
+    시간 범위 타입
+    
+    데이터 추출 시 시간 필터링 방식을 지정합니다.
+    ExtractionAgent와 DataContext에서 사용됩니다.
+    """
+    
+    # 전체 기록 (시간 제한 없음)
+    FULL_RECORD = "full_record"
+    
+    # 시술/수술 시간 범위
+    PROCEDURE_WINDOW = "procedure_window"
+    
+    # 치료 시간 범위
+    TREATMENT_WINDOW = "treatment_window"
+    
+    # 사용자 정의 범위
+    CUSTOM_WINDOW = "custom_window"
+    
+    @classmethod
+    def values(cls) -> List[str]:
+        """모든 값 목록 반환"""
+        return [e.value for e in cls]
+    
+    @classmethod
+    def descriptions(cls) -> dict:
+        """각 타입의 설명 반환"""
+        return {
+            cls.FULL_RECORD.value: "All available data (no time filtering)",
+            cls.PROCEDURE_WINDOW.value: "Data during a medical procedure (uses procedure start/end columns)",
+            cls.TREATMENT_WINDOW.value: "Data during treatment period (uses treatment start/end columns)",
+            cls.CUSTOM_WINDOW.value: "User-specified time range",
+        }
+    
+    @classmethod
+    def for_prompt(cls) -> str:
+        """LLM 프롬프트에 삽입할 수 있는 형식의 문자열 반환"""
+        lines = ["temporal_type MUST be one of the following:"]
+        for t, desc in cls.descriptions().items():
+            lines.append(f"- '{t}': {desc}")
+        return "\n".join(lines)
+
+
 class ConceptCategory(str, Enum):
     """
     Parameter의 개념 카테고리

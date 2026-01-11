@@ -397,6 +397,10 @@ class SignalProcessor(BaseDataProcessor):
                 # vitaldb.to_numpy(): 지정된 interval로 리샘플링된 데이터 반환
                 vals = vf.to_numpy(track_name, interval=resample_interval)
                 if vals is not None and len(vals) > 0:
+                    # vitaldb는 (N, 1) 형태의 2D 배열을 반환할 수 있음 -> 1D로 평탄화
+                    import numpy as np
+                    if isinstance(vals, np.ndarray) and vals.ndim == 2 and vals.shape[1] == 1:
+                        vals = vals.flatten()
                     data[track_name] = vals
             except Exception as e:
                 print(f"Warning: Failed to load {track_name}: {e}")

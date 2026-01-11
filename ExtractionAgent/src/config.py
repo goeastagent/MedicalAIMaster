@@ -1,6 +1,6 @@
 # src/config.py
 """
-VitalExtractionAgent Configuration Classes
+ExtractionAgent Configuration Classes
 
 각 노드별 설정을 정의합니다.
 LLM 및 DB 설정은 shared 패키지에서 가져옵니다.
@@ -73,9 +73,9 @@ class PlanBuilderConfig:
 
 
 @dataclass
-class VitalExtractionConfig:
+class ExtractionConfig:
     """
-    VitalExtractionAgent 전역 설정
+    ExtractionAgent 전역 설정
     
     LLM, DB 연결은 shared 패키지에서 관리합니다:
     - LLM: shared.llm.client.get_llm_client()
@@ -104,12 +104,19 @@ class VitalExtractionConfig:
 
 
 # 기본 설정 인스턴스
-default_config = VitalExtractionConfig()
+default_config = ExtractionConfig()
 
 
-def get_config() -> VitalExtractionConfig:
+def get_config() -> ExtractionConfig:
     """전역 설정 인스턴스 반환"""
     return default_config
+
+
+# =============================================================================
+# Backward Compatibility Alias
+# =============================================================================
+# 기존 코드 호환성을 위한 별칭 (deprecated)
+VitalExtractionConfig = ExtractionConfig
 
 
 # =============================================================================
@@ -122,7 +129,8 @@ __all__ = [
     "QueryUnderstandingConfig",
     "ParameterResolverConfig", 
     "PlanBuilderConfig",
-    "VitalExtractionConfig",
+    "ExtractionConfig",
+    "VitalExtractionConfig",  # backward compatibility
     "get_config",
     "default_config",
     

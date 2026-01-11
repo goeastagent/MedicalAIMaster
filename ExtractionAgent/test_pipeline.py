@@ -1,7 +1,7 @@
 #!/usr/bin/env python3
 """
-VitalExtractionAgent - Full Pipeline Test (Debug Mode)
-=======================================================
+ExtractionAgent - Full Pipeline Test (Debug Mode)
+==================================================
 
 전체 파이프라인 테스트 스크립트 (디버깅 출력 포함)
 
@@ -462,7 +462,7 @@ def validate_result(result: dict, expected: dict) -> dict:
 def main():
     """메인 실행"""
     # 인자 파싱
-    parser = argparse.ArgumentParser(description='VitalExtractionAgent Pipeline Test')
+    parser = argparse.ArgumentParser(description='ExtractionAgent Pipeline Test')
     parser.add_argument('--verbose', '-v', action='store_true', help='상세 출력 모드')
     parser.add_argument('--json', '-j', action='store_true', help='JSON 전체 출력')
     parser.add_argument('--query', '-q', type=int, help='특정 쿼리만 테스트 (1 or 2)')
@@ -472,7 +472,7 @@ def main():
     verbose = args.verbose if args.verbose else True  # 기본으로 상세 출력
     show_json = args.json
     
-    print_header("VitalExtractionAgent - Full Pipeline Test (Debug Mode)", "=", 80)
+    print_header("ExtractionAgent - Full Pipeline Test (Debug Mode)", "=", 80)
     
     if verbose:
         print("🔧 Mode: VERBOSE (상세 출력)")
@@ -557,7 +557,7 @@ def main():
     print("─" * 80)
     
     if passed == len(results):
-        print("\n🎉 All tests passed! VitalExtractionAgent is ready.")
+        print("\n🎉 All tests passed! ExtractionAgent is ready.")
     else:
         print("\n⚠️ Some tests need attention. Review results above.")
     

@@ -30,8 +30,8 @@ class AnalysisResult(BaseModel):
     # Input context summary (for reference, not full data)
     input_summary: Dict[str, Any] = Field(default_factory=dict)
     # {
-    #   "dataframes": {"df": {"shape": [100, 5], "columns": ["HR", "SpO2", ...]}},
-    #   "join_keys": ["caseid"],
+    #   "dataframes": {"signals": {"cases": 100, "columns": ["Time", "HR", "SpO2"]}},
+    #   "join_keys": ["entity_id"],
     # }
     
     # Execution plan
