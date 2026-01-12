@@ -4,6 +4,73 @@ from typing import Dict, List, Any, Optional, Tuple
 from pydantic import BaseModel, Field
 
 
+class ColumnDescription(BaseModel):
+    """
+    컬럼 상세 설명 - 프롬프트에서 컬럼의 의미를 전달
+    
+    LLM이 컬럼명을 정확히 이해하고 사용할 수 있도록 의미론적 정보를 포함합니다.
+    
+    Example:
+        col = ColumnDescription(
+            name="HR",
+            dtype="float64",
+            semantic_name="Heart Rate",
+            unit="bpm",
+            description="분당 심박수"
+        )
+        print(col.to_prompt_line())
+        # → "`HR` (float64) - Heart Rate [bpm]"
+    """
+    
+    name: str
+    """실제 컬럼명 (코드에서 사용해야 하는 정확한 이름)"""
+    
+    dtype: str = "unknown"
+    """데이터 타입 (예: "float64", "int64", "object")"""
+    
+    semantic_name: Optional[str] = None
+    """의미론적 이름 (예: "Heart Rate", "Oxygen Saturation")"""
+    
+    unit: Optional[str] = None
+    """측정 단위 (예: "bpm", "%", "mmHg")"""
+    
+    description: Optional[str] = None
+    """상세 설명"""
+    
+    def to_prompt_line(self) -> str:
+        """
+        프롬프트용 한 줄 출력
+        
+        Returns:
+            예: "`HR` (float64) - Heart Rate [bpm]"
+        """
+        parts = [f"`{self.name}` ({self.dtype})"]
+        
+        if self.semantic_name:
+            parts.append(f"- {self.semantic_name}")
+        
+        if self.unit:
+            parts.append(f"[{self.unit}]")
+        
+        if self.description:
+            # 짧은 설명만 포함
+            short_desc = self.description[:40] + "..." if len(self.description) > 40 else self.description
+            parts.append(f": {short_desc}")
+        
+        return " ".join(parts)
+    
+    @classmethod
+    def from_dict(cls, d: Dict[str, Any]) -> "ColumnDescription":
+        """딕셔너리에서 생성"""
+        return cls(
+            name=d.get("name", "unknown"),
+            dtype=d.get("dtype", "unknown"),
+            semantic_name=d.get("semantic_name"),
+            unit=d.get("unit"),
+            description=d.get("description"),
+        )
+
+
 class DataSchema(BaseModel):
     """데이터 스키마 정보
     
@@ -44,19 +111,32 @@ class DataSchema(BaseModel):
     column_stats: Optional[Dict[str, Dict[str, Any]]] = None
     """컬럼별 통계 (숫자형: mean/min/max, 범주형: unique_count/sample_values)"""
     
+    column_descriptions: Dict[str, ColumnDescription] = Field(default_factory=dict)
+    """컬럼별 상세 설명 (컬럼명 → ColumnDescription)
+    
+    LLM이 컬럼의 의미를 정확히 이해할 수 있도록 semantic_name, unit 등 포함.
+    예: {"HR": ColumnDescription(name="HR", dtype="float64", semantic_name="Heart Rate", unit="bpm")}
+    """
+    
     def to_prompt_text(self) -> str:
-        """프롬프트용 텍스트 생성"""
+        """프롬프트용 텍스트 생성 (컬럼 설명 포함)"""
         lines = [f"### `{self.name}` - {self.description}"]
         
         # Shape
         if self.shape:
             lines.append(f"- Shape: {self.shape[0]:,} rows × {self.shape[1]} columns")
         
-        # Columns with types
+        # Columns with descriptions
         lines.append("- Columns:")
         for col in self.columns[:15]:  # 최대 15개만 표시
-            dtype = self.dtypes.get(col, "unknown")
-            lines.append(f"  - `{col}` ({dtype})")
+            if col in self.column_descriptions:
+                # 상세 설명 포함
+                col_desc = self.column_descriptions[col]
+                lines.append(f"  - {col_desc.to_prompt_line()}")
+            else:
+                # 기존 방식 (dtype만)
+                dtype = self.dtypes.get(col, "unknown")
+                lines.append(f"  - `{col}` ({dtype})")
         
         if len(self.columns) > 15:
             lines.append(f"  - ... and {len(self.columns) - 15} more columns")
@@ -64,13 +144,28 @@ class DataSchema(BaseModel):
         # Sample rows
         if self.sample_rows:
             lines.append("- Sample data:")
-            for i, row in enumerate(self.sample_rows[:3]):
+            for i, row in enumerate(self.sample_rows[:2]):  # 2개만 표시
                 # 값 포맷팅 (숫자는 소수점 제한)
                 formatted = {k: (round(v, 2) if isinstance(v, float) else v) 
                             for k, v in list(row.items())[:5]}
                 lines.append(f"  Row {i}: {formatted}")
         
         return "\n".join(lines)
+    
+    def set_column_descriptions_from_registry(
+        self, 
+        column_descs: Dict[str, Dict[str, Any]]
+    ) -> None:
+        """
+        ParameterRegistry에서 가져온 컬럼 설명 설정
+        
+        Args:
+            column_descs: to_column_descriptions() 결과
+                {"HR": {"name": "HR", "dtype": "float64", "semantic_name": "Heart Rate", ...}}
+        """
+        for col in self.columns:
+            if col in column_descs:
+                self.column_descriptions[col] = ColumnDescription.from_dict(column_descs[col])
 
 
 class ExecutionContext(BaseModel):

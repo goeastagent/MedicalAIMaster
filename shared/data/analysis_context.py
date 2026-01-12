@@ -19,6 +19,7 @@ from shared.models.plan import AnalysisContext, CohortColumnInfo
 
 if TYPE_CHECKING:
     from .context import DataContext
+    from .parameter_registry import ParameterRegistry
 
 logger = logging.getLogger(__name__)
 
@@ -537,6 +538,162 @@ class AnalysisContextBuilder:
         
         return ". ".join(parts)
     
+    def _build_parameter_details_section(self, columns: List[str]) -> Optional[str]:
+        """
+        파라미터 상세 정보 섹션 빌드 (ParameterRegistry 활용)
+        
+        ParameterRegistry에서 semantic_name, unit, category 등을 가져와
+        LLM이 데이터를 정확히 이해할 수 있도록 합니다.
+        
+        Args:
+            columns: 실제 DataFrame의 컬럼 목록
+        
+        Returns:
+            파라미터 상세 정보 문자열 또는 None
+        """
+        temporal_config = self._ctx._temporal_config or {}
+        registry = self._ctx.get_param_registry()
+        
+        lines = ["\n### Parameter Details (from DB/Ontology)"]
+        lines.append("| Column | Semantic Name | Unit | Category |")
+        lines.append("|--------|---------------|------|----------|")
+        
+        # Time 컬럼 정보 추가 (동적 감지 + temporal_config 활용)
+        time_cols = self._detect_time_columns(columns)
+        time_unit = temporal_config.get("time_unit", "-")
+        for tc in time_cols:
+            lines.append(f"| {tc} | Time Reference | {time_unit} | Timestamp |")
+        
+        # ParameterRegistry에서 정보 추출
+        added_params = set()
+        if registry:
+            for col in columns:
+                if col in time_cols or col in added_params:
+                    continue
+                    
+                param = registry.get(col)
+                if param:
+                    semantic = param.semantic_name or param.param_key
+                    # 긴 이름은 축약
+                    display_name = semantic[:40] + "..." if len(semantic) > 40 else semantic
+                    unit = param.unit or "-"
+                    category = param.category or "-"
+                    lines.append(f"| {col} | {display_name} | {unit} | {category} |")
+                    added_params.add(col)
+        
+        # 추가된 파라미터가 없으면 None 반환
+        if len(added_params) == 0 and len(time_cols) == 0:
+            return None
+        
+        # Time 컬럼 상세 설명 추가 (temporal_config에서 동적으로)
+        if time_cols:
+            time_info = self._build_time_column_info(temporal_config)
+            if time_info:
+                lines.append("")
+                lines.append("**Time Column Info:**")
+                lines.extend(time_info)
+        
+        # 파라미터별 description 추가 (ParameterRegistry에서)
+        param_descriptions = self._build_parameter_descriptions_from_registry(registry, columns)
+        if param_descriptions:
+            lines.append("")
+            lines.append("**Parameter Notes:**")
+            lines.extend(param_descriptions)
+        
+        return "\n".join(lines)
+    
+    def _detect_time_columns(self, columns: List[str]) -> List[str]:
+        """
+        시간 관련 컬럼 동적 감지 (범용)
+        
+        다양한 데이터셋에서 사용되는 시간 컬럼명 패턴을 감지합니다.
+        
+        Args:
+            columns: 컬럼 목록
+        
+        Returns:
+            시간 컬럼 목록
+        """
+        time_patterns = {'time', 'timestamp', 'datetime', 'date', 'epoch', 'index'}
+        time_cols = []
+        
+        for col in columns:
+            col_lower = col.lower()
+            # 정확히 일치하거나 패턴 포함
+            if col_lower in time_patterns or any(p in col_lower for p in time_patterns):
+                time_cols.append(col)
+        
+        return time_cols
+    
+    def _build_time_column_info(self, temporal_config: Dict[str, Any]) -> List[str]:
+        """
+        Time 컬럼 정보 빌드 (범용 - temporal_config에서 동적으로)
+        
+        하드코딩 없이 temporal_config에 있는 정보만 사용합니다.
+        
+        Args:
+            temporal_config: temporal 설정 딕셔너리
+        
+        Returns:
+            Time 정보 라인 목록
+        """
+        lines = []
+        
+        # temporal_config에서 정보 추출 (있는 것만)
+        time_unit = temporal_config.get("time_unit")
+        if time_unit:
+            lines.append(f"- Unit: {time_unit}")
+        
+        sampling_interval = temporal_config.get("sampling_interval")
+        if sampling_interval:
+            lines.append(f"- Sampling interval: {sampling_interval}")
+        
+        time_origin = temporal_config.get("time_origin")
+        if time_origin:
+            lines.append(f"- Origin: {time_origin}")
+        
+        time_description = temporal_config.get("time_description")
+        if time_description:
+            lines.append(f"- Note: {time_description}")
+        
+        # 정보가 없으면 기본 안내
+        if not lines:
+            lines.append("- Note: Check column dtype and values to understand time format")
+        
+        return lines
+    
+    def _build_parameter_descriptions_from_registry(
+        self, 
+        registry: Optional["ParameterRegistry"], 
+        columns: List[str]
+    ) -> List[str]:
+        """
+        파라미터별 description 빌드 (ParameterRegistry 사용)
+        
+        ParameterRegistry에서 description이 있는 파라미터만 설명을 추가합니다.
+        
+        Args:
+            registry: ParameterRegistry 인스턴스
+            columns: 실제 컬럼 목록
+        
+        Returns:
+            description 라인 목록
+        """
+        if not registry:
+            return []
+        
+        descriptions = []
+        
+        for col in columns:
+            param = registry.get(col)
+            if param and param.description:
+                # description이 너무 길면 축약
+                desc = param.description
+                display_desc = desc[:100] + "..." if len(desc) > 100 else desc
+                descriptions.append(f"- `{col}`: {display_desc}")
+        
+        return descriptions
+    
     def _build_signals_guide(
         self,
         signals_dict: Optional[Dict[str, pd.DataFrame]],
@@ -578,6 +735,11 @@ class AnalysisContextBuilder:
   - Numeric columns for analysis: {numeric_cols}{datetime_info}
   - Sample shape: {sample_df.shape}
 """)
+        
+        # === 파라미터 상세 정보 추가 (DB/온톨로지에서 가져온 정보) ===
+        param_details = self._build_parameter_details_section(columns)
+        if param_details:
+            guide_parts.append(param_details)
         
         if include_examples:
             guide_parts.append(f"""

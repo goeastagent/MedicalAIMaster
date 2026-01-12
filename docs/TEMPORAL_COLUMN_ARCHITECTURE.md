@@ -1,29 +1,23 @@
-# Temporal Column Architecture: 문제 분석 및 해결 방안
+# Temporal Column Architecture: 문제 분석
 
-## 1. 문제 요약
+## 1. 핵심 문제
 
-### 핵심 문제
-**Signal 데이터의 시간 컬럼("Time")이 메타데이터로 관리되지 않아, LLM 코드 생성 시 하드코딩에 의존하고 있음**
+**의료 데이터 분석에서 "시간" 정보를 어떻게 자동으로 파악하고 활용할 것인가?**
 
+현재 시스템은 시간 관련 정보를 자동으로 파악하지 못해, 하드코딩에 의존하고 있음.
+
+```python
+# 현재 상태 (shared/data/context.py)
+if "Time" in signals_df.columns:  # ← 하드코딩!
+    ...
 ```
-현재 상태:
-  DataContext._apply_temporal_filter() 내부:
-    if "Time" in signals_df.columns:  ← 하드코딩!
-        ...
-```
-
-### 영향 범위
-- VitalDB 이외의 데이터셋에서 동작 불가
-- 시간 컬럼 이름이 다른 경우 (timestamp, datetime, dt 등) 실패
-- 범용적인 의료 데이터 분석 플랫폼으로서의 확장성 제한
 
 ---
 
-## 2. 배경: 두 종류의 "시간"
-
-의료 데이터 분석에서 "시간"은 두 가지 의미를 가집니다:
+## 2. 의료 데이터에서 "시간"의 두 가지 의미
 
 ### 2.1 Cohort 레벨 시간 (메타데이터)
+
 ```
 clinical_data.csv:
 ┌─────────┬─────────┬─────────┬──────────┐
@@ -33,20 +27,17 @@ clinical_data.csv:
 │ 2       │ 150     │ 600     │ ...      │
 └─────────┴─────────┴─────────┴──────────┘
 
-역할: "언제" 분석할 것인가를 정의
+역할: "언제" 분석할 것인가 (시간 범위 정의)
 예시: "수술 중" = opstart ~ opend 구간
 ```
 
-**현재 상태**: ✅ ExtractionAgent가 `temporal_context`로 처리
-```python
-temporal_context: {
-    "type": "procedure_window",
-    "start_column": "opstart",   # ← DB에서 조회
-    "end_column": "opend",       # ← DB에서 조회
-}
-```
+- 원본 파일에 존재 ✅
+- IndexingAgent가 인덱싱 ✅
+- `column_role = 'timestamp'` 할당 가능 ✅
+- `ConceptCategory = 'Timestamps'` 할당 가능 ✅
 
-### 2.2 Signal 레벨 시간 (데이터 자체)
+### 2.2 Signal 레벨 시간 (데이터 축)
+
 ```
 0001.vital → DataFrame:
 ┌───────┬──────┬───────┐
@@ -58,336 +49,280 @@ temporal_context: {
 │ 600   │ 75   │ 99    │
 └───────┴──────┴───────┘
 
-역할: 데이터의 시간축 (각 측정값의 타임스탬프)
+역할: 각 측정값의 시간축 (x축)
 ```
 
-**현재 상태**: ❌ 메타데이터로 관리되지 않음
+- 원본 .vital 파일에는 "Time" 컬럼 없음 ❌
+- SignalProcessor가 로드 시 생성 (processor-generated)
+- IndexingAgent가 볼 수 없음 ❌
+- 메타데이터로 관리되지 않음 ❌
 
 ---
 
-## 3. 근본 원인 분석
+## 3. VitalDB 데이터셋의 특수성
 
-### 3.1 VitalDB 파일 구조의 특수성
+### 3.1 파일 구조
 
 ```
-┌─────────────────────────────────────────────────────────────────┐
-│                    VitalDB .vital 파일                          │
-├─────────────────────────────────────────────────────────────────┤
-│                                                                 │
-│  원본 파일 구조:                                                │
-│  - 트랙 데이터만 저장 (HR, SpO2, ABP 등)                        │
-│  - 시간 정보는 샘플링 레이트로 암시됨                            │
-│  - "Time" 컬럼 없음!                                            │
-│                                                                 │
-│  Signal Processor 로드 시:                                      │
-│  - resample_interval 기반으로 Time 컬럼 생성                    │
-│  - df["Time"] = [i * resample_interval for i in range(max_len)]│
-│                                                                 │
-└─────────────────────────────────────────────────────────────────┘
+VitalDB 데이터셋
+├── clinical_data.csv          # Cohort 메타데이터
+│   └── opstart, opend 컬럼    # 시간 범위 정보 (상대 초)
+│
+└── 0001.vital ~ 6388.vital    # Signal 파일들
+    └── 트랙 데이터만 저장      # HR, SpO2, ABP 등
+    └── 시간 컬럼 없음!         # 샘플링 레이트로 암시
 ```
 
-**shared/processors/signal.py (line 413-415):**
+### 3.2 시간 정보 획득 방법
+
+**방법 1**: clinical_data.csv에서 확인
+```
+caseid=1의 수술 시간:
+  opstart = 100 (초)
+  opend = 500 (초)
+  → 400초 동안의 데이터 분석 필요
+```
+
+**방법 2**: .vital 파일 직접 열어서 확인
 ```python
+# vitaldb 라이브러리로 파일 열기
+vital_file = vitaldb.VitalFile("0001.vital")
+# 트랙별 길이, 샘플링 레이트 등 확인
+```
+
+### 3.3 SignalProcessor의 Time 컬럼 생성
+
+```python
+# shared/processors/signal.py (line 413-415)
 df = pd.DataFrame({
-    "Time": [i * resample_interval for i in range(max_len)]  # 생성!
+    "Time": [i * resample_interval for i in range(max_len)]
 })
+# resample_interval = 1 (기본값) → 1초 간격
 ```
 
-### 3.2 IndexingAgent의 분석 범위
-
-```
-IndexingAgent가 분석하는 것:
-  ✅ 원본 파일의 컬럼 (Solar8000/HR, BIS/BIS 등)
-  ✅ 컬럼 역할 (column_role: parameter_name, identifier, timestamp 등)
-  ✅ 의미론적 분류 (concept_category: Vital Signs, Hemodynamics 등)
-
-IndexingAgent가 분석하지 않는 것:
-  ❌ Signal Processor가 생성하는 컬럼 ("Time")
-  ❌ 로드 과정에서 추가되는 메타데이터
-```
-
-### 3.3 메타데이터 저장소 현황
-
-| 저장소 | 시간 컬럼 정보 | 상태 |
-|--------|---------------|------|
-| PostgreSQL `column_metadata` | `column_role = 'timestamp'` | ✅ Cohort만 |
-| PostgreSQL `parameter` | `concept_category = 'Temporal'` | ❌ 없음 |
-| PostgreSQL `file_group` | - | ❌ 시간 메타데이터 없음 |
-| Neo4j `ConceptCategory` | - | ❌ Temporal 카테고리 없음 |
-| Neo4j `Parameter` | - | ❌ Time 노드 없음 |
+**결과**: 모든 .vital 파일은 로드 후 "Time" 컬럼을 가짐 (0, 1, 2, ... 초)
 
 ---
 
-## 4. 현재 코드의 문제점
+## 4. ConceptCategory로 해결 가능한 것 vs 불가능한 것
 
-### 4.1 하드코딩된 시간 컬럼 참조
+### 4.1 현재 ConceptCategory 정의
 
-**shared/data/context.py:**
 ```python
-def _apply_temporal_filter(self, signals_df, cohort_row):
-    ...
-    # 문제: "Time" 하드코딩
-    if "Time" in signals_df.columns:
-        return signals_df[
-            (signals_df["Time"] >= start_sec) & 
-            (signals_df["Time"] <= end_sec)
-        ].copy()
+class ConceptCategory(str, Enum):
+    TIMESTAMPS = 'Timestamps'  # "Date, time, datetime, duration"
+    # ... 기타 카테고리
 ```
 
-**shared/data/analysis_context.py:**
-```python
-# 문제: 하드코딩된 패턴 리스트
-DATETIME_COLUMN_PATTERNS = {
-    'time', 'timestamp', 'datetime', ...
-}
-```
+### 4.2 해결 가능한 영역 ✅
 
-### 4.2 정보 흐름의 단절
+| 대상 | 예시 | 이유 |
+|------|------|------|
+| Cohort 시간 컬럼 | `opstart`, `opend`, `admit_time` | 원본 파일에 존재, 인덱싱됨 |
+| CSV의 datetime 컬럼 | `timestamp`, `datetime`, `date` | 원본 파일에 존재, 인덱싱됨 |
+| Long-format의 시간 컬럼 | `measurement_time` | 원본 파일에 존재, 인덱싱됨 |
+
+**동작 방식**:
+1. IndexingAgent가 컬럼 분석
+2. `column_role = 'timestamp'` 또는 `ConceptCategory = 'Timestamps'` 할당
+3. ExtractionAgent가 이 정보 조회하여 `temporal_context` 구성
+4. DataContext가 시간 필터링에 활용
+
+### 4.3 해결 불가능한 영역 ❌
+
+| 대상 | 예시 | 이유 |
+|------|------|------|
+| Processor 생성 컬럼 | .vital의 "Time" | 원본에 없음, 로드 시 생성 |
+| 암시적 시간 정보 | 샘플링 레이트 | 파일 메타데이터, DB 미저장 |
+| Cohort-Signal 시간 관계 | opstart vs Time | 두 시간의 연결 관계 미정의 |
+
+---
+
+## 5. 현재 정보 흐름의 단절
 
 ```
-IndexingAgent                ExtractionAgent              AnalysisContextBuilder
-     │                            │                              │
-     │  column_role=timestamp     │                              │
-     │  (Cohort만)                │                              │
-     ▼                            ▼                              ▼
-  DB 저장 ──────────────────▶ temporal_context ──────────────▶ ???
-                              (start/end만)                      │
-                                                                 │
-  Signal time column ────────────────────────────────────────────┘
-  정보 없음!                                                (하드코딩 폴백)
+┌─────────────────────────────────────────────────────────────────────┐
+│                        IndexingAgent                                 │
+├─────────────────────────────────────────────────────────────────────┤
+│  clinical_data.csv 분석:                                            │
+│    ✅ opstart → column_role: timestamp, ConceptCategory: Timestamps │
+│    ✅ opend   → column_role: timestamp, ConceptCategory: Timestamps │
+│                                                                      │
+│  .vital 파일 분석:                                                   │
+│    ✅ Solar8000/HR → ConceptCategory: Vital Signs                   │
+│    ❌ "Time" 컬럼 → 인덱싱 불가 (원본에 없음)                        │
+└─────────────────────────────────────────────────────────────────────┘
+                              │
+                              ▼
+┌─────────────────────────────────────────────────────────────────────┐
+│                       ExtractionAgent                                │
+├─────────────────────────────────────────────────────────────────────┤
+│  temporal_context 구성:                                              │
+│    ✅ start_column: "opstart"  (DB에서 조회)                        │
+│    ✅ end_column: "opend"      (DB에서 조회)                        │
+│    ❌ signal_time_column: ???  (정보 없음)                          │
+└─────────────────────────────────────────────────────────────────────┘
+                              │
+                              ▼
+┌─────────────────────────────────────────────────────────────────────┐
+│                    SignalProcessor (런타임)                          │
+├─────────────────────────────────────────────────────────────────────┤
+│  .vital 파일 로드:                                                   │
+│    → "Time" 컬럼 생성 (0, 1, 2, ... 초)                             │
+│    → 이 정보는 어디에도 기록되지 않음                                │
+└─────────────────────────────────────────────────────────────────────┘
+                              │
+                              ▼
+┌─────────────────────────────────────────────────────────────────────┐
+│                         DataContext                                  │
+├─────────────────────────────────────────────────────────────────────┤
+│  시간 필터링 시도:                                                   │
+│    opstart=100, opend=500 으로 필터링하려면                          │
+│    Signal DataFrame의 어떤 컬럼을 사용해야 하는가?                   │
+│                                                                      │
+│    ❌ 현재: if "Time" in df.columns  ← 하드코딩                     │
+└─────────────────────────────────────────────────────────────────────┘
 ```
 
 ---
 
-## 5. 해결해야 하는 과제
+## 6. 문제의 본질
 
-### 5.1 [필수] Signal 시간 컬럼 메타데이터 관리
-
-**과제**: Signal Processor가 생성하는 시간 컬럼 정보를 메타데이터로 관리
-
-**요구사항**:
-- Signal Group별 시간 컬럼 이름 저장
-- 시간 단위 (seconds, milliseconds, datetime) 저장
-- 생성 방식 (processor_generated, original) 저장
-
-**저장 위치 후보**:
-1. PostgreSQL `file_group.signal_time_config` (JSONB)
-2. Neo4j `FileGroup` 노드 속성
-3. PostgreSQL 새 테이블 `signal_time_metadata`
-
-### 5.2 [필수] 정보 흐름 구축
-
-**과제**: 시간 컬럼 정보가 IndexingAgent → ExtractionAgent → DataContext → AnalysisAgent로 흐르도록
+### 6.1 두 시간 체계의 연결
 
 ```
-목표 흐름:
-  IndexingAgent
-       │
-       ▼
-  file_group.signal_time_config = {
-      "column_name": "Time",
-      "unit": "seconds",
-      "type": "processor_generated"
-  }
-       │
-       ▼
-  ExtractionAgent (SchemaContextBuilder)
-       │
-       ▼
-  execution_plan.signal_source.temporal_alignment = {
-      "cohort_start_column": "opstart",
-      "cohort_end_column": "opend",
-      "signal_time_column": "Time",  ← 추가
-      "time_unit": "seconds"
-  }
-       │
-       ▼
-  DataContext._temporal_config.signal_time_column
-       │
-       ▼
-  AnalysisContextBuilder (하드코딩 제거)
+Cohort 시간 체계          Signal 시간 체계
+─────────────────        ─────────────────
+opstart = 100 (초)       Time = 0, 1, 2, ... (초)
+opend = 500 (초)         
+                    
+        │                        │
+        └────────────────────────┘
+                  연결?
 ```
 
-### 5.3 [필수] 하드코딩 제거
+**질문**: `opstart=100`일 때, Signal의 `Time=100`인 행을 찾아야 하는가?
 
-**제거 대상**:
-1. `shared/data/context.py`: `if "Time" in signals_df.columns`
-2. `shared/data/analysis_context.py`: `DATETIME_COLUMN_PATTERNS`
-3. `shared/data/analysis_context.py`: `_detect_datetime_columns()` (패턴 매칭 방식)
-4. `shared/data/context.py`: `_find_time_column()` (패턴 매칭 방식)
+**VitalDB의 경우**: 예, 둘 다 "기록 시작으로부터의 상대 초"로 동일한 기준
 
-**대체 방식**:
-```python
-# Before (하드코딩)
-if "Time" in signals_df.columns:
-    ...
-
-# After (메타데이터 활용)
-signal_time_col = self._temporal_config.get("signal_time_column")
-if signal_time_col and signal_time_col in signals_df.columns:
-    ...
-```
-
-### 5.4 [선택] 범용 시간 관계 모델링
-
-**과제**: Cohort 시간과 Signal 시간의 관계 정의
-
-```python
-temporal_relationship = {
-    "type": "same_relative_axis",  # 또는 "absolute_datetime", "offset_based"
-    "description": "Both use relative seconds from recording start",
-    "conversion_required": False,
-    "conversion_function": None  # 필요시 변환 함수 지정
-}
-```
-
-**사용 사례**:
-- VitalDB: Cohort(opstart/opend)와 Signal(Time) 모두 상대 초 단위 → 직접 비교 가능
-- MIMIC: Cohort(admit_time)는 datetime, Signal(timestamp)도 datetime → 직접 비교 가능
+**다른 데이터셋**: 다를 수 있음
+- MIMIC: Cohort는 datetime, Signal도 datetime → 직접 비교 가능
 - 혼합: Cohort는 datetime, Signal은 상대 초 → 변환 필요
 
----
+### 6.2 자동 분석을 위해 필요한 정보
 
-## 6. 구현 계획
+LLM이나 시스템이 자동으로 시간 기반 분석을 하려면:
 
-### Phase 1: 메타데이터 저장 구조 추가
+1. **Signal 데이터의 시간 컬럼 이름**
+   - VitalDB: "Time" (processor 생성)
+   - 다른 데이터셋: "timestamp", "datetime", etc.
 
-**변경 파일**:
-- `shared/database/schemas/file_group.py`: `signal_time_config` 컬럼 추가
-- `shared/database/repositories/file_group_repository.py`: 조회/저장 메서드 추가
+2. **시간 단위**
+   - 초(seconds), 밀리초(milliseconds), datetime
 
-**스키마 변경**:
-```sql
-ALTER TABLE file_group ADD COLUMN signal_time_config JSONB DEFAULT '{}'::jsonb;
+3. **Cohort-Signal 시간 관계**
+   - 동일 기준 (직접 비교 가능)
+   - 변환 필요 (오프셋, 단위 변환 등)
 
--- 예시 값:
--- {
---   "column_name": "Time",
---   "unit": "seconds",
---   "type": "processor_generated",
---   "description": "Generated by SignalProcessor using resample_interval"
--- }
-```
-
-### Phase 2: IndexingAgent 수정
-
-**변경 파일**:
-- `IndexingAgent/src/agents/nodes/file_grouping/node.py`: Signal Group 생성 시 시간 메타데이터 저장
-
-**로직**:
-```python
-# Signal Group 생성 시
-signal_time_config = {
-    "column_name": "Time",  # Signal Processor 규칙
-    "unit": "seconds",
-    "type": "processor_generated"
-}
-file_group_repo.update_signal_time_config(group_id, signal_time_config)
-```
-
-### Phase 3: ExtractionAgent 수정
-
-**변경 파일**:
-- `ExtractionAgent/src/agents/context/schema_context_builder.py`: `get_signal_groups()`에 시간 컬럼 정보 포함
-- `ExtractionAgent/src/agents/nodes/plan_builder/node.py`: `execution_plan`에 포함
-
-### Phase 4: DataContext/AnalysisContextBuilder 수정
-
-**변경 파일**:
-- `shared/data/plan_parser.py`: `signal_time_column` 파싱
-- `shared/data/context.py`: 하드코딩 제거, `_temporal_config` 활용
-- `shared/data/analysis_context.py`: 패턴 매칭 제거, 메타데이터 활용
+4. **시간 범위 컬럼의 의미**
+   - opstart/opend: 수술 시작/종료
+   - admit_time/discharge_time: 입원/퇴원
+   - 사용자 정의 구간
 
 ---
 
-## 7. 검증 방법
+## 7. 하드코딩 현황
 
-### 7.1 단위 테스트
-```python
-def test_signal_time_column_from_metadata():
-    """시간 컬럼이 메타데이터에서 올바르게 로드되는지 검증"""
-    ctx = DataContext()
-    ctx.load_from_plan(execution_plan_with_signal_time)
-    
-    assert ctx._temporal_config.get("signal_time_column") == "Time"
-```
-
-### 7.2 통합 테스트
-```python
-def test_temporal_filtering_with_metadata():
-    """시간 필터링이 메타데이터 기반으로 동작하는지 검증"""
-    # VitalDB 데이터셋
-    result = run_pipeline("수술 중 심박수 평균")
-    assert result.success
-    
-    # 다른 데이터셋 (시간 컬럼명이 다른 경우)
-    result = run_pipeline_other_dataset("치료 중 혈압 평균")
-    assert result.success
-```
-
-### 7.3 회귀 테스트
-- 기존 VitalDB 분석 쿼리가 동일하게 동작하는지 확인
-- `test_e2e_signal_segmentation_mean.py` 통과 여부
-
----
-
-## 8. 향후 확장성
-
-### 8.1 다양한 시간 표현 지원
-```python
-SUPPORTED_TIME_TYPES = {
-    "processor_generated": "로드 시 생성 (VitalDB)",
-    "original_column": "원본 파일에 존재",
-    "index_based": "DataFrame 인덱스가 시간",
-    "calculated": "다른 컬럼에서 계산"
-}
-```
-
-### 8.2 시간 단위 변환
-```python
-TIME_UNIT_CONVERSIONS = {
-    ("seconds", "milliseconds"): lambda x: x * 1000,
-    ("milliseconds", "seconds"): lambda x: x / 1000,
-    ("datetime", "seconds"): lambda x: x.timestamp(),
-}
-```
-
-### 8.3 멀티 데이터셋 지원
-- EDF 파일: `timestamp` 컬럼 (datetime)
-- CSV 시계열: `dt` 컬럼 (datetime)
-- 사용자 정의: 메타데이터로 지정
-
----
-
-## 9. 의존성
-
-### 영향받는 컴포넌트
-1. **IndexingAgent**: 시간 메타데이터 저장 로직 추가
-2. **ExtractionAgent**: 시간 컬럼 정보 조회 및 전달
-3. **OrchestrationAgent**: 변경 없음 (DataContext가 처리)
-4. **AnalysisAgent**: 코드 생성 프롬프트에 시간 컬럼 정보 포함
-5. **DataContext**: 하드코딩 제거, 메타데이터 활용
-6. **AnalysisContextBuilder**: 패턴 매칭 제거, 메타데이터 활용
-
-### 데이터베이스 변경
-- PostgreSQL: `file_group.signal_time_config` 컬럼 추가
-- Neo4j: (선택) `FileGroup.signal_time_column` 속성 추가
-
----
-
-## 10. 참고: 현재 코드 위치
-
-| 파일 | 라인 | 내용 |
-|------|------|------|
-| `shared/processors/signal.py` | 413-415 | Time 컬럼 생성 |
-| `shared/data/context.py` | 1360-1364 | 하드코딩된 Time 참조 |
+| 파일 | 라인 | 하드코딩 내용 |
+|------|------|--------------|
+| `shared/data/context.py` | 1360-1364 | `if "Time" in signals_df.columns` |
 | `shared/data/context.py` | 1370-1408 | `_find_time_column()` 패턴 매칭 |
 | `shared/data/analysis_context.py` | 47-53 | `DATETIME_COLUMN_PATTERNS` |
 | `shared/data/analysis_context.py` | 62-97 | `_detect_datetime_columns()` |
-| `ExtractionAgent/src/agents/context/schema_context_builder.py` | 220-225 | Cohort temporal_columns 조회 |
 
 ---
 
-*문서 작성일: 2026-01-11*
-*작성자: AI Assistant*
-*버전: 1.0*
+## 8. 정리: 해결해야 할 과제
+
+### 8.1 필수 과제
+
+1. **Signal 시간 컬럼 정보 전달**
+   - Processor가 생성하는 시간 컬럼 이름/단위를 어떻게 전달할 것인가?
+
+2. **Cohort-Signal 시간 연결**
+   - 두 시간 체계가 어떤 관계인지 어떻게 정의할 것인가?
+
+3. **하드코딩 제거**
+   - 메타데이터 기반으로 동적 처리
+
+### 8.2 고려 사항
+
+- ConceptCategory "Timestamps"는 Cohort 레벨에서만 유효
+- Signal 시간은 Processor 설정에 의존 (결정론적)
+- 파일 타입별로 시간 처리 방식이 다름
+
+---
+
+## 9. 현재 코드 참조
+
+| 컴포넌트 | 파일 | 역할 |
+|----------|------|------|
+| SignalProcessor | `shared/processors/signal.py` | Time 컬럼 생성 |
+| DataContext | `shared/data/context.py` | 시간 필터링 (하드코딩) |
+| AnalysisContextBuilder | `shared/data/analysis_context.py` | 시간 컬럼 탐지 (패턴 매칭) |
+| SchemaContextBuilder | `ExtractionAgent/src/agents/context/` | temporal_context 구성 |
+| ConceptCategory | `shared/models/enums.py` | Timestamps 카테고리 정의 |
+
+---
+
+## 10. 해결 방향: Knowledge Layer
+
+### 10.1 접근 방식
+
+**점진적 학습(Progressive Learning)** 기반으로 해결:
+- 한번에 모든 메타데이터를 구축하지 않음
+- 분석 과정에서 지식을 축적
+- 사용자 피드백으로 지식 확장
+
+### 10.2 핵심 아이디어
+
+```
+첫 번째 분석:
+  System: Signal 시간 컬럼이 뭐지? → 모름
+  User: "Time 컬럼이야"
+  System: ✅ 분석 완료 + 지식 저장
+
+두 번째 분석:
+  System: 이전에 배운 지식 활용 → "Time" 자동 적용
+```
+
+### 10.3 구현: Neo4j Knowledge 노드
+
+Neo4j 온톨로지에 `Knowledge` 노드를 추가하여 학습된 지식을 저장:
+
+```cypher
+(:Knowledge {
+    type: "time_column",
+    value: {column_name: "Time", unit: "seconds"},
+    source: "user_feedback"
+})-[:APPLIES_TO]->(FileGroup)
+```
+
+**범위별 우선순위**: RowEntity > FileGroup > Dataset
+
+### 10.4 상세 설계
+
+👉 **[ONTOLOGY_KNOWLEDGE_EXTENSION.md](./ONTOLOGY_KNOWLEDGE_EXTENSION.md)** 참조
+
+---
+
+## 11. 관련 문서
+
+- [ONTOLOGY_KNOWLEDGE_EXTENSION.md](./ONTOLOGY_KNOWLEDGE_EXTENSION.md) - Knowledge Layer 상세 설계
+- [IndexingAgent_ARCHITECTURE.md](./IndexingAgent_ARCHITECTURE.md) - IndexingAgent 전체 구조
+- [ExtractionAgent_ARCHITECTURE.md](./ExtractionAgent_ARCHITECTURE.md) - ExtractionAgent 구조
+
+---
+
+*문서 작성일: 2026-01-12*
+*상태: 문제 정의 완료, 해결책 설계 완료 ([ONTOLOGY_KNOWLEDGE_EXTENSION.md](./ONTOLOGY_KNOWLEDGE_EXTENSION.md))*

@@ -28,6 +28,7 @@ from pathlib import Path
 from typing import Dict, Any, List, Optional, Iterator, Tuple
 from datetime import datetime
 import pandas as pd
+import numpy as np
 
 # 프로젝트 루트 추가
 project_root = Path(__file__).parent.parent.parent
@@ -38,6 +39,7 @@ from shared.processors import SignalProcessor, TabularProcessor
 from shared.database.connection import get_db_manager
 from shared.data.plan_parser import PlanParser
 from shared.data.analysis_context import AnalysisContextBuilder
+from shared.data.parameter_registry import ParameterRegistry
 from shared.models.plan import ParsedPlan
 from shared.utils import lazy_property
 
@@ -92,6 +94,11 @@ class DataContext:
         
         # Join configuration
         self._join_config: Dict[str, Any] = {}
+        
+        # ═══════════════════════════════════════════════════════════════════════════
+        # Parameter Registry (컬럼 설명 통합 관리)
+        # ═══════════════════════════════════════════════════════════════════════════
+        self._param_registry: Optional[ParameterRegistry] = None
         
         # ═══════════════════════════════════════════════════════════════════════════
         # Processors & Helpers
@@ -247,6 +254,12 @@ class DataContext:
         }
         
         self._loaded_at = datetime.now()
+        
+        # ═══════════════════════════════════════════════════════════════════════════
+        # ParameterRegistry 초기화 (컬럼 설명 통합 관리)
+        # ═══════════════════════════════════════════════════════════════════════════
+        self._param_registry = ParameterRegistry.from_param_info(self._param_info)
+        logger.debug(f"ParameterRegistry initialized with {len(self._param_registry)} parameters")
         
         # ═══════════════════════════════════════════════════════════════════════════
         # AnalysisContextBuilder 초기화
@@ -812,6 +825,68 @@ class DataContext:
         """사용 가능한 파라미터 키 목록"""
         return self._param_keys.copy()
     
+    # ═══════════════════════════════════════════════════════════════════════════
+    # Parameter Registry API (컬럼 설명 통합)
+    # ═══════════════════════════════════════════════════════════════════════════
+    
+    def get_param_registry(self) -> Optional[ParameterRegistry]:
+        """
+        ParameterRegistry 인스턴스 반환
+        
+        Returns:
+            ParameterRegistry 또는 None (plan 미로드 시)
+        """
+        return self._param_registry
+    
+    def resolve_param_alias(self, term: str) -> Optional[str]:
+        """
+        Alias를 canonical param_key로 해석
+        
+        사용자 질의에서 사용된 용어를 실제 컬럼명으로 변환합니다.
+        
+        Args:
+            term: 사용자가 사용한 용어 (예: "심박수", "heart rate")
+        
+        Returns:
+            해당하는 param_key (예: "HR") 또는 None
+        
+        Example:
+            ctx.resolve_param_alias("심박수")  # → "HR"
+            ctx.resolve_param_alias("SpO2")    # → "SpO2"
+        """
+        if self._param_registry is None:
+            return None
+        return self._param_registry.resolve_alias(term)
+    
+    def get_column_descriptions(self) -> Dict[str, Dict[str, Any]]:
+        """
+        모든 파라미터의 컬럼 설명 반환
+        
+        LLM 프롬프트 구성 시 컬럼별 의미/단위 정보를 포함시키기 위해 사용합니다.
+        
+        Returns:
+            Dict[param_key, {"name", "dtype", "semantic_name", "unit", "description"}]
+        
+        Example:
+            descs = ctx.get_column_descriptions()
+            # {"HR": {"name": "HR", "dtype": "float64", "semantic_name": "Heart Rate", "unit": "bpm"}, ...}
+        """
+        if self._param_registry is None:
+            return {}
+        return self._param_registry.to_column_descriptions()
+    
+    def enrich_param_registry_from_data(self, df: pd.DataFrame) -> None:
+        """
+        실제 데이터에서 파라미터 정보 보강
+        
+        dtype, value_range 등을 실제 DataFrame에서 추출하여 Registry에 추가합니다.
+        
+        Args:
+            df: 샘플 DataFrame (보통 하나의 케이스 데이터)
+        """
+        if self._param_registry is not None:
+            self._param_registry.enrich_from_data(df)
+    
     def is_loaded(self) -> bool:
         """Plan이 로드되었는지 확인"""
         return self._plan is not None
@@ -1261,7 +1336,13 @@ class DataContext:
             time_cols = ["Time"] if "Time" in df.columns else []
             available_cols = time_cols + [p for p in params if p in df.columns]
             if available_cols:
-                df = df[available_cols]
+                df = df[available_cols].copy()
+            
+            # 요청된 params 중 없는 컬럼은 NaN으로 추가 (일관된 스키마 보장)
+            # LLM 코드가 해당 컬럼에 접근해도 KeyError 없이 자연스럽게 dropna()로 처리됨
+            for p in params:
+                if p not in df.columns:
+                    df[p] = np.nan
         
         # Temporal 필터 적용
         if apply_temporal and self._temporal_config.get("type", "full_record") != "full_record":

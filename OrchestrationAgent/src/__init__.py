@@ -6,7 +6,7 @@ ExtractionAgent와 AnalysisAgent(CodeGen)를 연결하는 조율 레이어.
     from OrchestrationAgent.src import Orchestrator
     
     orchestrator = Orchestrator()
-    result = orchestrator.run("위암 환자의 심박수 평균을 구해줘")
+    result = orchestrator.run("위암 환자의 심박수 평균을 단일 float 값으로 구해줘")
     
     if result.status == "success":
         print(result.result)

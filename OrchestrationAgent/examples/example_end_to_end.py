@@ -96,7 +96,7 @@ def example_full_pipeline():
     orchestrator = Orchestrator()
     
     # 자연어 쿼리로 전체 파이프라인 실행
-    query = "위암 환자의 수술 중 심박수 평균과 표준편차를 구해줘"
+    query = "위암 환자의 수술 중 심박수 평균과 표준편차를 {mean, std} 형태의 dictionary로 구해줘"
     
     print(f"\n📝 Query: {query}\n")
     print("🚀 Running full pipeline...")
@@ -152,7 +152,7 @@ def example_with_existing_plan():
     orchestrator = Orchestrator()
     
     result = orchestrator.run_with_plan(
-        query="혈압(ABP)의 평균과 최대값을 구해줘",
+        query="혈압(ABP)의 평균과 최대값을 {mean, max} 형태의 dictionary로 구해줘",
         execution_plan=plan
     )
     
@@ -266,9 +266,9 @@ def example_multiple_queries():
     orchestrator = Orchestrator()
     
     queries = [
-        "HR의 평균값을 구해줘",
-        "HR이 80 이상인 구간의 비율을 구해줘",
-        "HR과 SpO2의 상관계수를 구해줘",
+        "HR의 평균값을 단일 float 값으로 구해줘",
+        "HR이 80 이상인 구간의 비율을 단일 float 값(0~1 사이)으로 구해줘",
+        "HR과 SpO2의 상관계수를 단일 float 값으로 구해줘",
     ]
     
     results = []

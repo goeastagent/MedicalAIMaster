@@ -4,7 +4,7 @@ Central location for all Pydantic models.
 """
 
 # Context models
-from .context import ExecutionContext, DataSummary, DataSchema
+from .context import ExecutionContext, DataSummary, DataSchema, ColumnDescription
 
 # Code generation models
 from .code_gen import (
@@ -44,6 +44,7 @@ __all__ = [
     "ExecutionContext",
     "DataSummary",
     "DataSchema",
+    "ColumnDescription",
     # Code Generation
     "CodeRequest",
     "ValidationResult",

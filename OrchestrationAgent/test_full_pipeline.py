@@ -408,9 +408,9 @@ def run_interactive_test():
         
         if query.lower() == 'help':
             print("\n  예시 질의:")
-            print("    - 위암 환자의 심박수 평균을 구해줘")
-            print("    - 수술 중 혈압이 90 이하인 구간의 비율")
-            print("    - HR과 SpO2의 상관관계를 분석해줘")
+            print("    - 위암 환자의 심박수 평균을 단일 float 값으로 구해줘")
+            print("    - 수술 중 혈압이 90 이하인 구간의 비율을 단일 float 값(0~1 사이)으로 구해줘")
+            print("    - HR과 SpO2의 상관계수를 단일 float 값으로 구해줘")
             continue
         
         result = orch.run(query)
@@ -442,8 +442,8 @@ def main():
     # 2. 테스트 쿼리 정의
     test_queries = [
         # (extraction_query, analysis_query)
-        ("위암 환자의 수술 중 심박수 데이터를 추출해줘", "심박수의 평균을 구해줘"),
-        ("전체 환자의 혈압 데이터", "혈압이 90 이하인 비율"),
+        ("위암 환자의 수술 중 심박수 데이터를 추출해줘", "심박수의 평균을 단일 float 값으로 구해줘"),
+        ("전체 환자의 혈압 데이터", "혈압이 90 이하인 비율을 단일 float 값(0~1 사이)으로 구해줘"),
     ]
     
     # 3. 단계별 테스트

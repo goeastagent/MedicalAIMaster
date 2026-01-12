@@ -25,7 +25,7 @@ class Orchestrator:
     
     사용법:
         orchestrator = Orchestrator()
-        result = orchestrator.run("위암 환자의 심박수 평균을 구해줘")
+        result = orchestrator.run("위암 환자의 심박수 평균을 단일 float 값으로 구해줘")
         
         if result.status == "success":
             print(result.result)
@@ -586,23 +586,40 @@ case_list = cohort[cohort['filter'] == 'value']['{entity_col}'].astype(str).toli
             max_retries=max_retries
         )
     
+    def _get_entity_column(self, runtime_data: Optional[Dict[str, Any]] = None) -> str:
+        """
+        entity_id 컬럼명 추출 (중복 제거용 헬퍼)
+        
+        Args:
+            runtime_data: 런타임 데이터 (메타데이터 포함 가능)
+        
+        Returns:
+            entity_id 컬럼명 (기본값: "id")
+        """
+        if self._data_context and self._data_context.entity_id_column:
+            return self._data_context.entity_id_column
+        if runtime_data and "_plan_metadata" in runtime_data:
+            return runtime_data["_plan_metadata"].get("entity_id_column") or "id"
+        return "id"
+    
     def _build_execution_context(
         self, 
         runtime_data: Dict[str, Any],
         data_summary: Dict[str, Any]
     ):
-        """CodeGen용 ExecutionContext 생성"""
-        from AnalysisAgent.src.models import ExecutionContext
+        """CodeGen용 ExecutionContext 생성 (컬럼 설명 포함)"""
+        from AnalysisAgent.src.models import ExecutionContext, DataSchema, ColumnDescription
         
-        # 메타데이터에서 동적으로 entity_id 컬럼 가져오기
-        entity_col = "id"
-        if self._data_context and self._data_context.entity_id_column:
-            entity_col = self._data_context.entity_id_column
-        elif "_plan_metadata" in runtime_data:
-            entity_col = runtime_data["_plan_metadata"].get("entity_id_column") or "id"
+        entity_col = self._get_entity_column(runtime_data)
+        
+        # ParameterRegistry에서 컬럼 설명 가져오기
+        column_descriptions = {}
+        if self._data_context:
+            column_descriptions = self._data_context.get_column_descriptions()
         
         # 사용 가능한 변수 설명
         available_variables = {}
+        data_schemas = {}
         
         # signals: Dict[entity_id, DataFrame]
         if "signals" in runtime_data and runtime_data["signals"]:
@@ -610,20 +627,68 @@ case_list = cohort[cohort['filter'] == 'value']['{entity_col}'].astype(str).toli
             case_count = len(signals_dict)
             sample_cid = list(signals_dict.keys())[0]
             sample_df = signals_dict[sample_cid]
-            cols = list(sample_df.columns)[:10]
-            cols_str = str(cols) + ("..." if len(sample_df.columns) > 10 else "")
+            cols = list(sample_df.columns)
+            
             available_variables["signals"] = (
-                f"Dict[{entity_col}, DataFrame] - 케이스별 시계열 데이터, "
-                f"{case_count} cases, columns: {cols_str}"
+                f"Dict[{entity_col}, DataFrame] - 케이스별 시계열 데이터, {case_count} cases"
+            )
+            
+            # DataSchema with column descriptions 생성
+            schema_col_descs = {}
+            for col in cols:
+                if col in column_descriptions:
+                    cd = column_descriptions[col]
+                    schema_col_descs[col] = ColumnDescription(
+                        name=cd.get("name", col),
+                        dtype=cd.get("dtype") or str(sample_df[col].dtype),
+                        semantic_name=cd.get("semantic_name"),
+                        unit=cd.get("unit"),
+                        description=cd.get("description"),
+                    )
+                else:
+                    # DB에 없는 컬럼은 기본 정보
+                    schema_col_descs[col] = ColumnDescription(
+                        name=col,
+                        dtype=str(sample_df[col].dtype)
+                    )
+            
+            # ParameterRegistry에 실제 데이터 정보 보강
+            if self._data_context:
+                self._data_context.enrich_param_registry_from_data(sample_df)
+            
+            data_schemas["signals_sample"] = DataSchema(
+                name=f"signals[{entity_col}]",
+                description="케이스별 시계열 DataFrame",
+                columns=cols,
+                dtypes={col: str(sample_df[col].dtype) for col in cols},
+                shape=sample_df.shape,
+                sample_rows=sample_df.head(2).to_dict(orient="records"),
+                column_descriptions=schema_col_descs
             )
         
-        if "cohort" in runtime_data:
+        if "cohort" in runtime_data and not runtime_data["cohort"].empty:
             cohort = runtime_data["cohort"]
-            cols = list(cohort.columns)[:10]
-            cols_str = str(cols) + ("..." if len(cohort.columns) > 10 else "")
+            cols = list(cohort.columns)
             available_variables["cohort"] = (
-                f"pandas DataFrame - Cohort 메타데이터, "
-                f"shape: {cohort.shape}, columns: {cols_str}"
+                f"pandas DataFrame - Cohort 메타데이터, shape: {cohort.shape}"
+            )
+            
+            # Cohort도 DataSchema 생성
+            cohort_col_descs = {}
+            for col in cols[:20]:  # cohort는 컬럼이 많을 수 있어 제한
+                cohort_col_descs[col] = ColumnDescription(
+                    name=col,
+                    dtype=str(cohort[col].dtype)
+                )
+            
+            data_schemas["cohort"] = DataSchema(
+                name="cohort",
+                description="Cohort 메타데이터 DataFrame",
+                columns=cols[:20],  # 처음 20개만
+                dtypes={col: str(cohort[col].dtype) for col in cols[:20]},
+                shape=cohort.shape,
+                sample_rows=cohort.head(2).to_dict(orient="records"),
+                column_descriptions=cohort_col_descs
             )
         
         case_ids = runtime_data.get("case_ids", [])
@@ -635,24 +700,10 @@ case_list = cohort[cohort['filter'] == 'value']['{entity_col}'].astype(str).toli
         param_keys = runtime_data.get("param_keys", [])
         available_variables["param_keys"] = f"List[str] - parameter keys: {param_keys}"
         
-        # 샘플 데이터 (LLM 참고용)
-        sample_data = {}
-        if "signals" in runtime_data and runtime_data["signals"]:
-            signals_dict = runtime_data["signals"]
-            sample_cid = list(signals_dict.keys())[0]
-            sample_df = signals_dict[sample_cid].head(3)
-            sample_data["signals_sample"] = {
-                "entity_id": sample_cid,
-                "data": sample_df.round(4).to_dict(orient="records")
-            }
-        
-        if "cohort" in runtime_data and not runtime_data["cohort"].empty:
-            sample_cohort = runtime_data["cohort"].head(3)
-            sample_data["cohort_head"] = sample_cohort.to_dict(orient="records")
-        
         return ExecutionContext(
             available_variables=available_variables,
-            sample_data=sample_data if sample_data else None
+            data_schemas=data_schemas,
+            sample_data=None  # data_schemas가 있으면 sample_data 불필요
         )
     
     def _build_code_request(
@@ -666,12 +717,7 @@ case_list = cohort[cohort['filter'] == 'value']['{entity_col}'].astype(str).toli
         """CodeRequest 생성"""
         from AnalysisAgent.src.models import CodeRequest
         
-        # 메타데이터에서 동적으로 entity_id 컬럼 가져오기
-        entity_col = "id"
-        if self._data_context and self._data_context.entity_id_column:
-            entity_col = self._data_context.entity_id_column
-        elif runtime_data and "_plan_metadata" in runtime_data:
-            entity_col = runtime_data["_plan_metadata"].get("entity_id_column") or "id"
+        entity_col = self._get_entity_column(runtime_data)
         
         # 동적 접근 가이드 + 기존 힌트 결합
         hints_parts = []
@@ -717,16 +763,7 @@ case_list = cohort[cohort['filter'] == 'value']['{entity_col}'].astype(str).toli
         """
         hints = []
         query_lower = query.lower()
-        
-        # 메타데이터에서 동적으로 entity_id 컬럼 가져오기
-        entity_col = "id"  # 기본값
-        if runtime_data:
-            # DataContext의 메타데이터 활용
-            if "_plan_metadata" in runtime_data:
-                meta = runtime_data["_plan_metadata"]
-                entity_col = meta.get("entity_id_column") or "id"
-            elif self._data_context:
-                entity_col = self._data_context.entity_id_column or "id"
+        entity_col = self._get_entity_column(runtime_data)
         
         # param_keys 추출 (실제 컬럼명)
         param_keys = data_summary.get("param_keys", [])
@@ -831,7 +868,7 @@ case_list = cohort[cohort['filter'] == 'value']['{entity_col}'].astype(str).toli
                 print(f"Batch {batch_idx+1}/{total}: {processed} cases processed")
             
             result = orchestrator.run_mapreduce(
-                "모든 환자의 SBP 평균을 구해줘",
+                "모든 환자의 SBP 평균을 단일 float 값으로 구해줘",
                 progress_callback=on_progress
             )
         """
@@ -1546,7 +1583,7 @@ case_list = cohort[cohort['filter'] == 'value']['{entity_col}'].astype(str).toli
                 mapreduce_threshold=100,
             )
             orchestrator = Orchestrator(config=config)
-            result = orchestrator.run_auto("모든 환자의 심박수 평균을 구해줘")
+            result = orchestrator.run_auto("모든 환자의 심박수 평균을 단일 float 값으로 구해줘")
         """
         # 먼저 Extraction으로 케이스 수 파악
         extraction_result = self._run_extraction(query)

@@ -96,7 +96,7 @@ DEFAULT_CONFIG = OrchestratorConfig()
 # Map-Reduce 전용 설정 프리셋
 MAPREDUCE_CONFIG = OrchestratorConfig(
     execution_mode="mapreduce",
-    max_signal_cases=1000,  # 무제한
+    max_signal_cases=1000,  # 0 무제한
     batch_size=100,
     mapreduce_max_workers=4,
     mapreduce_parallel=True,
@@ -106,7 +106,7 @@ MAPREDUCE_CONFIG = OrchestratorConfig(
 # 대용량 자동 전환 설정 프리셋
 AUTO_SCALE_CONFIG = OrchestratorConfig(
     execution_mode="auto",
-    max_signal_cases=1000,  # 무제한
+    max_signal_cases=1000,  # 0 무제한
     mapreduce_threshold=100,
     batch_size=100,
     mapreduce_max_workers=4,

@@ -9,7 +9,7 @@ End-to-End Test: Full Pipeline HR Analysis
 사용법:
     python test_e2e_hr_mean.py
     python test_e2e_hr_mean.py --verbose
-    python test_e2e_hr_mean.py --query "심박수 평균을 구해줘"
+    python test_e2e_hr_mean.py --query "심박수 평균을 단일 float 값으로 구해줘"
 """
 
 import sys
@@ -482,7 +482,7 @@ Examples:
     python test_e2e_hr_mean.py
     
     # 커스텀 쿼리 테스트 (검증 없이)
-    python test_e2e_hr_mean.py --query "위암 환자의 심박수 평균"
+    python test_e2e_hr_mean.py --query "위암 환자의 심박수 평균을 단일 float 값으로 구해줘"
     
     # 상세 로그 출력
     python test_e2e_hr_mean.py --verbose

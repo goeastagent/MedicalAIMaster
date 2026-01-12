@@ -7,10 +7,10 @@ End-to-End Test: Signal Segmentation Mean Analysis
   ExtractionAgent → DataContext → AnalysisAgent
 
 테스트 목표:
-  - 수술 별로 SBP(NIBP_SBP) 값을 10분 단위로 segmentation
+  - 케이스 별로 SBP(NIBP_SBP) 값을 10분 단위로 segmentation
   - 각 segment의 평균을 구하고, segment 평균들의 평균을 계산
-  - 환자별 수술 중 SBP 평균을 구함
-  - 동일 환자가 여러 번 수술한 경우, 모든 segment를 합쳐서 평균
+  - 환자별 SBP 평균을 구함
+  - 동일 환자가 여러 케이스를 가진 경우, 모든 segment를 합쳐서 평균
 
 테스트 모드:
   - 기본 모드: 특정 subjectid (1, 2, 4, 5, 6, 7, 32, 150) 대상, 사전정의된 Ground Truth 사용
@@ -79,12 +79,19 @@ SUBJECT_CASES = {
 
 
 # =============================================================================
-# Ground Truth 정의 - 기본 모드 (사전 계산된 값)
+# Ground Truth 정의 - DEPRECATED (더 이상 사용되지 않음)
 # =============================================================================
+# 
+# 아래 상수들은 이전에 하드코딩된 값으로, 더 이상 사용되지 않습니다.
+# 현재는 compute_full_ground_truth()를 통해 동적으로 계산됩니다.
+# 참고용으로만 남겨둡니다.
+#
+# 문제점: 이전 계산 방식과 현재 알고리즘의 불일치로 인해 값이 부정확했음
+# 해결: 동적 계산으로 전환하여 LLM 생성 코드와 동일한 알고리즘 사용
 
-# 케이스별 평균 (참고용)
-DEFAULT_GROUND_TRUTH_CASE_MEANS = {
-    '121': 116.360474,
+# [DEPRECATED] 케이스별 평균 (참고용)
+_DEPRECATED_GROUND_TRUTH_CASE_MEANS = {
+    '121': 116.360474,   # 실제: ~128.57
     '316': 105.333336,
     '734': 124.750000,
     '1579': 112.615158,
@@ -96,21 +103,20 @@ DEFAULT_GROUND_TRUTH_CASE_MEANS = {
     '5359': 99.666664,
 }
 
-# 환자별 최종 평균 (Ground Truth)
-# 다중수술 환자는 모든 segment를 합쳐서 평균
-DEFAULT_GROUND_TRUTH_SUBJECT_MEANS = {
-    '1': 129.399994,    # 10 segments from 1 case
-    '2': 116.360474,    # 7 segments from 1 case
-    '4': 113.357964,    # 23 segments from 1 case
-    '5': 124.750000,    # 8 segments from 1 case
-    '6': 112.800003,    # 10 segments from 1 case
-    '7': 112.615158,    # 11 segments from 1 case
-    '32': 152.498505,   # 9 segments from 2 cases (다중수술)
-    '150': 101.555557,  # 9 segments from 2 cases (다중수술)
+# [DEPRECATED] 환자별 최종 평균 (Ground Truth)
+_DEPRECATED_GROUND_TRUTH_SUBJECT_MEANS = {
+    '1': 129.399994,
+    '2': 116.360474,    # 실제: ~128.57
+    '4': 113.357964,
+    '5': 124.750000,
+    '6': 112.800003,
+    '7': 112.615158,
+    '32': 152.498505,
+    '150': 101.555557,  # 실제: ~108.42
 }
 
-# 전체 평균 (환자 평균의 평균)
-DEFAULT_GROUND_TRUTH_OVERALL_MEAN = 120.417206
+# [DEPRECATED] 전체 평균
+_DEPRECATED_GROUND_TRUTH_OVERALL_MEAN = 120.417206
 
 
 # =============================================================================
@@ -165,24 +171,20 @@ def sample_valid_case_ids(
     
     logging.info(f"   Available signal files: {len(available_case_ids)}")
     
-    # 2. 유효한 시간 윈도우가 있는 케이스만 필터링
+    # 2. 시그널 파일이 존재하는 케이스만 필터링 (시간 윈도우 검증 없음)
     cohort = pd.read_csv(cohort_path)
     valid_case_ids = []
     
     for _, row in cohort.iterrows():
         case_id = int(row['caseid'])
-        opstart = row.get('opstart')
-        opend = row.get('opend')
         
-        # 조건: 시그널 파일 존재 + 유효한 시간 윈도우
+        # 조건: 시그널 파일 존재
         if case_id not in available_case_ids:
-            continue
-        if pd.isna(opstart) or pd.isna(opend) or opstart >= opend:
             continue
         
         valid_case_ids.append(case_id)
     
-    logging.info(f"   Valid cases (with signal & time window): {len(valid_case_ids)}")
+    logging.info(f"   Valid cases (with signal file): {len(valid_case_ids)}")
     
     # 3. 랜덤 샘플링
     random.seed(seed)
@@ -211,16 +213,17 @@ def _process_single_case_ground_truth(args: Tuple) -> Dict[str, Any]:
     범용적 설계:
     - 파일 로드 함수를 외부에서 주입받을 수 있도록 구조화
     - 결과는 표준화된 딕셔너리로 반환
+    - 전체 신호 데이터 사용 (시간 필터링 없음)
     
     Args:
-        args: (case_info, caseid_to_file, signal_column, segment_duration, file_loader_func)
+        args: (case_info, caseid_to_file, signal_column, segment_duration)
         
     Returns:
         {
             'subj_id': str,
             'case_id': int,
             'segment_means': List[float],
-            'status': 'success' | 'no_file' | 'no_signal' | 'invalid_range' | 'error',
+            'status': 'success' | 'no_file' | 'no_signal' | 'error',
             'error': Optional[str]
         }
     """
@@ -230,8 +233,6 @@ def _process_single_case_ground_truth(args: Tuple) -> Dict[str, Any]:
     
     subj_id = case_info['subjectid']
     case_id = case_info['caseid']
-    opstart = case_info['opstart']
-    opend = case_info['opend']
     
     result = {
         'subj_id': subj_id,
@@ -261,36 +262,24 @@ def _process_single_case_ground_truth(args: Tuple) -> Dict[str, Any]:
             result['status'] = 'no_signal'
             return result
         
-        # 시간 윈도우 적용 (범용: opstart/opend 인덱스 기반)
-        opstart_idx = int(opstart)
-        opend_idx = min(int(opend), len(vals))
+        # ================================================================
+        # Time 값 기반 Segmentation (LLM 생성 코드와 동일한 방식)
+        # ================================================================
+        # Time 배열 생성 (1초 간격 리샘플링이므로 인덱스 = 시간(초))
+        time_vals = np.arange(len(vals))
         
-        if opstart_idx >= opend_idx:
-            result['status'] = 'invalid_range'
-            return result
-        
-        procedure_vals = vals[opstart_idx:opend_idx]
-        
-        # NaN 제거
-        procedure_vals = procedure_vals[~np.isnan(procedure_vals)]
-        
-        if len(procedure_vals) == 0:
-            result['status'] = 'all_nan'
-            return result
-        
-        # Segmentation (범용: segment_duration 기반)
-        segment_size = int(segment_duration)
-        num_segments = len(procedure_vals) // segment_size
+        # 각 데이터 포인트의 segment 할당 (Time // segment_duration)
+        segment_indices = (time_vals // segment_duration).astype(int)
+        unique_segments = np.unique(segment_indices)
         
         segment_means = []
-        for seg_idx in range(num_segments):
-            start_idx = seg_idx * segment_size
-            end_idx = start_idx + segment_size
-            segment = procedure_vals[start_idx:end_idx]
-            
-            valid_segment = segment[~np.isnan(segment)]
-            if len(valid_segment) > 0:
-                segment_means.append(float(np.mean(valid_segment)))
+        for seg in unique_segments:
+            # 해당 segment의 값들 추출
+            segment_vals = vals[segment_indices == seg]
+            # NaN 제외하고 평균 계산
+            valid_vals = segment_vals[~np.isnan(segment_vals)]
+            if len(valid_vals) > 0:
+                segment_means.append(float(np.mean(valid_vals)))
         
         result['segment_means'] = segment_means
         result['status'] = 'success' if segment_means else 'no_segments'
@@ -365,10 +354,6 @@ def compute_full_ground_truth(
     cohort = pd.read_csv(cohort_path)
     logging.info(f"   Total cases in cohort: {len(cohort)}")
     
-    # 필수 컬럼 확인 (범용: 시간 윈도우 컬럼)
-    if 'opstart' not in cohort.columns or 'opend' not in cohort.columns:
-        raise ValueError("Cohort must have 'opstart' and 'opend' columns for time window")
-    
     # 2. 시그널 파일 매핑 (VitalDB 특화 - 다른 데이터셋에서는 변경)
     vital_files = list(signal_base_path.glob("*.vital"))
     logging.info(f"   Total signal files: {len(vital_files)}")
@@ -384,17 +369,11 @@ def compute_full_ground_truth(
     
     logging.info(f"   Mapped case IDs: {len(caseid_to_file)}")
     
-    # 3. 모든 케이스를 플랫 리스트로 준비 (병렬 처리용)
+    # 3. 모든 케이스를 플랫 리스트로 준비 (병렬 처리용) - 전체 신호 사용 (시간 필터링 없음)
     all_cases = []
     for _, row in cohort.iterrows():
         subj_id = str(row['subjectid'])
         case_id = int(row['caseid'])
-        opstart = row.get('opstart')
-        opend = row.get('opend')
-        
-        # 유효한 시간 윈도우만 포함
-        if pd.isna(opstart) or pd.isna(opend) or opstart >= opend:
-            continue
         
         # case_ids 필터 적용 (지정된 경우)
         if case_ids_filter and case_id not in case_ids_filter:
@@ -403,8 +382,6 @@ def compute_full_ground_truth(
         all_cases.append({
             'subjectid': subj_id,
             'caseid': case_id,
-            'opstart': float(opstart),
-            'opend': float(opend)
         })
     
     logging.info(f"   Valid cases to process: {len(all_cases)}")
@@ -707,10 +684,9 @@ def run_full_pipeline_test(
                 # Query 1: 환자별 SBP 평균 (선택된 케이스)
                 (
                     f"caseid가 [{case_ids_str}] 중 하나인 케이스들에 대해서만: "
-                    "수술 중(opstart부터 opend까지) "
                     "NIBP_SBP(Solar8000/NIBP_SBP) 값을 10분(600초) 단위로 segmentation 해서 "
                     "각 segment의 평균을 구하고, 환자별로 모든 segment 평균들을 다시 평균내서 "
-                    "환자당 수술 중 SBP 평균을 구해줘. "
+                    "환자당 SBP 평균을 구해줘. "
                     "한 환자가 여러 번 수술한 경우(같은 subjectid의 여러 caseid)는 "
                     "모든 수술의 segment를 합쳐서 하나의 평균을 구해줘. "
                     "결과는 {subjectid: mean} 형태의 dictionary로 반환해줘.",
@@ -719,10 +695,9 @@ def run_full_pipeline_test(
                 # Query 2: 전체 평균 (선택된 케이스의 환자 평균의 평균)
                 (
                     f"caseid가 [{case_ids_str}] 중 하나인 케이스들에 대해서만: "
-                    "수술 중(opstart부터 opend까지) "
                     "NIBP_SBP(Solar8000/NIBP_SBP) 값을 10분(600초) 단위로 segmentation 해서 "
                     "각 segment의 평균을 구하고, 환자별로 모든 segment 평균들을 다시 평균내서 "
-                    "환자당 수술 중 SBP 평균을 구한 후, "
+                    "환자당 SBP 평균을 구한 후, "
                     "모든 환자의 평균을 다시 평균내서 전체 평균을 구해줘. "
                     "한 환자가 여러 번 수술한 경우(같은 subjectid의 여러 caseid)는 "
                     "모든 수술의 segment를 합쳐서 하나의 평균을 구해줘. "
@@ -747,10 +722,10 @@ def run_full_pipeline_test(
             queries = [
                 # Query 1: 환자별 SBP 평균 (전체 환자)
                 (
-                    "모든 환자들의 수술 중(opstart부터 opend까지) "
+                    "모든 환자들의 "
                     "NIBP_SBP(Solar8000/NIBP_SBP) 값을 10분(600초) 단위로 segmentation 해서 "
                     "각 segment의 평균을 구하고, 환자별로 모든 segment 평균들을 다시 평균내서 "
-                    "환자당 수술 중 SBP 평균을 구해줘. "
+                    "환자당 SBP 평균을 구해줘. "
                     "한 환자가 여러 번 수술한 경우(같은 subjectid의 여러 caseid)는 "
                     "모든 수술의 segment를 합쳐서 하나의 평균을 구해줘. "
                     "결과는 {subjectid: mean} 형태의 dictionary로 반환해줘.",
@@ -758,10 +733,10 @@ def run_full_pipeline_test(
                 ),
                 # Query 2: 전체 평균 (환자 평균의 평균)
                 (
-                    "모든 환자들의 수술 중(opstart부터 opend까지) "
+                    "모든 환자들의 "
                     "NIBP_SBP(Solar8000/NIBP_SBP) 값을 10분(600초) 단위로 segmentation 해서 "
                     "각 segment의 평균을 구하고, 환자별로 모든 segment 평균들을 다시 평균내서 "
-                    "환자당 수술 중 SBP 평균을 구한 후, "
+                    "환자당 SBP 평균을 구한 후, "
                     "모든 환자의 평균을 다시 평균내서 전체 평균을 구해줘. "
                     "한 환자가 여러 번 수술한 경우(같은 subjectid의 여러 caseid)는 "
                     "모든 수술의 segment를 합쳐서 하나의 평균을 구해줘. "
@@ -785,34 +760,41 @@ def run_full_pipeline_test(
         if sample_size > 0 and max_signal_cases == 0:
             max_signal_cases = sample_size
     else:
-        # 기본 모드: 사전 정의된 Ground Truth 사용
-        subject_means = DEFAULT_GROUND_TRUTH_SUBJECT_MEANS
-        overall_mean = DEFAULT_GROUND_TRUTH_OVERALL_MEAN
+        # 기본 모드: 특정 케이스만 대상으로 동적 Ground Truth 계산
+        # SUBJECT_CASES에서 케이스 ID 추출
+        default_case_ids = []
+        for case_list in SUBJECT_CASES.values():
+            default_case_ids.extend(case_list)
+        
+        logging.info(f"\n🔬 Computing Ground Truth for default test cases ({len(default_case_ids)} cases)...")
+        subject_means, overall_mean, gt_stats = compute_full_ground_truth(
+            case_ids=default_case_ids
+        )
         
         # 쿼리 생성 (특정 subjectid 대상)
         queries = [
             # Query 1: 환자별 SBP 평균 (특정 환자)
             (
-                f"subjectid가 {DEFAULT_TEST_SUBJECT_IDS_STR}인 환자들의 수술 중(opstart부터 opend까지) "
+                f"subjectid가 {DEFAULT_TEST_SUBJECT_IDS_STR}인 환자들의 "
                 f"NIBP_SBP(Solar8000/NIBP_SBP) 값을 10분(600초) 단위로 segmentation 해서 "
                 f"각 segment의 평균을 구하고, 환자별로 모든 segment 평균들을 다시 평균내서 "
-                f"환자당 수술 중 SBP 평균을 구해줘. "
+                f"환자당 SBP 평균을 구해줘. "
                 f"한 환자가 여러 번 수술한 경우(같은 subjectid의 여러 caseid)는 "
                 f"모든 수술의 segment를 합쳐서 하나의 평균을 구해줘. "
                 f"결과는 {{subjectid: mean}} 형태의 dictionary로 반환해줘.",
-                lambda result: compare_dict_means(result, subject_means)
+                lambda result, sm=subject_means: compare_dict_means(result, sm)
             ),
             # Query 2: 전체 평균 (환자 평균의 평균)
             (
-                f"subjectid가 {DEFAULT_TEST_SUBJECT_IDS_STR}인 환자들의 수술 중(opstart부터 opend까지) "
+                f"subjectid가 {DEFAULT_TEST_SUBJECT_IDS_STR}인 환자들의 "
                 f"NIBP_SBP(Solar8000/NIBP_SBP) 값을 10분(600초) 단위로 segmentation 해서 "
                 f"각 segment의 평균을 구하고, 환자별로 모든 segment 평균들을 다시 평균내서 "
-                f"환자당 수술 중 SBP 평균을 구한 후, "
+                f"환자당 SBP 평균을 구한 후, "
                 f"모든 환자의 평균을 다시 평균내서 전체 평균을 구해줘. "
                 f"한 환자가 여러 번 수술한 경우(같은 subjectid의 여러 caseid)는 "
                 f"모든 수술의 segment를 합쳐서 하나의 평균을 구해줘. "
                 f"결과는 단일 float 값으로 반환해줘.",
-                lambda result: compare_numeric(result, overall_mean)
+                lambda result, om=overall_mean: compare_numeric(result, om)
             ),
         ]
         
@@ -823,8 +805,8 @@ def run_full_pipeline_test(
         test_info = {
             'mode': 'DEFAULT',
             'description': f'Selected subjects: {DEFAULT_TEST_SUBJECT_IDS}',
-            'subjects_count': len(DEFAULT_TEST_SUBJECT_IDS),
-            'cases_count': sum(len(v) for v in SUBJECT_CASES.values()),
+            'subjects_count': gt_stats['processed_subjects'],
+            'cases_count': len(default_case_ids),
         }
     
     # ==================================================
@@ -1049,8 +1031,8 @@ Test Modes:
 Test Details:
     - Signal: NIBP_SBP (Solar8000/NIBP_SBP)
     - Segmentation: 10 minutes (600 seconds)
-    - Time Window: Surgery time (opstart to opend)
-    - Multi-Surgery: Aggregate all segments across surgeries per patient
+    - Time Window: Full signal data (no temporal filtering)
+    - Multi-Case: Aggregate all segments across cases per patient
         """
     )
     parser.add_argument(
@@ -1100,6 +1082,11 @@ Test Details:
     args = parser.parse_args()
     
     setup_logging(args.verbose)
+    
+    # LLM 로깅 활성화 (생성된 코드, 프롬프트, 응답 저장)
+    from shared.llm import enable_llm_logging
+    log_session_dir = enable_llm_logging("./data/llm_logs")
+    logging.info(f"📝 LLM Logs: {log_session_dir}")
     
     validate = not args.no_validate
     

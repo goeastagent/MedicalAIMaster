@@ -30,6 +30,7 @@ execution_plan 기반 데이터 로드 및 관리:
 from .context import DataContext
 from .plan_parser import PlanParser
 from .analysis_context import AnalysisContextBuilder
+from .parameter_registry import ParameterRegistry
 
 # Re-export models from shared.models for convenience
 from shared.models.plan import (
@@ -39,14 +40,16 @@ from shared.models.plan import (
     JoinConfig,
     AnalysisContext,
 )
+from shared.models.parameter import ParameterInfo
 
 __all__ = [
     # Main context
     "DataContext",
     
-    # Parsers/Builders
+    # Parsers/Builders/Registry
     "PlanParser",
     "AnalysisContextBuilder",
+    "ParameterRegistry",
     
     # Models (re-exported from shared.models)
     "ParsedPlan",
@@ -54,5 +57,6 @@ __all__ = [
     "SignalMetadata",
     "JoinConfig",
     "AnalysisContext",
+    "ParameterInfo",
 ]
 
