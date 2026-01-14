@@ -89,6 +89,11 @@ Respond ONLY in the following JSON format:
      * "procedure_window" for surgery/procedure time
      * "treatment_window" for treatment/admission period
      * "custom_window" for specific time ranges
+9. **EXPLICIT PARAMETER KEY HANDLING**: When the user's query contains an exact database column name or parameter key (e.g., "Source/Parameter" format, or specific column names from the schema), use ONLY that exact key in candidates.
+   - This applies to both device signal parameters (with slash notation) and regular database column names
+   - If the query explicitly mentions a specific key that matches the database schema, do NOT add generic synonyms or alternative keywords
+   - This ensures precise parameter resolution without ambiguity
+   - Only add multiple candidates when the user uses general/ambiguous terminology
 """
 
 

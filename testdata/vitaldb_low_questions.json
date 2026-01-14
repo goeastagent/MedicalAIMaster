@@ -1,0 +1,134 @@
+[
+    {
+        "id": 1,
+        "question": "이 환자의 HR 최댓값을 구해주세요.",
+        "tool_code": "import vitaldb\nimport numpy as np\n\ndef get_hr_max(case_id, interval=1):\n    vals = vitaldb.load_case(case_id, ['Solar8000/HR'], interval)\n    if vals is None: return None\n    hr = vals[:, 0]\n    return np.nanmax(hr)",
+        "answer": "138.00 BPM"
+    },
+    {
+        "id": 2,
+        "question": "이 환자의 HR 최솟값을 구해주세요.",
+        "tool_code": "import numpy as np\nimport vitaldb\n\ndef get_hr_min(case_id, interval=1):\n    vals = vitaldb.load_case(case_id, ['Solar8000/HR'], interval)\n    if vals is None or len(vals) == 0: return None\n    hr = vals[:, 0]\n    return np.nanmin(hr)",
+        "answer": "56.00 BPM"
+    },
+    {
+        "id": 3,
+        "question": "이 환자의 HR 중간값을 구해주세요.",
+        "tool_code": "import numpy as np\nimport vitaldb\n\ndef get_hr_median(case_id, interval=1):\n    vals = vitaldb.load_case(case_id, ['Solar8000/HR'], interval)\n    if vals is None or len(vals) == 0: return None\n    hr = vals[:, 0]\n    return np.nanmedian(hr)",
+        "answer": "71.00 BPM"
+    },
+    {
+        "id": 4,
+        "question": "이 환자의 동맥혈압(ABP)의 평균값을 구해주세요.",
+        "tool_code": "import numpy as np\nimport vitaldb\n\ndef get_abp_mean(case_id, interval=1):\n    track_name = 'Solar8000/ART_MBP'\n    vals = vitaldb.load_case(case_id, [track_name], interval)\n    if vals is None or len(vals) == 0: return None\n    abp_mbp = vals[:, 0]\n    return np.nanmean(abp_mbp)",
+        "answer": "81.74 mmHg"
+    },
+    {
+        "id": 5,
+        "question": "이 환자의 동맥혈압(ABP) 최댓값을 구해주세요.",
+        "tool_code": "import numpy as np\nimport vitaldb\n\ndef get_abp_max(case_id, interval=1):\n    track_name = 'Solar8000/ART_SBP'\n    vals = vitaldb.load_case(case_id, [track_name], interval)\n    if vals is None or len(vals) == 0: return None\n    abp_sbp = vals[:, 0]\n    return np.nanmax(abp_sbp)",
+        "answer": "245.00 mmHg"
+    },
+    {
+        "id": 6,
+        "question": "이 환자의 동맥혈압(ABP) 최솟값(이완기 혈압)을 구해주세요.",
+        "tool_code": "import numpy as np\nimport vitaldb\n\ndef get_abp_min(case_id, interval=1):\n    track_name = 'Solar8000/ART_DBP'\n    vals = vitaldb.load_case(case_id, [track_name], interval)\n    if vals is None or len(vals) == 0: return None\n    abp_dbp = vals[:, 0]\n    return np.nanmin(abp_dbp)",
+        "answer": "-76.0 mmHg"
+    },
+    {
+        "id": 7,
+        "question": "이 환자의 동맥혈압(ABP) 최솟값(이완기 혈압)을 구해주세요. (단, 0 이하의 노이즈는 제외)",
+        "tool_code": "import numpy as np\nimport vitaldb\n\ndef get_abp_min_filtered(case_id, interval=1):\n    track_name = 'Solar8000/ART_DBP'\n    vals = vitaldb.load_case(case_id, [track_name], interval)\n    if vals is None or len(vals) == 0: return None\n    abp_dbp = vals[:, 0]\n    valid_abp = abp_dbp[abp_dbp > 0]\n    if len(valid_abp) == 0: return None\n    return np.nanmin(valid_abp)",
+        "answer": "1.0 mmHg"
+    },
+    {
+        "id": 8,
+        "question": "이 환자의 동맥혈압(ABP) 중간값(Median)을 구해주세요. (0 이하 노이즈 제외)",
+        "tool_code": "import numpy as np\nimport vitaldb\n\ndef get_abp_median(case_id, interval=1):\n    track_name = 'Solar8000/ART_MBP'\n    vals = vitaldb.load_case(case_id, [track_name], interval)\n    if vals is None or len(vals) == 0: return None\n    abp_mbp = vals[:, 0]\n    valid_abp = abp_mbp[abp_mbp > 0]\n    if len(valid_abp) == 0: return None\n    return np.nanmedian(valid_abp)",
+        "answer": "87.0 mmHg"
+    },
+    {
+        "id": 9,
+        "question": "이 환자의 산소포화도(SpO2) 평균값을 구해주세요. (0 이하 노이즈 제외)",
+        "tool_code": "import numpy as np\nimport vitaldb\n\ndef get_spo2_mean(case_id, interval=1):\n    track_name = 'Solar8000/PLETH_SPO2'\n    vals = vitaldb.load_case(case_id, [track_name], interval)\n    if vals is None or len(vals) == 0: return None\n    spo2 = vals[:, 0]\n    valid_spo2 = spo2[spo2 > 0]\n    if len(valid_spo2) == 0: return None\n    return np.nanmean(valid_spo2)",
+        "answer": "99.87 %"
+    },
+    {
+        "id": 10,
+        "question": "이 환자의 산소포화도(SpO2) 최댓값을 구해주세요.",
+        "tool_code": "import numpy as np\nimport vitaldb\n\ndef get_spo2_max(case_id, interval=1):\n    track_name = 'Solar8000/PLETH_SPO2'\n    vals = vitaldb.load_case(case_id, [track_name], interval)\n    if vals is None or len(vals) == 0: return None\n    spo2 = vals[:, 0]\n    return np.nanmax(spo2)",
+        "answer": "100.0 %"
+    },
+    {
+        "id": 11,
+        "question": "이 환자의 산소포화도(SpO2) 최솟값을 구해주세요.",
+        "tool_code": "import numpy as np\nimport vitaldb\n\ndef get_spo2_min(case_id, interval=1):\n    track_name = 'Solar8000/PLETH_SPO2'\n    vals = vitaldb.load_case(case_id, [track_name], interval)\n    if vals is None or len(vals) == 0: return None\n    spo2 = vals[:, 0]\n    return np.nanmin(spo2)",
+        "answer": "85.0 %"
+    },
+    {
+        "id": 12,
+        "question": "이 환자의 산소포화도(SpO2) 최솟값을 구해주세요. (0 이하 노이즈 제외)",
+        "tool_code": "import numpy as np\nimport vitaldb\n\ndef get_spo2_min_filtered(case_id, interval=1):\n    track_name = 'Solar8000/PLETH_SPO2'\n    vals = vitaldb.load_case(case_id, [track_name], interval)\n    if vals is None or len(vals) == 0: return None\n    spo2 = vals[:, 0]\n    valid_spo2 = spo2[spo2 > 0]\n    if len(valid_spo2) == 0: return None\n    return np.nanmin(valid_spo2)",
+        "answer": "85.0 %"
+    },
+    {
+        "id": 13,
+        "question": "이 환자의 수축기 혈압(SBP) 평균값을 구해주세요. (0 이하 노이즈 제외)",
+        "tool_code": "import numpy as np\nimport vitaldb\n\ndef get_sbp_mean(case_id, interval=1):\n    track_name = 'Solar8000/ART_SBP'\n    vals = vitaldb.load_case(case_id, [track_name], interval)\n    if vals is None or len(vals) == 0: return None\n    sbp = vals[:, 0]\n    valid_sbp = sbp[(sbp > 0) & (~np.isnan(sbp))]\n    if len(valid_sbp) == 0: return None\n    return np.mean(valid_sbp)",
+        "answer": "104.04 mmHg"
+    },
+    {
+        "id": 14,
+        "question": "이 환자의 수축기 혈압(SBP) 최댓값을 구해주세요.",
+        "tool_code": "import numpy as np\nimport vitaldb\n\ndef get_sbp_max(case_id, interval=1):\n    track_name = 'Solar8000/ART_SBP'\n    vals = vitaldb.load_case(case_id, [track_name], interval)\n    if vals is None or len(vals) == 0: return None\n    sbp = vals[:, 0]\n    return np.nanmax(sbp)",
+        "answer": "245.00 mmHg"
+    },
+    {
+        "id": 15,
+        "question": "이 환자의 수축기 혈압(SBP) 최솟값을 구해주세요. (0 이하 노이즈 제외)",
+        "tool_code": "import numpy as np\nimport vitaldb\n\ndef get_sbp_min(case_id, interval=1):\n    track_name = 'Solar8000/ART_SBP'\n    vals = vitaldb.load_case(case_id, [track_name], interval)\n    if vals is None or len(vals) == 0: return None\n    sbp = vals[:, 0]\n    valid_sbp = sbp[(sbp > 0) & (~np.isnan(sbp))]\n    if len(valid_sbp) == 0: return None\n    return np.min(valid_sbp)",
+        "answer": "1.00 mmHg"
+    },
+    {
+        "id": 16,
+        "question": "이 환자의 수축기 혈압(SBP) 중간값을 구해주세요. (0 이하 노이즈 제외)",
+        "tool_code": "import numpy as np\nimport vitaldb\n\ndef get_sbp_median(case_id, interval=1):\n    track_name = 'Solar8000/ART_SBP'\n    vals = vitaldb.load_case(case_id, [track_name], interval)\n    if vals is None or len(vals) == 0: return None\n    sbp = vals[:, 0]\n    valid_sbp = sbp[(sbp > 0) & (~np.isnan(sbp))]\n    if len(valid_sbp) == 0: return None\n    return np.median(valid_sbp)",
+        "answer": "111.00 mmHg"
+    },
+    {
+        "id": 17,
+        "question": "이 환자의 이완기 혈압(DBP)의 평균값, 최댓값, 최솟값, 중간값을 구해주세요.",
+        "tool_code": "import numpy as np\nimport vitaldb\n\ndef get_dbp_stats(case_id, interval=1):\n    track_name = 'Solar8000/ART_DBP'\n    vals = vitaldb.load_case(case_id, [track_name], interval)\n    if vals is None or len(vals) == 0: return None\n    dbp = vals[:, 0]\n    valid_dbp = dbp[(dbp > 0) & (~np.isnan(dbp))]\n    if len(valid_dbp) == 0: return None\n    return {\"Mean\": np.round(np.mean(valid_dbp), 2), \"Max\": np.round(np.max(valid_dbp), 2), \"Min\": np.round(np.min(valid_dbp), 2), \"Median\": np.round(np.median(valid_dbp), 2)}",
+        "answer": "평균: 62.94, 최대: 202.00, 최소: 1.00, 중간: 68.00 (단위: mmHg)"
+    },
+    {
+        "id": 18,
+        "question": "이 환자의 호기말 이산화탄소(EtCO2) 평균값은 얼마인가요?",
+        "tool_code": "import numpy as np\nimport vitaldb\n\ndef get_etco2_mean(case_id, interval=1):\n    track_name = 'Solar8000/ETCO2'\n    vals = vitaldb.load_case(case_id, [track_name], interval)\n    if vals is None or len(vals) == 0: return None\n    etco2 = vals[:, 0]\n    valid_etco2 = etco2[(etco2 > 0) & (~np.isnan(etco2))]\n    if len(valid_etco2) == 0: return None\n    return np.mean(valid_etco2)",
+        "answer": "31.82 mmHg"
+    },
+    {
+        "id": 19,
+        "question": "이 환자의 호기말 이산화탄소(EtCO2)의 최댜값, 최솟값, 중간값을 구해주세요. (0 이하 노이즈 제외)",
+        "tool_code": "import numpy as np\nimport vitaldb\n\ndef get_etco2_stats(case_id, interval=1):\n    track_name = 'Solar8000/ETCO2'\n    vals = vitaldb.load_case(case_id, [track_name], interval)\n    if vals is None or len(vals) == 0: return None\n    etco2 = vals[:, 0]\n    valid_etco2 = etco2[(etco2 > 0) & (~np.isnan(etco2))]\n    if len(valid_etco2) == 0: return None\n    return {\"Max\": np.max(valid_etco2), \"Min\": np.min(valid_etco2), \"Median\": np.median(valid_etco2)}",
+        "answer": "최댓값: 41.00, 최솟값: 1.00, 중간값: 33.00 (단위: mmHg)"
+    },
+    {
+        "id": 20,
+        "question": "이 환자의 심박변이도(HRV) 평균값(SDNN)은 얼마인가요?",
+        "tool_code": "import numpy as np\nimport vitaldb\n\ndef get_hrv_sdnn(case_id, interval=1):\n    track_name = 'Solar8000/HR'\n    vals = vitaldb.load_case(case_id, [track_name], interval)\n    if vals is None or len(vals) == 0: return None\n    hr = vals[:, 0]\n    valid_hr = hr[(hr > 20) & (hr < 200) & (~np.isnan(hr))]\n    if len(valid_hr) == 0: return None\n    rr_intervals = 60000 / valid_hr\n    return np.std(rr_intervals)",
+        "answer": "115.55 ms"
+    },
+    {
+        "id": 21,
+        "question": "이 환자의 이완기 혈압(DBP)이 90 mmHg 이상 유지된 시간은 총 몇 분인가요?",
+        "tool_code": "import numpy as np\nimport vitaldb\n\ndef get_high_dbp_duration(case_id, threshold=90, interval=1):\n    track_name = 'Solar8000/ART_DBP'\n    vals = vitaldb.load_case(case_id, [track_name], interval)\n    if vals is None or len(vals) == 0: return None\n    dbp = vals[:, 0]\n    valid_dbp = dbp[(dbp > 0) & (~np.isnan(dbp))]\n    if len(valid_dbp) == 0: return 0.0\n    high_count = np.sum(valid_dbp >= threshold)\n    return (high_count * interval) / 60.0",
+        "answer": "0.53 분"
+    },
+    {
+        "id": 22,
+        "question": "이 환자의 이완기 혈압(DBP)이 50 mmHg 미만(심장 관류 저하 위험)이었던 시간은 총 몇 분인가요?",
+        "tool_code": "import numpy as np\nimport vitaldb\n\ndef get_low_dbp_duration(case_id, interval=1):\n    track_name = 'Solar8000/ART_DBP'\n    vals = vitaldb.load_case(case_id, [track_name], interval)\n    if vals is None or len(vals) == 0: return None\n    dbp = vals[:, 0]\n    valid_dbp = dbp[(dbp > 0) & (~np.isnan(dbp))]\n    if len(valid_dbp) == 0: return 0.0\n    low_count = np.sum(valid_dbp < 50)\n    return (low_count * interval) / 60.0",
+        "answer": "7.92 분"
+    }
+]

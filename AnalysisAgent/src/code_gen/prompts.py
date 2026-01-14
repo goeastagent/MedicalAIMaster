@@ -56,7 +56,7 @@ Generate Python code that accomplishes the user's analysis task.
 3. DO NOT read/write files or make network requests
 4. DO NOT define functions or classes (write inline code only)
 5. Use vectorized pandas/numpy operations instead of explicit loops when possible
-6. Handle NaN/missing values with .dropna() or .fillna()
+6. ⚠️ NaN HANDLING: Medical data typically contains NaN values. Write NaN-resistant code that produces correct results even when NaN values are present in the data.
 7. The final result MUST be assigned to a variable named `result`
 8. DO NOT import modules - they are already available (pd, np, stats, etc.)
 9. Use EXACT column names as shown in Data Structure Details

@@ -57,14 +57,16 @@ class DataContext:
     - AnalysisAgent 지원: LLM용 컨텍스트 생성
     """
     
-    # ═══════════════════════════════════════════════════════════════════════════
-    # Class-level Cache (모든 인스턴스 공유)
-    # ═══════════════════════════════════════════════════════════════════════════
-    _signal_cache: Dict[str, pd.DataFrame] = {}   # caseid → signals DataFrame
-    _cohort_cache: Dict[str, pd.DataFrame] = {}   # file_id → cohort DataFrame
-    
     def __init__(self):
         """DataContext 초기화"""
+        # ═══════════════════════════════════════════════════════════════════════════
+        # Instance-level Cache (인스턴스별 독립 캐시)
+        # - 다른 DataContext 인스턴스 간 캐시 오염 방지
+        # - 같은 인스턴스 내에서는 캐시 효과 유지
+        # ═══════════════════════════════════════════════════════════════════════════
+        self._signal_cache: Dict[str, pd.DataFrame] = {}   # caseid → signals DataFrame
+        self._cohort_cache: Dict[str, pd.DataFrame] = {}   # file_id → cohort DataFrame
+        
         # Instance state
         self._plan: Optional[Dict[str, Any]] = None
         self._parsed_plan: Optional[ParsedPlan] = None  # PlanParser 결과
@@ -286,10 +288,10 @@ class DataContext:
             return pd.DataFrame()
         
         # 캐시 확인
-        if self._cohort_file_id not in DataContext._cohort_cache:
+        if self._cohort_file_id not in self._cohort_cache:
             self._load_cohort_to_cache()
         
-        df = DataContext._cohort_cache.get(self._cohort_file_id, pd.DataFrame())
+        df = self._cohort_cache.get(self._cohort_file_id, pd.DataFrame())
         
         # 필터 적용
         df = self._apply_cohort_filters(df)
@@ -893,10 +895,10 @@ class DataContext:
     
     def summary(self) -> Dict[str, Any]:
         """현재 상태 요약"""
-        cohort_loaded = self._cohort_file_id in DataContext._cohort_cache
+        cohort_loaded = self._cohort_file_id in self._cohort_cache
         signals_cached = len([
             cid for cid in self.get_case_ids() 
-            if cid in DataContext._signal_cache
+            if cid in self._signal_cache
         ])
         
         return {
@@ -916,8 +918,8 @@ class DataContext:
                 "temporal_type": self._temporal_config.get("type", "full_record")
             },
             "cache_stats": {
-                "cohort_cache_size": len(DataContext._cohort_cache),
-                "signal_cache_size": len(DataContext._signal_cache)
+                "cohort_cache_size": len(self._cohort_cache),
+                "signal_cache_size": len(self._signal_cache)
             }
         }
     
@@ -1287,12 +1289,12 @@ class DataContext:
         if not self._cohort_file_path:
             return
         
-        if self._cohort_file_id in DataContext._cohort_cache:
+        if self._cohort_file_id in self._cohort_cache:
             return  # 이미 캐시됨
         
         try:
             df = self._tabular_processor.load_data(self._cohort_file_path)
-            DataContext._cohort_cache[self._cohort_file_id] = df
+            self._cohort_cache[self._cohort_file_id] = df
         except Exception as e:
             print(f"[DataContext] Error loading cohort: {e}")
     
@@ -1305,44 +1307,54 @@ class DataContext:
         """특정 엔티티의 signal 데이터 로드"""
         params = param_keys or self._param_keys
         
-        # 캐시 확인
-        if entity_id in DataContext._signal_cache:
-            df = DataContext._signal_cache[entity_id]
+        # 파일 정보 찾기 (캐시 미스 시 필요)
+        file_info = None
+        for f in self._signal_files:
+            if f.get("entity_id") == entity_id:
+                file_info = f
+                break
+        
+        if not file_info or not file_info.get("file_path"):
+            return pd.DataFrame()
+        
+        # 캐시 확인 + 요청 컬럼 존재 여부 검사
+        need_reload = False
+        if entity_id in self._signal_cache:
+            cached_df = self._signal_cache[entity_id]
+            # 요청된 파라미터 중 캐시에 없는 컬럼이 있으면 재로드
+            if params:
+                missing_cols = [p for p in params if p not in cached_df.columns]
+                if missing_cols:
+                    logger.debug(f"Cache miss: columns {missing_cols} not in cache for entity {entity_id}")
+                    need_reload = True
         else:
-            # 파일 찾기
-            file_info = None
-            for f in self._signal_files:
-                if f.get("entity_id") == entity_id:
-                    file_info = f
-                    break
+            need_reload = True
+        
+        if need_reload:
+            # 캐시된 컬럼 + 새 컬럼 모두 포함하여 재로드
+            cols_to_load = params
+            if entity_id in self._signal_cache:
+                existing_cols = [c for c in self._signal_cache[entity_id].columns if c != "Time"]
+                cols_to_load = list(set(existing_cols + (params or [])))
             
-            if not file_info or not file_info.get("file_path"):
-                return pd.DataFrame()
-            
-            # 로드
             try:
                 df = self._signal_processor.load_data(
                     file_info["file_path"],
-                    columns=params
+                    columns=cols_to_load
                 )
-                DataContext._signal_cache[entity_id] = df
+                self._signal_cache[entity_id] = df
             except Exception as e:
                 print(f"[DataContext] Error loading signal for {entity_id}: {e}")
                 return pd.DataFrame()
+        else:
+            df = self._signal_cache[entity_id]
         
-        # 파라미터 필터링
+        # 파라미터 필터링 (요청된 컬럼만 반환)
         if params:
-            # Time 컬럼이 존재하는 경우에만 포함 (일부 데이터셋에는 없을 수 있음)
             time_cols = ["Time"] if "Time" in df.columns else []
             available_cols = time_cols + [p for p in params if p in df.columns]
             if available_cols:
                 df = df[available_cols].copy()
-            
-            # 요청된 params 중 없는 컬럼은 NaN으로 추가 (일관된 스키마 보장)
-            # LLM 코드가 해당 컬럼에 접근해도 KeyError 없이 자연스럽게 dropna()로 처리됨
-            for p in params:
-                if p not in df.columns:
-                    df[p] = np.nan
         
         # Temporal 필터 적용
         if apply_temporal and self._temporal_config.get("type", "full_record") != "full_record":
