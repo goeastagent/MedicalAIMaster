@@ -67,6 +67,7 @@ Generate Python code that accomplishes the user's analysis task.
 - Wrap code in ```python ... ``` block
 - Code must be complete and executable
 - The `result` variable must contain the final answer
+- ⚠️ IMPORTANT: When the expected output format specifies exact keys, return ONLY those keys. DO NOT add any extra metadata keys (e.g., identifiers, timestamps, source info) unless explicitly requested.
 """
 
 

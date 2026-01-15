@@ -306,6 +306,29 @@ class SandboxExecutor:
             
             # print guard - PrintCollector 인스턴스 사용
             exec_globals['_print_'] = PrintCollector
+            
+            # inplace variable guard (augmented assignment: x += 1, x -= 1, etc.)
+            def guarded_inplacevar(op, x, y):
+                """RestrictedPython에서 +=, -=, *= 등 연산 지원"""
+                ops = {
+                    '+=': lambda a, b: a + b,
+                    '-=': lambda a, b: a - b,
+                    '*=': lambda a, b: a * b,
+                    '/=': lambda a, b: a / b,
+                    '//=': lambda a, b: a // b,
+                    '%=': lambda a, b: a % b,
+                    '**=': lambda a, b: a ** b,
+                    '&=': lambda a, b: a & b,
+                    '|=': lambda a, b: a | b,
+                    '^=': lambda a, b: a ^ b,
+                    '>>=': lambda a, b: a >> b,
+                    '<<=': lambda a, b: a << b,
+                    '@=': lambda a, b: a @ b,  # matrix multiplication
+                }
+                if op in ops:
+                    return ops[op](x, y)
+                raise ValueError(f"Unsupported inplace operation: {op}")
+            exec_globals['_inplacevar_'] = guarded_inplacevar
         
         # 런타임 데이터 추가 (덮어쓰기 허용)
         exec_globals.update(runtime_data)
@@ -320,6 +343,28 @@ class SandboxExecutor:
         else:
             # 직접 정의
             builtins = {}
+        
+        # 제한된 import 함수 (허용된 모듈만)
+        def restricted_import(name, globals=None, locals=None, fromlist=(), level=0):
+            """허용된 모듈만 import 가능"""
+            allowed_modules = {
+                'numpy', 'np',
+                'pandas', 'pd', 
+                'scipy', 'scipy.stats', 'scipy.signal', 'scipy.interpolate',
+                'math',
+                'statistics',
+                'datetime',
+                'collections',
+                'itertools',
+                'functools',
+            }
+            
+            # 모듈명 체크
+            base_module = name.split('.')[0]
+            if base_module in allowed_modules or name in allowed_modules:
+                return __builtins__['__import__'](name, globals, locals, fromlist, level)
+            
+            raise ImportError(f"Import of '{name}' is not allowed in sandbox")
         
         # 공통으로 허용하는 builtins
         allowed = {
@@ -366,6 +411,7 @@ class SandboxExecutor:
             'issubclass': issubclass,
             'hasattr': hasattr,
             'getattr': getattr,
+            'setattr': setattr,
             'slice': slice,
             'iter': iter,
             'next': next,
@@ -376,6 +422,9 @@ class SandboxExecutor:
             
             # 출력 (디버깅용)
             'print': print,
+            
+            # 제한된 import
+            '__import__': restricted_import,
         }
         
         builtins.update(allowed)

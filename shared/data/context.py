@@ -1298,6 +1298,28 @@ class DataContext:
         except Exception as e:
             print(f"[DataContext] Error loading cohort: {e}")
     
+    def _normalize_entity_id(self, entity_id: str) -> str:
+        """
+        Entity ID 정규화 (leading zeros 제거)
+        
+        파일명에서 추출된 entity_id (예: "0001")와 
+        cohort의 caseid (예: 1 → "1")를 매칭하기 위해 정규화.
+        
+        Args:
+            entity_id: 원본 entity ID 문자열
+            
+        Returns:
+            정규화된 entity ID (예: "0001" → "1")
+        """
+        if entity_id is None:
+            return ""
+        try:
+            # 숫자형 ID인 경우 leading zeros 제거
+            return str(int(entity_id))
+        except (ValueError, TypeError):
+            # 숫자가 아닌 경우 원본 그대로 반환
+            return str(entity_id)
+    
     def _get_signal_for_case(
         self, 
         entity_id: str, 
@@ -1307,20 +1329,26 @@ class DataContext:
         """특정 엔티티의 signal 데이터 로드"""
         params = param_keys or self._param_keys
         
+        # Entity ID 정규화 (leading zeros 제거하여 "0001" == "1" 매칭)
+        normalized_entity_id = self._normalize_entity_id(entity_id)
+        
         # 파일 정보 찾기 (캐시 미스 시 필요)
         file_info = None
         for f in self._signal_files:
-            if f.get("entity_id") == entity_id:
+            if self._normalize_entity_id(f.get("entity_id")) == normalized_entity_id:
                 file_info = f
                 break
         
         if not file_info or not file_info.get("file_path"):
             return pd.DataFrame()
         
+        # 캐시 키로 정규화된 entity_id 사용 (일관성 유지)
+        cache_key = normalized_entity_id
+        
         # 캐시 확인 + 요청 컬럼 존재 여부 검사
         need_reload = False
-        if entity_id in self._signal_cache:
-            cached_df = self._signal_cache[entity_id]
+        if cache_key in self._signal_cache:
+            cached_df = self._signal_cache[cache_key]
             # 요청된 파라미터 중 캐시에 없는 컬럼이 있으면 재로드
             if params:
                 missing_cols = [p for p in params if p not in cached_df.columns]
@@ -1333,8 +1361,8 @@ class DataContext:
         if need_reload:
             # 캐시된 컬럼 + 새 컬럼 모두 포함하여 재로드
             cols_to_load = params
-            if entity_id in self._signal_cache:
-                existing_cols = [c for c in self._signal_cache[entity_id].columns if c != "Time"]
+            if cache_key in self._signal_cache:
+                existing_cols = [c for c in self._signal_cache[cache_key].columns if c != "Time"]
                 cols_to_load = list(set(existing_cols + (params or [])))
             
             try:
@@ -1342,12 +1370,12 @@ class DataContext:
                     file_info["file_path"],
                     columns=cols_to_load
                 )
-                self._signal_cache[entity_id] = df
+                self._signal_cache[cache_key] = df
             except Exception as e:
                 print(f"[DataContext] Error loading signal for {entity_id}: {e}")
                 return pd.DataFrame()
         else:
-            df = self._signal_cache[entity_id]
+            df = self._signal_cache[cache_key]
         
         # 파라미터 필터링 (요청된 컬럼만 반환)
         if params:

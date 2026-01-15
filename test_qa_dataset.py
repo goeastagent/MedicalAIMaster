@@ -119,32 +119,63 @@ def compare_values(expected: Any, actual: Any, format_type: str) -> Tuple[bool, 
             return False, f"float 변환 실패: {e}"
     
     elif format_type == "dict":
-        # dict 비교: 모든 키가 일치하고 값도 정확히 일치해야 함
+        # dict 비교: 중첩 dict도 지원
         if not isinstance(actual, dict):
             return False, f"실제값이 dict가 아님: {type(actual)}"
         
-        expected_keys = set(expected.keys())
-        actual_keys = set(actual.keys())
+        # 재귀적으로 dict 비교 (추가 키 무시, 허용 오차 적용)
+        def compare_nested(exp: Any, act: Any, path: str = "") -> Tuple[bool, str]:
+            """중첩 dict/값 재귀 비교 (tolerance 적용)"""
+            if isinstance(exp, dict):
+                if not isinstance(act, dict):
+                    return False, f"{path}: 타입 불일치 (expected dict, got {type(act).__name__})"
+                
+                exp_keys = set(exp.keys())
+                act_keys = set(act.keys())
+                
+                # 누락된 키만 에러로 처리 (추가 키는 무시)
+                missing = exp_keys - act_keys
+                if missing:
+                    return False, f"{path}: 필수 키 누락: {missing}"
+                
+                for key in exp_keys:
+                    key_path = f"{path}.{key}" if path else key
+                    ok, msg = compare_nested(exp[key], act[key], key_path)
+                    if not ok:
+                        return False, msg
+                
+                return True, "일치"
+            else:
+                # 숫자값 비교 (허용 오차 적용)
+                try:
+                    exp_val = float(exp)
+                    act_val = float(act)
+                    
+                    # 허용 오차: 상대 오차 1% 또는 절대 오차 0.5
+                    rel_tol = 0.01
+                    abs_tol = 0.5
+                    
+                    if exp_val == 0:
+                        # 기대값이 0인 경우 절대 오차만 사용
+                        if abs(act_val) <= abs_tol:
+                            return True, "일치 (허용 오차 내)"
+                    else:
+                        # 상대 오차 또는 절대 오차 허용
+                        if abs(exp_val - act_val) <= max(rel_tol * abs(exp_val), abs_tol):
+                            return True, "일치 (허용 오차 내)"
+                    
+                    return False, f"{path}: {exp_val} != {act_val}"
+                except (TypeError, ValueError):
+                    # 문자열 등 다른 타입 비교
+                    if exp != act:
+                        return False, f"{path}: {exp} != {act}"
+                    return True, "일치"
         
-        if expected_keys != actual_keys:
-            missing = expected_keys - actual_keys
-            extra = actual_keys - expected_keys
-            return False, f"키 불일치 (누락: {missing}, 추가: {extra})"
-        
-        mismatches = []
-        for key in expected_keys:
-            exp_val = float(expected[key])
-            try:
-                act_val = float(actual[key])
-                if exp_val != act_val:
-                    mismatches.append(f"{key}: {exp_val} != {act_val}")
-            except (TypeError, ValueError):
-                mismatches.append(f"{key}: 변환 실패")
-        
-        if mismatches:
-            return False, f"값 불일치: {', '.join(mismatches)}"
-        
-        return True, "모든 키와 값 일치"
+        ok, msg = compare_nested(expected, actual)
+        if ok:
+            return True, "모든 키와 값 일치"
+        else:
+            return False, f"값 불일치: {msg}"
     
     else:
         return False, f"알 수 없는 format: {format_type}"

@@ -1,0 +1,106 @@
+[
+    {
+        "question": "caseid가 1인 환자의 1초부터 20초까지의 구간에서의 HR(Solar8000/HR) 최댓값을 구해주세요. 결과는 단일 float 값으로 출력해주세요.",
+        "answer": 90.0,
+        "format": "float",
+        "parameter": "Solar8000/HR",
+        "tool_code": "import vitaldb\nimport numpy as np\n\ndef get_max_hr_in_range(case_id, start_sec, end_sec):\n    vals = vitaldb.load_case(case_id, ['Solar8000/HR'], 1)\n    if vals is None: return None\n    target_data = vals[start_sec:end_sec, 0]\n    if len(target_data) == 0 or np.all(np.isnan(target_data)): return None\n    return np.nanmax(target_data)",
+        "corrected_answer": 90.0
+    },
+    {
+        "question": "caseid가 1인 환자의 1초부터 20초까지의 구간에서의 HR(Solar8000/HR) 최솟값을 구해주세요. 결과는 단일 float 값으로 출력해주세요.",
+        "answer": 79.0,
+        "format": "float",
+        "parameter": "Solar8000/HR",
+        "tool_code": "import vitaldb\nimport numpy as np\n\ndef get_min_hr_in_range(case_id, start_sec, end_sec):\n    vals = vitaldb.load_case(case_id, ['Solar8000/HR'], 1)\n    if vals is None: return None\n    target_data = vals[start_sec:end_sec, 0]\n    if len(target_data) == 0 or np.all(np.isnan(target_data)): return None\n    return np.nanmin(target_data)",
+        "corrected_answer": 79.0
+    },
+    {
+        "question": "caseid가 1인 환자의 1초부터 20초까지의 구간에서의 HR(Solar8000/HR) 중간값을 구해주세요. 결과는 단일 float 값으로 출력해주세요.",
+        "answer": 88.0,
+        "format": "float",
+        "parameter": "Solar8000/HR",
+        "tool_code": "import vitaldb\nimport numpy as np\n\ndef get_median_hr_in_range(case_id, start_sec, end_sec):\n    vals = vitaldb.load_case(case_id, ['Solar8000/HR'], 1)\n    if vals is None: return None\n    target_data = vals[start_sec:end_sec, 0]\n    if len(target_data) == 0 or np.all(np.isnan(target_data)): return None\n    return np.nanmedian(target_data)",
+        "corrected_answer": 88.0
+    },
+    {
+        "question": "caseid가 1인 환자의 1초부터 20초까지의 구간에서의 동맥혈압(Solar8000/ART_MBP)의 평균값을 구해주세요. 결과는 단일 float 값으로 출력해주세요.",
+        "answer": -8.5,
+        "format": "float",
+        "parameter": "Solar8000/ART_MBP",
+        "tool_code": "import vitaldb\nimport numpy as np\n\ndef get_mean_abp_in_range(case_id, start_sec, end_sec):\n    track_name = 'Solar8000/ART_MBP'\n    vals = vitaldb.load_case(case_id, [track_name], 1)\n    if vals is None: return None\n    target_data = vals[start_sec:end_sec, 0]\n    if len(target_data) == 0 or np.all(np.isnan(target_data)): return None\n    return np.nanmean(target_data)",
+        "corrected_answer": -8.5
+    },
+    {
+        "question": "caseid가 1인 환자의 1초부터 20초까지의 구간에서의 동맥혈압(Solar8000/ART_SBP)의 최댓값을 구해주세요. 결과는 단일 float 값으로 출력해주세요.",
+        "answer": 8.0,
+        "format": "float",
+        "parameter": "Solar8000/ART_SBP",
+        "tool_code": "import vitaldb\nimport numpy as np\n\ndef get_max_abp_in_range(case_id, start_sec, end_sec):\n    track_name = 'Solar8000/ART_SBP'\n    vals = vitaldb.load_case(case_id, [track_name], 1)\n    if vals is None: return None\n    target_data = vals[start_sec:end_sec, 0]\n    if len(target_data) == 0 or np.all(np.isnan(target_data)): return None\n    return np.nanmax(target_data)",
+        "corrected_answer": 8.0
+    },
+    {
+        "question": "caseid가 1인 환자의 1초부터 20초까지의 구간에서의 동맥혈압(Solar8000/ART_DBP) 최솟값(이완기 혈압)을 구해주세요. 결과는 단일 float 값으로 출력해주세요.",
+        "answer": -12.0,
+        "format": "float",
+        "parameter": "Solar8000/ART_DBP",
+        "tool_code": "import vitaldb\nimport numpy as np\n\ndef get_min_abp_in_range(case_id, start_sec, end_sec):\n    track_name = 'Solar8000/ART_DBP'\n    vals = vitaldb.load_case(case_id, [track_name], 1)\n    if vals is None: return None\n    target_data = vals[start_sec:end_sec, 0]\n    if len(target_data) == 0 or np.all(np.isnan(target_data)): return None\n    return np.nanmin(target_data)",
+        "corrected_answer": -12.0
+    },
+    {
+        "question": "caseid가 1인 환자의 1초부터 20초까지의 구간에서의 동맥혈압(Solar8000/ART_MBP) 중간값(Median)을 구해주세요. 결과는 단일 float 값으로 출력해주세요.",
+        "answer": -8.5,
+        "format": "float",
+        "parameter": "Solar8000/ART_MBP",
+        "tool_code": "import vitaldb\nimport numpy as np\n\ndef get_median_abp_in_range(case_id, start_sec, end_sec):\n    track_name = 'Solar8000/ART_MBP'\n    vals = vitaldb.load_case(case_id, [track_name], 1)\n    if vals is None: return None\n    target_data = vals[start_sec:end_sec, 0]\n    if len(target_data) == 0 or np.all(np.isnan(target_data)): return None\n    return np.nanmedian(target_data)",
+        "corrected_answer": -8.5
+    },
+    {
+        "question": "caseid가 1인 환자의 1초부터 20초까지의 구간에서의 산소포화도(Solar8000/PLETH_SPO2) 평균값을 구하고 구한 평균값의 1.5배 보다 높은 구간의 총 길이를 구해주세요. 결과는 {\"mean\": float, \"duration\": float} 형식의 dict로 출력해주세요.",
+        "answer": {
+            "mean": 96.5,
+            "duration": 0.0
+        },
+        "format": "dict",
+        "parameter": "Solar8000/PLETH_SPO2",
+        "tool_code": "import vitaldb\nimport numpy as np\n\ndef get_high_spo2_duration_in_range(case_id, start_sec, end_sec):\n    track_name = 'Solar8000/PLETH_SPO2'\n    vals = vitaldb.load_case(case_id, [track_name], 1)\n    if vals is None: return None\n    target_data = vals[start_sec:end_sec, 0]\n    if len(target_data) == 0 or np.all(np.isnan(target_data)): return None\n    mean_val = np.nanmean(target_data)\n    threshold = mean_val * 1.5\n    high_spo2_indices = np.where(target_data > threshold)[0]\n    duration = len(high_spo2_indices) * 1.0\n    return {\"mean\": mean_val, \"duration\": duration}",
+        "corrected_answer": {
+            "mean": 96.5,
+            "duration": 0.0
+        }
+    },
+    {
+        "question": "caseid가 1인 환자의 1초부터 20초까지의 구간에서의 산소포화도(Solar8000/PLETH_SPO2) 최댓값과 최솟값을 구하고, 최댓값이 처음 나타난 시점과 최솟값이 처음 나타난 시점 사이의 시간 간격(초)을 구해주세요. 결과는 {\"max\": float, \"min\": float, \"interval\": float} 형식의 dict로 출력해주세요.",
+        "answer": {
+            "max": 97.0,
+            "min": 96.0,
+            "interval": 4.0
+        },
+        "format": "dict",
+        "parameter": "Solar8000/PLETH_SPO2",
+        "tool_code": "import vitaldb\nimport numpy as np\n\ndef get_spo2_max_min_interval_duration(case_id, start_sec, end_sec):\n    track_name = 'Solar8000/PLETH_SPO2'\n    vals = vitaldb.load_case(case_id, [track_name], 1)\n    if vals is None: return None\n    target_data = vals[start_sec:end_sec, 0]\n    if len(target_data) == 0 or np.all(np.isnan(target_data)): return None\n    max_idx = np.nanargmax(target_data)\n    min_idx = np.nanargmin(target_data)\n    diff_sec = abs(max_idx - min_idx) * 1.0\n    return {\"max\": target_data[max_idx], \"min\": target_data[min_idx], \"interval\": diff_sec}",
+        "corrected_answer": {
+            "max": 97.0,
+            "min": 96.0,
+            "interval": 4.0
+        }
+    },
+    {
+        "question": "caseid가 1인 환자의 1초부터 20초까지의 구간에서의 이완기 혈압(Solar8000/ART_DBP)의 평균값, 최댓값, 최솟값, 중간값을 구하고 각 값이 몇초에 나타났는지 구해주세요. 결과는 {\"mean\": {\"value\": float, \"time\": int}, \"max\": {\"value\": float, \"time\": int}, \"min\": {\"value\": float, \"time\": int}, \"median\": {\"value\": float, \"time\": int}} 형식의 dict로 출력해주세요.",
+        "answer": {
+            "mean": {"value": -9.1, "time": 7},
+            "max": {"value": -8.0, "time": 1},
+            "min": {"value": -12.0, "time": 15},
+            "median": {"value": -8.5, "time": 1}
+        },
+        "format": "dict",
+        "parameter": "Solar8000/ART_DBP",
+        "tool_code": "import vitaldb\nimport numpy as np\n\ndef get_dbp_stats_in_range(case_id, start_sec, end_sec):\n    track_name = 'Solar8000/ART_DBP'\n    vals = vitaldb.load_case(case_id, [track_name], 1)\n    if vals is None: return None\n    target_data = vals[start_sec:end_sec, 0]\n    if len(target_data) == 0 or np.all(np.isnan(target_data)): return None\n    def find_time_for_val(val, data, start):\n        diff = np.abs(data - val)\n        idx = np.nanargmin(diff)\n        return start + idx\n    max_val = np.nanmax(target_data)\n    max_time = start_sec + np.nanargmax(target_data)\n    min_val = np.nanmin(target_data)\n    min_time = start_sec + np.nanargmin(target_data)\n    mean_val = np.nanmean(target_data)\n    mean_time = find_time_for_val(mean_val, target_data, start_sec)\n    median_val = np.nanmedian(target_data)\n    median_time = find_time_for_val(median_val, target_data, start_sec)\n    return {\"mean\": {\"value\": mean_val, \"time\": mean_time}, \"max\": {\"value\": max_val, \"time\": max_time}, \"min\": {\"value\": min_val, \"time\": min_time}, \"median\": {\"value\": median_val, \"time\": median_time}}",
+        "corrected_answer": {
+            "mean": {"value": -9.1, "time": 7},
+            "max": {"value": -8.0, "time": 1},
+            "min": {"value": -12.0, "time": 15},
+            "median": {"value": -8.5, "time": 1}
+        }
+    }
+]

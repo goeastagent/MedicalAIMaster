@@ -70,7 +70,7 @@
         }
     },
     {
-        "question": "caseid가 1인 환자의 1초부터 20초까지의 구간에서의 산소포화도(SpO2) 최댓값과 최솟값을 구하고 두 값 사이 구간의 길이를 구해주세요. 결과는 {\"max\": float, \"min\": float, \"interval\": float} 형식의 dict로 출력해주세요.",
+        "question": "caseid가 1인 환자의 1초부터 20초까지의 구간에서의 산소포화도(SpO2) 최댓값과 최솟값을 구하고, 최댓값이 처음 나타난 시점과 최솟값이 처음 나타난 시점 사이의 시간 간격(초)을 구해주세요. 결과는 {\"max\": float, \"min\": float, \"interval\": float} 형식의 dict로 출력해주세요.",
         "answer": {
             "max": 97.0,
             "min": 96.0,
