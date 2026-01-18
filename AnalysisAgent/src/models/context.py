@@ -199,8 +199,11 @@ class ExecutionContext(BaseModel):
         "pandas as pd",
         "numpy as np",
         "scipy.stats",
+        "scipy.signal",
+        "scipy.interpolate",
         "datetime",
         "math",
+        "vitaldb",
     ])
     """허용된 import 목록
     

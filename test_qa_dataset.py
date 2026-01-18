@@ -457,6 +457,10 @@ def main():
     qa_pairs = load_qa_pairs(str(input_path))
     print(f"\n📚 {len(qa_pairs)}개의 QA 쌍 로드 완료")
     
+    # TODO: 테스트용 - 4~8번째만 실행 (나중에 제거)
+    qa_pairs = qa_pairs[3:8]
+    print(f"⚠️  테스트 모드: 4~8번째 질의만 실행 ({len(qa_pairs)}개)")
+    
     # Orchestrator 생성
     orchestrator = Orchestrator()
     

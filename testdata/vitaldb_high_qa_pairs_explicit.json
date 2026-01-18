@@ -1,6 +1,6 @@
 [
     {
-        "question": "caseid가 1인 환자의 심전도(SNUADC/ECG_II) 데이터의 60Hz 전원 간섭을 제거하고, 샘플링 주기를 0.1초로 통일한 뒤, 5분 단위의 슬라이딩 윈도우를 적용하여 구간별 평균 심박수를 산출해주세요. 결과는 단일 float 값으로 출력해주세요.",
+        "question": "caseid가 1인 환자의 심전도(SNUADC/ECG_II) 데이터를 500Hz로 로드하고 NaN을 0으로 대체(np.nan_to_num(ecg, nan=0.0))한 뒤, 60Hz 전원 간섭(notch filter, Q=30)을 제거하고, bandpass 5-15Hz 필터 적용 후 np.abs()를 취하여 R-peak를 검출(scipy.signal.find_peaks, 최소 간격 0.4초, prominence=0.5*max(abs(ecg_bp)))해주세요. RR interval 기반으로 순간 심박수(HR=60/RR)를 계산하되, 유효한 RR interval은 0.3초 초과 ~ 2.0초 미만(0.3 < RR < 2.0) 범위입니다. 그 후 5분(300초) 윈도우를 1분(60초)씩 슬라이딩하며 각 윈도우의 평균 심박수를 구하되, 윈도우 내 유효 beat가 5개 초과(>5)인 경우만 포함합니다. 모든 윈도우 평균의 전체 평균을 계산해주세요. 결과는 단일 float 값으로 출력해주세요.",
         "answer": 83.7,
         "format": "float",
         "parameter": "SNUADC/ECG_II",
@@ -16,23 +16,23 @@
         "corrected_answer": {"max_hr_range": [60.0, 139.0]}
     },
     {
-        "question": "caseid가 1인 환자의 전체 ECG(SNUADC/ECG_II)에서 30초 간격으로 데이터 값을 보고 값이 앞뒤 10초의 중간값(Median)과 3배 이상 차이가 나면 삭제하고 linear interpolation을 적용해주세요. 결과는 {\"samples\": int, \"range\": [min, max]} 형식의 dict로 출력해주세요.",
-        "answer": {"samples": 5770550, "range": [-4.96, 9.19]},
+        "question": "caseid가 1인 환자의 전체 ECG(SNUADC/ECG_II)를 vitaldb.load_case(1, ['SNUADC/ECG_II'], 1/500)으로 500Hz 로드해주세요. 30초 간격의 체크포인트 인덱스(idx = 0, 15000, 30000, ... 샘플)에서 이상치를 검출합니다. 각 체크포인트에서 context 범위는 앞쪽 10초 + 뒤쪽 10초(총 20초)이며, start=max(0, idx-5000), end=min(len(ecg), idx+5000)으로 계산하고 ecg[start:end] 구간의 np.nanmedian을 구합니다. 이상치 조건: median≠0이고 |ecg[idx]| > 3×|median|이면 해당 체크포인트 샘플만 NaN으로 설정합니다. 전체 데이터에 pd.Series(ecg).interpolate(method='linear', limit_direction='both').values로 선형 보간을 적용해주세요. 결과는 {\"samples\": int, \"range\": [min, max]} 형식의 dict로 출력해주세요. samples는 전체 샘플 수, range는 보간 후 [np.nanmin(), np.nanmax()] 값을 소수점 2자리로 반올림하세요.",
+        "answer": {"samples": 5770550, "range": [-4.96, 5.15]},
         "format": "dict",
         "parameter": "SNUADC/ECG_II",
         "tool_code": "def ecg_outlier_removal_linear_interp(case_id, check_interval_sec=30, context_sec=10):\n    # 1. ECG 로드\n    ecg, interval = load_signal(case_id, 'SNUADC/ECG_II', 1/500)\n    fs = int(1/interval)\n    \n    # 2. 30초 간격으로 이상치 체크 및 제거\n    ecg_cleaned = ecg.copy()\n    context_samples = int(context_sec * fs)\n    check_points = np.arange(0, len(ecg), int(check_interval_sec * fs))\n    \n    for idx in check_points:\n        start = max(0, idx - context_samples)\n        end = min(len(ecg), idx + context_samples)\n        median = np.nanmedian(ecg[start:end])\n        if not np.isnan(ecg[idx]) and median != 0:\n            if np.abs(ecg[idx]) > 3 * np.abs(median):\n                ecg_cleaned[idx] = np.nan\n    \n    # 3. 선형 보간\n    ecg_interpolated = linear_interpolation(ecg_cleaned)\n    return ecg_interpolated",
-        "corrected_answer": {"samples": 5770550, "range": [-4.96, 9.19]}
+        "corrected_answer": {"samples": 5770550, "range": [-4.96, 5.15]}
     },
     {
-        "question": "caseid가 1인 환자의 HR(Solar8000/HR)을 10Hz로 리샘플링하고, 30초씩 옆으로 이동하며(슬라이딩 윈도우) HR이 평균보다 20% 이상 변한 횟수를 계산해주세요. 결과는 단일 float 값으로 출력해주세요.",
-        "answer": 22.0,
+        "question": "caseid가 1인 환자의 HR(Solar8000/HR)을 1Hz로 로드하고 NaN을 linear interpolation으로 보간한 뒤, np.interp를 사용해 10Hz로 업샘플링해주세요. 겹치지 않는 30초 단위 윈도우(300샘플)로 나누어 각 윈도우 내에서 개별 샘플이 해당 윈도우 평균보다 20% 초과(|sample - avg| / avg * 100 > 20) 벗어나는 샘플 개수를 세고, 모든 윈도우의 개수를 합산해주세요. 결과는 단일 float 값으로 출력해주세요.",
+        "answer": 26.0,
         "format": "float",
         "parameter": "Solar8000/HR",
         "tool_code": "def hr_resample_sliding_change_count(case_id, target_fs=10, window_sec=30, threshold_pct=20):\n    # 1. HR 로드 및 보간\n    hr, interval = load_signal(case_id, 'Solar8000/HR', 1)\n    hr_filled = linear_interpolation(hr)\n    \n    # 2. 10Hz로 리샘플링\n    hr_resampled = resample_signal(hr_filled, 1, target_fs)\n    \n    # 3. 30초 윈도우로 변화 횟수 계산\n    window_samples = window_sec * target_fs\n    results = []\n    for start in range(0, len(hr_resampled) - window_samples, window_samples):\n        segment = hr_resampled[start:start + window_samples]\n        avg = np.mean(segment)\n        deviation = np.abs(segment - avg) / avg * 100\n        change_count = np.sum(deviation > threshold_pct)\n        results.append({\n            'window_start_sec': start / target_fs,\n            'avg_hr': avg,\n            'change_count': change_count\n        })\n    return pd.DataFrame(results)",
-        "corrected_answer": 22.0
+        "corrected_answer": 26.0
     },
     {
-        "question": "caseid가 1인 환자의 SBP(Solar8000/ART_SBP)와 DBP(Solar8000/ART_DBP)를 1초 단위로 맞추고, 3분마다 (SBP + 2*DBP) / 3 수식을 적용해 MBP를 계산해주세요. 결과는 {\"mbp_range\": [min, max]} 형식의 dict로 출력해주세요.",
+        "question": "caseid가 1인 환자의 SBP(Solar8000/ART_SBP)와 DBP(Solar8000/ART_DBP)를 1초 단위로 맞추고, 겹치지 않는 3분(180초) 윈도우로 나누어 각 윈도우 내 유효한(SBP, DBP 모두 NaN 아닌) 샘플들의 SBP 평균(avg_sbp)과 DBP 평균(avg_dbp)을 구한 뒤, MBP = (avg_sbp + 2×avg_dbp) / 3 수식을 적용해주세요. 유효 샘플이 10개 이하인 윈도우는 제외합니다. 결과는 {\"mbp_range\": [min, max]} 형식의 dict로 출력해주세요. 최종 min/max 값은 Python의 round(value, 1)을 사용해 소수점 1자리로 반올림하세요.",
         "answer": {"mbp_range": [-8.9, 166.0]},
         "format": "dict",
         "parameter": "Solar8000/ART_SBP,Solar8000/ART_DBP",
@@ -40,12 +40,12 @@
         "corrected_answer": {"mbp_range": [-8.9, 166.0]}
     },
     {
-        "question": "caseid가 1인 환자의 ART(Solar8000/ART_MBP)를 10Hz로 리샘플링한 뒤, 1분마다 혈압의 최대치와 최소치의 차이를 구해주세요. 결과는 {\"bp_range\": [min, max]} 형식의 dict로 출력해주세요.",
-        "answer": {"bp_range": [0.1, 402.8]},
+        "question": "caseid가 1인 환자의 ART(Solar8000/ART_MBP)를 1Hz로 로드하고 NaN을 pandas의 interpolate(method='linear', limit_direction='both')로 먼저 보간한 뒤, np.interp를 사용해 10Hz로 업샘플링해주세요. 겹치지 않는 1분(600샘플) 윈도우로 나누어 각 윈도우의 (max - min) 값을 계산하고, 불완전한 마지막 윈도우는 제외합니다. 모든 윈도우의 (max-min) 값들 중 최소값과 최대값을 구해주세요. 결과는 {\"bp_range\": [min, max]} 형식의 dict로 출력해주세요. 최종 값은 Python의 round(value, 1)을 사용해 소수점 1자리로 반올림하세요.",
+        "answer": {"bp_range": [0.0, 401.0]},
         "format": "dict",
         "parameter": "Solar8000/ART_MBP",
         "tool_code": "def art_resample_minmax_diff(case_id, target_fs=10, window_min=1):\n    # 1. ART 로드 및 보간\n    art, _ = load_signal(case_id, 'Solar8000/ART_MBP', 1)\n    art_filled = linear_interpolation(art)\n    \n    # 2. 10Hz로 리샘플링\n    art_resampled = resample_signal(art_filled, 1, target_fs)\n    \n    # 3. 1분 윈도우로 범위 계산\n    window_samples = window_min * 60 * target_fs\n    results = []\n    for start in range(0, len(art_resampled) - window_samples, window_samples):\n        segment = art_resampled[start:start + window_samples]\n        results.append({\n            'time_start_sec': start / target_fs,\n            'max_bp': np.max(segment),\n            'min_bp': np.min(segment),\n            'bp_range': np.max(segment) - np.min(segment)\n        })\n    return pd.DataFrame(results)",
-        "corrected_answer": {"bp_range": [0.1, 402.8]}
+        "corrected_answer": {"bp_range": [0.0, 401.0]}
     },
     {
         "question": "caseid가 1인 환자의 결측인 SBP(Solar8000/ART_SBP) 데이터를 linear interpolation하고, 10분 단위로 윈도우를 나누어 SBP가 140을 초과한 시간이 총 몇 초인지 합산해주세요. 결과는 단일 float 값으로 출력해주세요.",
@@ -72,7 +72,7 @@
         "corrected_answer": 0.0
     },
     {
-        "question": "caseid가 1인 환자의 SBP(Solar8000/ART_SBP)에서 값이 0 또는 300 이상을 삭제하고, 10초 단위로 리샘플링한 다음, 30분 단위 윈도우를 적용해 혈압의 평균 변화율을 계산해주세요. 결과는 {\"rate_of_change_range\": [min, max]} 형식의 dict로 출력해주세요.",
+        "question": "caseid가 1인 환자의 SBP(Solar8000/ART_SBP)에서 값이 0 또는 300 이상을 삭제하고, 10초 단위로 평균값을 구해 리샘플링한 다음, 겹치지 않는 30분 단위 윈도우를 적용해 각 윈도우의 시작값과 끝값 사이의 변화율(%)을 계산해주세요. 변화율 = (끝값 - 시작값) / 시작값 × 100. 결과는 {\"rate_of_change_range\": [min, max]} 형식의 dict로 출력해주세요.",
         "answer": {"rate_of_change_range": [-9.9, 1127.5]},
         "format": "dict",
         "parameter": "Solar8000/ART_SBP",
@@ -85,10 +85,10 @@
         "format": "dict",
         "parameter": "Solar8000/ART_DBP",
         "tool_code": "def dbp_range_above_threshold(case_id, window_min=10, range_threshold=20):\n    # 1. DBP 로드\n    dbp, _ = load_signal(case_id, 'Solar8000/ART_DBP', 1)\n    \n    # 2. 10분 윈도우로 범위 계산\n    window_sec = window_min * 60\n    results = []\n    for start in range(0, len(dbp) - window_sec, window_sec):\n        segment = dbp[start:start + window_sec]\n        valid = segment[~np.isnan(segment)]\n        if len(valid) > 10:\n            bp_range = np.max(valid) - np.min(valid)\n            results.append({\n                'window_start_sec': start,\n                'max_dbp': np.max(valid),\n                'min_dbp': np.min(valid),\n                'dbp_range': bp_range,\n                'above_threshold': bp_range >= range_threshold\n            })\n    df = pd.DataFrame(results)\n    return {'all_results': df, 'patient_flag': any(df['above_threshold'])}",
-        "corrected_answer": {"patient_flag": true, "windows_analyzed": 19}
+        "corrected_answer": {"patient_flag": true, "windows_analyzed": 18}
     },
     {
-        "question": "caseid가 1인 환자의 ART(Solar8000/ART_MBP)의 1분 단위의 곡선(그래프) 아래 면적을 구하고, 이 데이터를 10초 간격으로 다시 생성해서 면적의 차이를 알려주세요. 결과는 {\"auc_range\": [min, max]} 형식의 dict로 출력해주세요.",
+        "question": "caseid가 1인 환자의 ART(Solar8000/ART_MBP)를 linear interpolation으로 보간한 뒤, 1분(60초) 구간의 AUC를 사다리꼴 적분(np.trapz)으로 계산하되 10초 간격으로 슬라이딩하며 계산해주세요. 그 후 연속된 AUC 값들의 차이(diff)를 구하고, 이 diff 값들의 [min, max] 범위를 구해주세요. 결과는 {\"auc_range\": [min, max]} 형식의 dict로 출력해주세요.",
         "answer": {"auc_range": [-531, 14579]},
         "format": "dict",
         "parameter": "Solar8000/ART_MBP",
@@ -96,7 +96,7 @@
         "corrected_answer": {"auc_range": [-531, 14579]}
     },
     {
-        "question": "caseid가 1인 환자의 PPG(SNUADC/PLETH)에서 10Hz로 샘플링 간격을 조절한 뒤, 겹치지 않는 1분 단위 윈도우로 나누어 각 윈도우의 평균치를 산출해주세요. 결과는 {\"minutes_analyzed\": int, \"avg_range\": [min, max]} 형식의 dict로 출력해주세요.",
+        "question": "caseid가 1인 환자의 PPG(SNUADC/PLETH)를 125Hz로 추출한 뒤 10Hz로 리샘플링하고, 겹치지 않는 1분 단위 윈도우로 나누어 각 윈도우의 평균치를 산출해주세요. 결과는 {\"minutes_analyzed\": int, \"avg_range\": [min, max]} 형식의 dict로 출력해주세요.",
         "answer": {"minutes_analyzed": 192, "avg_range": [-6.98, 41.08]},
         "format": "dict",
         "parameter": "SNUADC/PLETH",
@@ -104,7 +104,7 @@
         "corrected_answer": {"minutes_analyzed": 192, "avg_range": [-6.98, 41.08]}
     },
     {
-        "question": "caseid가 1인 환자의 PPG(SNUADC/PLETH) 신호에서 0.05초 간격으로 조절하고, 겹치지 않는 30초 단위 윈도우로 나누어 각 윈도우의 최고값과 최저값을 구해주세요. 결과는 {\"windows\": int, \"max_range\": [min, max], \"min_range\": [min, max]} 형식의 dict로 출력해주세요.",
+        "question": "caseid가 1인 환자의 PPG(SNUADC/PLETH)를 20Hz(0.05초 간격)로 추출하고, 겹치지 않는 30초 단위 윈도우로 나누어 각 윈도우의 최고값과 최저값을 구해주세요. 결과는 {\"windows\": int, \"max_range\": [min, max], \"min_range\": [min, max]} 형식의 dict로 출력해주세요.",
         "answer": {"windows": 384, "max_range": [-4.31, 94.83], "min_range": [-18.14, 30.44]},
         "format": "dict",
         "parameter": "SNUADC/PLETH",
@@ -112,7 +112,7 @@
         "corrected_answer": {"windows": 384, "max_range": [-4.31, 94.83], "min_range": [-18.14, 30.44]}
     },
     {
-        "question": "caseid가 1인 환자의 PPG(SNUADC/PLETH) 데이터를 0.1초 간격(10Hz)으로 표준화한 뒤, 각 시점의 값이 주변 10초 구간의 중간값(Median)으로부터 표준편차의 3배(3-Sigma) 범위를 벗어날 경우 이를 이상치로 보고 삭제해주세요. 결과는 {\"samples\": int, \"outliers_removed\": int} 형식의 dict로 출력해주세요.",
+        "question": "caseid가 1인 환자의 PPG(SNUADC/PLETH) 데이터를 10Hz(0.1초 간격)로 추출한 뒤, 각 시점의 값이 주변 10초 구간의 중간값(Median)으로부터 표준편차의 3배(3-Sigma) 범위를 벗어날 경우 이를 이상치로 보고 삭제해주세요. 결과는 {\"samples\": int, \"outliers_removed\": int} 형식의 dict로 출력해주세요.",
         "answer": {"samples": 115411, "outliers_removed": 139},
         "format": "dict",
         "parameter": "SNUADC/PLETH",
@@ -120,7 +120,7 @@
         "corrected_answer": {"samples": 115411, "outliers_removed": 139}
     },
     {
-        "question": "caseid가 1인 환자의 PPG(SNUADC/PLETH) 데이터를 0.1초 간격(10Hz)으로 표준화한 뒤, 각 시점의 값이 주변 10초 구간의 중간값(Median)으로부터 표준편차의 3배(3-Sigma) 범위를 벗어날 경우 이를 이상치로 보고 삭제하고, 겹치지 않는 30초 단위 윈도우로 나누어 각 윈도우의 최고값과 최저값을 구해주세요. 결과는 {\"windows\": int, \"max_range\": [min, max], \"min_range\": [min, max]} 형식의 dict로 출력해주세요.",
+        "question": "caseid가 1인 환자의 PPG(SNUADC/PLETH) 데이터를 10Hz(0.1초 간격)로 추출한 뒤, 각 시점의 값이 주변 10초 구간의 중간값(Median)으로부터 표준편차의 3배(3-Sigma) 범위를 벗어날 경우 이를 이상치로 보고 삭제하고, 겹치지 않는 30초 단위 윈도우로 나누어 각 윈도우의 최고값과 최저값을 구해주세요. 결과는 {\"windows\": int, \"max_range\": [min, max], \"min_range\": [min, max]} 형식의 dict로 출력해주세요.",
         "answer": {"windows": 384, "max_range": [-3.92, 94.83], "min_range": [-15.37, 30.44]},
         "format": "dict",
         "parameter": "SNUADC/PLETH",
@@ -136,7 +136,7 @@
         "corrected_answer": 42.5
     },
     {
-        "question": "caseid가 1인 환자의 HR(Solar8000/HR)과 SBP(Solar8000/ART_SBP)를 1초 단위로 리샘플링한 뒤, HR / SBP 수식으로 쇼크 지표(Shock Index)를 구하고 5분 윈도우 내에서 이 지수가 1.0을 초과하는 횟수를 세어주세요. 결과는 {\"si_above_1_count\": int, \"avg_shock_index_range\": [min, max]} 형식의 dict로 출력해주세요.",
+        "question": "caseid가 1인 환자의 HR(Solar8000/HR)과 SBP(Solar8000/ART_SBP)를 1초 단위로 맞춘 뒤, HR / SBP 수식으로 쇼크 지표(Shock Index)를 구해주세요. 그리고 5분 윈도우를 1분씩 슬라이딩하며 각 윈도우 내에서 SI가 1.0을 초과하는 초(second) 수를 세고, 해당 윈도우의 평균 SI를 계산해주세요. si_above_1_count는 모든 윈도우에서 SI>1.0인 초 수를 합산한 값입니다. 결과는 {\"si_above_1_count\": int, \"avg_shock_index_range\": [min, max]} 형식의 dict로 출력해주세요.",
         "answer": {"si_above_1_count": 194, "avg_shock_index_range": [0.450, 7.413]},
         "format": "dict",
         "parameter": "Solar8000/HR,Solar8000/ART_SBP",
@@ -144,7 +144,7 @@
         "corrected_answer": {"si_above_1_count": 194, "avg_shock_index_range": [0.450, 7.413]}
     },
     {
-        "question": "caseid가 1인 환자의 DBP(Solar8000/ART_DBP)를 5초 간격으로 맞추고 비어있는 곳은 Linear Interpolation한 뒤, 혈압이 10분마다 5%씩 지속적으로 하락하는 30분 이상의 구간을 찾아주세요. 결과는 단일 float 값으로 출력해주세요.",
+        "question": "caseid가 1인 환자의 DBP(Solar8000/ART_DBP)를 5초 간격으로 맞추고 비어있는 곳은 Linear Interpolation한 뒤, 겹치지 않는 10분 단위 윈도우별 평균을 계산해주세요. 연속된 윈도우에서 이전 윈도우 대비 5% 이상 하락하는 구간이 3개 이상(30분 이상) 연속되는 경우의 개수를 세어주세요. 결과는 단일 float 값으로 출력해주세요.",
         "answer": 1.0,
         "format": "float",
         "parameter": "Solar8000/ART_DBP",
@@ -160,7 +160,7 @@
         "corrected_answer": {"windows": 18, "max_hypotension_auc": 41243.2}
     },
     {
-        "question": "caseid가 1인 환자의 SBP(Solar8000/ART_SBP)와 DBP(Solar8000/ART_DBP)의 기록 시간을 1초 단위로 일치시키고 SBP - DBP 수식으로 맥압(Pulse Pressure)을 구한 뒤, 맥압이 30mmHg 이하로 10분 동안 유지되는 빈도를 알려주세요. 결과는 단일 float 값으로 출력해주세요.",
+        "question": "caseid가 1인 환자의 SBP(Solar8000/ART_SBP)와 DBP(Solar8000/ART_DBP)의 기록 시간을 1초 단위로 일치시키고 SBP - DBP 수식으로 맥압(Pulse Pressure)을 구해주세요. 맥압이 30mmHg 이하로 연속 10분(600초) 동안 유지되는 구간(이벤트)의 개수를 세어주세요. NaN이 아닌 값들만 조건 체크에 포함합니다. 결과는 단일 float 값으로 출력해주세요.",
         "answer": 1.0,
         "format": "float",
         "parameter": "Solar8000/ART_SBP,Solar8000/ART_DBP",
@@ -168,7 +168,7 @@
         "corrected_answer": 1.0
     },
     {
-        "question": "caseid가 1인 환자의 ART(Solar8000/ART_SBP)를 10Hz로 맞추고, 5분마다 수축기 최고점들의 이동 평균(Moving Average)을 계산해주세요. 결과는 {\"systolic_ma_range\": [min, max]} 형식의 dict로 출력해주세요.",
+        "question": "caseid가 1인 환자의 SBP(Solar8000/ART_SBP)를 linear interpolation 후 10Hz로 리샘플링하고, 피크 검출(최소 0.5초 간격, prominence=5)로 수축기 최고점들을 찾아주세요. 그 후 5분 윈도우를 1분씩 슬라이딩하며 각 윈도우 내 피크들의 평균을 계산하고, 이 이동평균 값들의 [min, max] 범위를 구해주세요. 결과는 {\"systolic_ma_range\": [min, max]} 형식의 dict로 출력해주세요.",
         "answer": {"systolic_ma_range": [43.0, 241.5]},
         "format": "dict",
         "parameter": "Solar8000/ART_SBP",
@@ -176,11 +176,11 @@
         "corrected_answer": {"systolic_ma_range": [43.0, 241.5]}
     },
     {
-        "question": "caseid가 1인 환자의 DBP(Solar8000/ART_DBP)를 1초 단위로 맞추고, 10분 크기의 윈도우를 1분씩 이동하며(sliding window, step=60초) 각 윈도우에서 혈압의 기울기(변화 속도)를 구하고 변화가 가장 가파른 구간을 알려주세요. 결과는 {\"windows\": int, \"steepest_slope_mmHg_per_min\": float} 형식의 dict로 출력해주세요.",
+        "question": "caseid가 1인 환자의 DBP(Solar8000/ART_DBP)를 1초 단위로 맞추고, 10분 크기의 윈도우를 1분씩 이동하며(sliding window, step=60초) 각 윈도우에서 선형회귀(np.polyfit degree=1)로 기울기(mmHg/sec)를 구해주세요. 기울기에 60을 곱해 mmHg/min으로 변환하고, 절대값이 가장 큰 기울기를 steepest_slope_mmHg_per_min으로 출력해주세요. 결과는 {\"windows\": int, \"steepest_slope_mmHg_per_min\": float} 형식의 dict로 출력해주세요.",
         "answer": {"windows": 172, "steepest_slope_mmHg_per_min": 11.238},
         "format": "dict",
         "parameter": "Solar8000/ART_DBP",
         "tool_code": "def dbp_slope_analysis(case_id, window_min=10):\n    # 1. DBP 로드\n    dbp, _ = load_signal(case_id, 'Solar8000/ART_DBP', 1)\n    \n    # 2. 10분 윈도우로 기울기 계산\n    window_sec = window_min * 60\n    results = []\n    for start in range(0, len(dbp) - window_sec, 60):\n        segment = dbp[start:start + window_sec]\n        slope, r2 = calculate_slope(segment)\n        if not np.isnan(slope):\n            results.append({\n                'window_start_min': start / 60,\n                'slope_mmHg_per_sec': slope,\n                'slope_mmHg_per_min': slope * 60,\n                'r_squared': r2\n            })\n    \n    df = pd.DataFrame(results)\n    if len(df) > 0:\n        df['abs_slope'] = np.abs(df['slope_mmHg_per_sec'])\n        steepest = df.loc[df['abs_slope'].idxmax()]\n    else:\n        steepest = None\n    return {'all_windows': df, 'steepest_window': steepest}",
-        "corrected_answer": {"windows": 183, "steepest_slope_mmHg_per_min": 11.238}
+        "corrected_answer": {"windows": 172, "steepest_slope_mmHg_per_min": 11.238}
     }
 ]

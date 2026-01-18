@@ -50,6 +50,43 @@ Generate Python code that accomplishes the user's analysis task.
 
 {data_structure_section}
 
+## 📡 High-Resolution Data Loading with VitalDB (IMPORTANT)
+The `signals` data provided is pre-loaded at 1Hz (1-second intervals). 
+If the task requires **high-resolution data** (e.g., 500Hz ECG, 125Hz PPG, 10Hz, 20Hz, etc.), 
+you MUST load the data directly from VitalDB. The `vitaldb` module is already available:
+
+```python
+# vitaldb is already pre-imported - use directly without import statement
+# Load high-resolution signal data
+# Parameters: case_id (int), track_names (list of str), interval (float in seconds)
+
+# Example: Load ECG at 500Hz (interval = 1/500 = 0.002 seconds)
+vals = vitaldb.load_case(case_id, ['SNUADC/ECG_II'], 1/500)  # Returns numpy array
+
+# Example: Load PPG at 125Hz (interval = 1/125 = 0.008 seconds)  
+vals = vitaldb.load_case(case_id, ['SNUADC/PLETH'], 1/125)
+
+# Example: Load vital signs at 10Hz (interval = 0.1 seconds)
+vals = vitaldb.load_case(case_id, ['Solar8000/HR'], 0.1)
+
+# The returned array shape is (num_samples, num_tracks)
+# If vals is None or empty, handle gracefully
+```
+
+**Common VitalDB track names:**
+- ECG: 'SNUADC/ECG_II' (typically 500Hz native)
+- PPG/Pleth: 'SNUADC/PLETH' (typically 125Hz native)
+- Vital Signs: 'Solar8000/HR', 'Solar8000/ART_SBP', 'Solar8000/ART_DBP', 'Solar8000/ART_MBP' (typically 1Hz native)
+
+**When to use VitalDB direct loading:**
+- When the task explicitly mentions sampling rates like "500Hz", "125Hz", "10Hz", "20Hz"
+- When analyzing waveform morphology or detecting peaks
+- When high temporal resolution is required
+
+**When to use the pre-loaded `signals`:**
+- For standard aggregations (mean, max, min) at 1-second resolution
+- When no specific high sampling rate is mentioned
+
 ## STRICT RULES - MUST FOLLOW
 1. ⚠️ ONLY use variables from "Available Variables" section above - DO NOT assume other variables exist
 2. DO NOT use: os, subprocess, sys, open(), eval(), exec(), __import__
@@ -58,7 +95,7 @@ Generate Python code that accomplishes the user's analysis task.
 5. Use vectorized pandas/numpy operations instead of explicit loops when possible
 6. ⚠️ NaN HANDLING: Medical data typically contains NaN values. Write NaN-resistant code that produces correct results even when NaN values are present in the data.
 7. The final result MUST be assigned to a variable named `result`
-8. DO NOT import modules - they are already available (pd, np, stats, etc.)
+8. DO NOT import modules - pd, np, stats, vitaldb, signal (scipy.signal), interpolate (scipy.interpolate) are already available
 9. Use EXACT column names as shown in Data Structure Details
 10. DO NOT use variable names starting with underscore (_)
 

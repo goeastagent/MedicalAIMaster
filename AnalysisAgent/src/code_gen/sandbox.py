@@ -357,6 +357,7 @@ class SandboxExecutor:
                 'collections',
                 'itertools',
                 'functools',
+                'vitaldb',  # VitalDB for high-resolution medical signal loading
             }
             
             # 모듈명 체크
@@ -470,6 +471,27 @@ class SandboxExecutor:
         # statistics (표준 라이브러리)
         import statistics
         modules['statistics'] = statistics
+        
+        # vitaldb for high-resolution medical signal loading
+        try:
+            import vitaldb
+            modules['vitaldb'] = vitaldb
+        except ImportError:
+            pass
+        
+        # scipy.signal for signal processing
+        try:
+            from scipy import signal
+            modules['signal'] = signal
+        except ImportError:
+            pass
+        
+        # scipy.interpolate for interpolation
+        try:
+            from scipy import interpolate
+            modules['interpolate'] = interpolate
+        except ImportError:
+            pass
         
         return modules
     

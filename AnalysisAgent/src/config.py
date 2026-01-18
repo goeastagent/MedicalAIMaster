@@ -108,10 +108,12 @@ class ValidatorConfig:
     """금지 모듈 목록"""
     
     allowed_modules: List[str] = field(default_factory=lambda: [
-        "pandas", "numpy", "scipy", "scipy.stats",
+        "pandas", "numpy", 
+        "scipy", "scipy.stats", "scipy.signal", "scipy.interpolate",  # Full scipy support for signal processing
         "datetime", "math", "statistics",
         "collections", "itertools", "functools",
         "re", "json",
+        "vitaldb",  # VitalDB for high-resolution medical signal loading
     ])
     """허용 모듈 목록"""
 
@@ -130,8 +132,11 @@ class GeneratorConfig:
         "pandas as pd",
         "numpy as np",
         "scipy.stats as stats",
+        "scipy.signal",
+        "scipy.interpolate",
         "datetime",
         "math",
+        "vitaldb",
     ])
     """샌드박스에서 사용 가능한 import 목록"""
 
