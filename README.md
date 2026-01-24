@@ -132,29 +132,7 @@ pip install -r AnalysisAgent/requirements.txt
 pip install -r OrchestrationAgent/requirements.txt
 ```
 
-### 4. Environment Setup
-
-프로젝트 루트에 `.env` 파일을 생성합니다:
-
-```bash
-# LLM API Keys
-OPENAI_API_KEY=sk-...
-ANTHROPIC_API_KEY=sk-ant-...  # (선택)
-
-# PostgreSQL
-POSTGRES_HOST=localhost
-POSTGRES_PORT=5432
-POSTGRES_DB=vital_data
-POSTGRES_USER=postgres
-POSTGRES_PASSWORD=postgres
-
-# Neo4j
-NEO4J_URI=bolt://localhost:7687
-NEO4J_USER=neo4j
-NEO4J_PASSWORD=password
-```
-
-### 5. Start Database Services
+### 4. Start Database Services
 
 ```bash
 cd IndexingAgent
