@@ -1,21 +1,99 @@
-# Ignore raw data
-**/raw/
-
-# Ignore python artifacts
+# ===================
+# Python
+# ===================
 __pycache__/
-*.pyc
-venv/
-.env
-.env.backup
+*.py[cod]
+*$py.class
+*.so
+.Python
+build/
+develop-eggs/
+dist/
+downloads/
+eggs/
+.eggs/
+lib/
+lib64/
+parts/
+sdist/
+var/
+wheels/
+*.egg-info/
+.installed.cfg
+*.egg
 
-# Ignore postgres data
+# Virtual Environment
+venv/
+ENV/
+env/
+.venv/
+
+# ===================
+# Environment & Secrets
+# ===================
+.env
+.env.local
+.env.*.local
+.env.backup
+*.pem
+*.key
+
+# ===================
+# IDE
+# ===================
+.idea/
+.vscode/
+*.swp
+*.swo
+*~
+
+# ===================
+# Database
+# ===================
+# PostgreSQL
 **/postgres_data/
 **/postgres.log
 **/postgres.pid
+*.sql.backup
 
-# Ignore neo4j data
+# Neo4j
+**/neo4j_data/
 **/neo4j.log
 **/neo4j.pid
 
+# ===================
+# Data
+# ===================
+**/raw/
+*.csv.backup
+*.xlsx.backup
+
+# ===================
+# Logs
+# ===================
+*.log
+logs/
+**/llm_logs/
+
+# ===================
 # System
+# ===================
 .DS_Store
+Thumbs.db
+*.tmp
+*.temp
+
+# ===================
+# Test & Coverage
+# ===================
+.pytest_cache/
+.coverage
+htmlcov/
+.tox/
+.nox/
+
+# ===================
+# Jupyter
+# ===================
+.ipynb_checkpoints/
+*.ipynb_checkpoints
