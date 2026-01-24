@@ -1,7 +1,7 @@
-# MedicalAIMaster
+# VitalAgent
 
 <p align="center">
-  <b>자연어 질의 기반 의료 데이터 분석 AI 멀티 에이전트 시스템</b>
+  <b>자연어 질의 기반 생체신호 데이터 분석 AI 멀티 에이전트 시스템</b>
 </p>
 
 <p align="center">
@@ -15,14 +15,14 @@
 
 ## Overview
 
-MedicalAIMaster는 **자연어 질의**를 통해 의료 데이터를 분석할 수 있는 AI 에이전트 시스템입니다. LLM 기반 파이프라인을 통해 사용자의 질문을 이해하고, 적절한 데이터를 찾아 Python 코드를 자동 생성하여 분석 결과를 제공합니다.
+VitalAgent는 **자연어 질의**를 통해 생체신호 데이터를 분석할 수 있는 AI 에이전트 시스템입니다. LLM 기반 파이프라인을 통해 사용자의 질문을 이해하고, 적절한 데이터를 찾아 Python 코드를 자동 생성하여 분석 결과를 제공합니다.
 
 ```
-사용자: "2023년 위암 환자의 심박수 평균을 성별로 비교해줘"
+사용자: "수술 중 심박수(HR)가 100 이상인 구간의 평균 혈압을 구해줘"
                     │
                     ▼
 ┌─────────────────────────────────────────────────────────────────┐
-│                    MedicalAIMaster                               │
+│                       VitalAgent                                │
 │                                                                  │
 │  ┌──────────────┐   ┌──────────────┐   ┌──────────────────────┐ │
 │  │IndexingAgent │   │Extraction    │   │Analysis              │ │
@@ -39,17 +39,18 @@ MedicalAIMaster는 **자연어 질의**를 통해 의료 데이터를 분석할 
 └─────────────────────────────────────────────────────────────────┘
                     │
                     ▼
-결과: {"male": 75.2, "female": 72.8}
+결과: {"mean_abp": 85.3, "count": 127}
 ```
 
 ---
 
 ## Features
 
-- **자연어 질의 처리**: 복잡한 SQL이나 코드 없이 자연어로 데이터 분석 요청
+- **자연어 질의 처리**: 복잡한 SQL이나 코드 없이 자연어로 생체신호 분석 요청
 - **자동 코드 생성**: LLM이 분석 Python 코드를 자동으로 생성 및 실행
-- **멀티모달 데이터 지원**: 정형 데이터(CSV, Excel)와 생체신호 데이터(.vital, .edf) 동시 처리
-- **지식 그래프 기반**: Neo4j 온톨로지를 통한 의미론적 데이터 탐색
+- **생체신호 데이터 지원**: HR, BP, SpO2, ECG, EEG 등 다양한 생체신호 처리
+- **멀티모달 데이터**: 정형 데이터(CSV, Excel)와 시계열 신호(.vital, .edf) 동시 분석
+- **지식 그래프 기반**: Neo4j 온톨로지를 통한 의미론적 파라미터 탐색
 - **안전한 실행 환경**: Sandbox에서 코드 실행, 위험 패턴 자동 차단
 
 ---
@@ -60,7 +61,7 @@ MedicalAIMaster는 **자연어 질의**를 통해 의료 데이터를 분석할 
 
 | Agent | 역할 | 핵심 기술 |
 |-------|------|----------|
-| **IndexingAgent** | 데이터 파일을 분석하여 PostgreSQL/Neo4j에 메타데이터 인덱싱 | LangGraph, PostgreSQL, Neo4j |
+| **IndexingAgent** | 생체신호 파일을 분석하여 PostgreSQL/Neo4j에 메타데이터 인덱싱 | LangGraph, PostgreSQL, Neo4j |
 | **ExtractionAgent** | 자연어 쿼리를 분석하여 Execution Plan JSON 생성 | LangGraph, LLM, 6-Phase Pipeline |
 | **AnalysisAgent** | LLM 기반 Python 코드 자동 생성 및 Sandbox 실행 | CodeGen, Validator, Sandbox |
 | **OrchestrationAgent** | 위 에이전트들을 조율하는 경량 레이어 | Pipeline Orchestration |
@@ -68,12 +69,12 @@ MedicalAIMaster는 **자연어 질의**를 통해 의료 데이터를 분석할 
 ### 데이터 흐름
 
 ```
-1. IndexingAgent: 데이터 파일 → PostgreSQL + Neo4j (사전 인덱싱)
+1. IndexingAgent: 생체신호 파일 → PostgreSQL + Neo4j (사전 인덱싱)
 
 2. 사용자 질의 처리:
-   ┌───────────────────┐
-   │ "심박수 평균 구해줘" │
-   └─────────┬─────────┘
+   ┌──────────────────────────────────┐
+   │ "케이스별 평균 심박수를 구해줘" │
+   └─────────────┬────────────────────┘
              │
              ▼
    ┌───────────────────┐     ┌─────────────────────┐
@@ -111,8 +112,8 @@ MedicalAIMaster는 **자연어 질의**를 통해 의료 데이터를 분석할 
 ### 1. Clone Repository
 
 ```bash
-git clone https://github.com/your-username/MedicalAIMaster.git
-cd MedicalAIMaster
+git clone https://github.com/your-username/VitalAgent.git
+cd VitalAgent
 ```
 
 ### 2. Create Virtual Environment
@@ -143,7 +144,7 @@ ANTHROPIC_API_KEY=sk-ant-...  # (선택)
 # PostgreSQL
 POSTGRES_HOST=localhost
 POSTGRES_PORT=5432
-POSTGRES_DB=medical_data
+POSTGRES_DB=vital_data
 POSTGRES_USER=postgres
 POSTGRES_PASSWORD=postgres
 
@@ -178,14 +179,18 @@ from OrchestrationAgent.src import Orchestrator
 # 오케스트레이터 초기화
 orchestrator = Orchestrator()
 
-# 자연어 질의로 분석 실행
-result = orchestrator.run("위암 환자의 심박수 평균을 성별로 비교해줘")
+# 자연어 질의로 생체신호 분석 실행
+result = orchestrator.run("각 케이스별 평균 심박수(HR)를 구해줘")
 
 if result.status == "success":
     print("분석 결과:", result.result)
     print("생성된 코드:", result.generated_code)
 else:
     print("에러:", result.error_message)
+
+# 더 복잡한 분석 예시
+result = orchestrator.run("SpO2가 95% 미만인 구간에서의 심박수 변동성을 분석해줘")
+result = orchestrator.run("수술 시작 후 30분간의 평균 동맥압(ABP) 추이를 구해줘")
 ```
 
 ---
@@ -193,8 +198,8 @@ else:
 ## Project Structure
 
 ```
-MedicalAIMaster/
-├── IndexingAgent/           # 데이터 인덱싱 에이전트
+VitalAgent/
+├── IndexingAgent/           # 생체신호 데이터 인덱싱 에이전트
 │   ├── src/
 │   │   ├── agents/          # LangGraph 기반 노드들
 │   │   ├── models/          # Pydantic 모델
@@ -226,7 +231,7 @@ MedicalAIMaster/
 │   ├── data/                # DataContext
 │   ├── database/            # DB 연결/Repository
 │   ├── llm/                 # LLM 클라이언트
-│   └── processors/          # 데이터 처리기
+│   └── processors/          # 생체신호 처리기 (Signal, Tabular)
 │
 ├── docs/                    # 상세 문서
 │   ├── README.md
@@ -235,8 +240,8 @@ MedicalAIMaster/
 │   ├── AnalysisAgent_ARCHITECTURE.md
 │   └── OrchestrationAgent_ARCHITECTURE.md
 │
-├── data/                    # 인덱싱된 데이터
-└── testdata/                # 테스트용 데이터
+├── data/                    # 인덱싱된 생체신호 데이터
+└── testdata/                # 테스트용 VitalDB 데이터
 ```
 
 ---
@@ -245,8 +250,18 @@ MedicalAIMaster/
 
 | 형식 | 확장자 | 설명 |
 |------|--------|------|
-| Tabular | `.csv`, `.xlsx`, `.parquet` | 정형 테이블 데이터 |
-| Signal | `.vital`, `.edf` | 생체신호 시계열 데이터 |
+| Tabular | `.csv`, `.xlsx`, `.parquet` | 임상 정보, 환자 메타데이터 |
+| VitalDB | `.vital` | 수술 중 생체신호 (HR, BP, SpO2, EtCO2 등) |
+| EDF/BDF | `.edf`, `.bdf` | EEG, ECG, PSG 등 생체신호 표준 포맷 |
+
+### 지원 생체신호 파라미터 예시
+
+| 카테고리 | 파라미터 |
+|----------|----------|
+| **심혈관** | HR (심박수), ABP (동맥압), CVP (중심정맥압), CO (심박출량) |
+| **호흡** | SpO2 (산소포화도), EtCO2 (호기말 CO2), RR (호흡수), TV (일회호흡량) |
+| **신경** | BIS (마취심도), EEG (뇌파) |
+| **체온** | BT (체온) |
 
 ---
 
@@ -281,6 +296,25 @@ class OrchestrationResult:
     execution_time_ms: float        # 실행 시간
 ```
 
+### 사용 예시
+
+```python
+# 기본 통계 분석
+result = orchestrator.run("전체 케이스의 평균 심박수를 구해줘")
+
+# 조건부 필터링
+result = orchestrator.run("BMI가 30 이상인 환자의 수술 중 평균 혈압을 구해줘")
+
+# 시간 기반 분석
+result = orchestrator.run("수술 시작 후 1시간 동안의 SpO2 변화 추이를 분석해줘")
+
+# 상관관계 분석
+result = orchestrator.run("심박수와 혈압 간의 상관관계를 구해줘")
+
+# 이상치 탐지
+result = orchestrator.run("심박수가 비정상적으로 높은 구간을 찾아줘")
+```
+
 ---
 
 ## Testing
@@ -298,7 +332,7 @@ python ExtractionAgent/test_pipeline.py
 
 ## Security
 
-MedicalAIMaster는 안전한 코드 실행을 위해 다음 보안 기능을 제공합니다:
+VitalAgent는 안전한 코드 실행을 위해 다음 보안 기능을 제공합니다:
 
 - **Sandbox 실행**: 생성된 코드는 격리된 환경에서 실행
 - **금지 패턴 차단**: `eval`, `exec`, `os.system`, `subprocess` 등 위험 함수 차단
@@ -358,5 +392,5 @@ This project is licensed under the MIT License - see the [LICENSE](LICENSE) file
 ---
 
 <p align="center">
-  Made with ❤️ for Medical AI Research
+  Made with ❤️ for Biosignal AI Research
 </p>
