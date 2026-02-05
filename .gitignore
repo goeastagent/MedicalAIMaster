@@ -67,6 +67,7 @@ env/
 **/raw/
 *.csv.backup
 *.xlsx.backup
+testdata/*.xlsx
 
 # ===================
 # Logs
