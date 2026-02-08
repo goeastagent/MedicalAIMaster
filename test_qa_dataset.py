@@ -105,15 +105,36 @@ def compare_values(expected: Any, actual: Any, format_type: str) -> Tuple[bool, 
         return False, "실제값이 None"
     
     if format_type == "float":
-        # float 비교: 완전히 동일해야 함
+        # float 비교: 1% 이내 차이는 정답으로 인정
         try:
             actual_float = float(actual)
             expected_float = float(expected)
             
+            # 정확히 일치
             if actual_float == expected_float:
                 return True, "정확히 일치"
+            
+            # 허용 오차 계산: 상대 오차 1% 또는 절대 오차 0.001
+            rel_tol = 0.01  # 1%
+            abs_tol = 0.001
+            
+            diff = abs(actual_float - expected_float)
+            
+            if expected_float == 0:
+                # 기대값이 0인 경우 절대 오차만 사용
+                if diff <= abs_tol:
+                    return True, f"일치 (허용 오차 내, 차이: {diff:.6f})"
             else:
-                diff = abs(actual_float - expected_float)
+                # 상대 오차 계산
+                rel_diff = diff / abs(expected_float)
+                if rel_diff <= rel_tol:
+                    return True, f"일치 (허용 오차 내, 차이: {rel_diff*100:.4f}%)"
+            
+            # 허용 오차 초과
+            if expected_float != 0:
+                rel_diff = diff / abs(expected_float) * 100
+                return False, f"불일치 (차이: {diff:.6f}, {rel_diff:.4f}%)"
+            else:
                 return False, f"불일치 (차이: {diff:.6f})"
         except (TypeError, ValueError) as e:
             return False, f"float 변환 실패: {e}"

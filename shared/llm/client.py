@@ -2,7 +2,7 @@
 """
 LLM Client with tenacity retry logic
 
-Supports OpenAI and Anthropic (Claude).
+Supports OpenAI, Anthropic (Claude), and Ollama (local LLMs).
 """
 
 import json
@@ -215,6 +215,59 @@ class ClaudeClient(AbstractLLMClient):
         return message.content[0].text
 
 
+class OllamaClient(AbstractLLMClient):
+    """
+    Ollama client using OpenAI-compatible API
+    
+    Ollama는 OpenAI 호환 API를 제공하므로 openai 라이브러리를 재사용합니다.
+    로컬에서 실행되는 다양한 오픈소스 LLM을 지원합니다.
+    
+    지원 모델 예시:
+        - qwen2.5:7b, qwen2.5:14b, qwen2.5:32b
+        - qwen2.5-coder:7b, qwen2.5-coder:14b
+        - llama3.1:8b, llama3.1:70b
+        - codestral:22b
+        - mistral:7b, mixtral:8x7b
+    """
+    
+    def __init__(self, model: str = None):
+        """
+        Args:
+            model: Ollama 모델명 (None이면 config에서 읽음)
+                   예: "qwen2.5:7b", "llama3.1:8b"
+        """
+        if not OpenAI:
+            raise ImportError("OpenAI library required for Ollama. pip install openai")
+        
+        self.model = model or LLMConfig.OLLAMA_MODEL
+        self.client = OpenAI(
+            base_url=LLMConfig.OLLAMA_BASE_URL,
+            api_key=LLMConfig.OLLAMA_API_KEY,
+            timeout=LLMConfig.OLLAMA_TIMEOUT
+        )
+        
+        logger.info(f"OllamaClient initialized with model: {self.model}")
+    
+    @create_retry_decorator()
+    def ask_text(self, prompt: str, max_tokens: int = None) -> str:
+        """텍스트 응답 요청"""
+        response = self.client.chat.completions.create(
+            model=self.model,
+            messages=[{"role": "user", "content": prompt}],
+            max_tokens=max_tokens or LLMConfig.MAX_TOKENS,
+        )
+        return response.choices[0].message.content
+    
+    def ask_json(self, prompt: str, max_tokens: int = None) -> Dict[str, Any]:
+        """
+        JSON 응답 요청
+        
+        Ollama 모델은 JSON mode 지원이 불안정할 수 있으므로,
+        AbstractLLMClient의 기본 구현(프롬프트 방식)을 사용합니다.
+        """
+        return super().ask_json(prompt, max_tokens=max_tokens)
+
+
 # Singleton instance cache
 _llm_client_instance = None
 
@@ -234,8 +287,10 @@ def get_llm_client() -> AbstractLLMClient:
         _llm_client_instance = OpenAIClient()
     elif provider in ("anthropic", "claude"):
         _llm_client_instance = ClaudeClient()
+    elif provider == "ollama":
+        _llm_client_instance = OllamaClient()
     else:
-        raise ValueError(f"Unsupported LLM Provider: {provider}. Supported: openai, anthropic")
+        raise ValueError(f"Unsupported LLM Provider: {provider}. Supported: openai, anthropic, ollama")
     
     return _llm_client_instance
 
@@ -244,6 +299,71 @@ def reset_llm_client():
     """Reset the singleton instance (useful for testing)"""
     global _llm_client_instance
     _llm_client_instance = None
+
+
+def set_ollama_model(model: str) -> AbstractLLMClient:
+    """
+    Ollama 모델을 동적으로 변경하고 새 클라이언트 반환
+    
+    멀티모델 비교 테스트에서 사용됩니다.
+    기존 싱글톤 인스턴스를 새 모델의 OllamaClient로 교체합니다.
+    
+    Args:
+        model: Ollama 모델명 (예: "qwen2.5:7b", "llama3.1:8b")
+    
+    Returns:
+        새로 설정된 LLM 클라이언트
+    
+    사용법:
+        from shared.llm import set_ollama_model
+        
+        set_ollama_model("qwen2.5-coder:7b")
+        # 이후 모든 LLM 호출이 새 모델 사용
+    """
+    global _llm_client_instance, _logging_enabled, _logging_dir
+    
+    # 새 OllamaClient 생성
+    new_client = OllamaClient(model=model)
+    
+    # LoggingLLMClient로 래핑되어 있는 경우
+    if isinstance(_llm_client_instance, LoggingLLMClient):
+        # 내부 클라이언트만 교체 (로깅 세션 유지)
+        _llm_client_instance._client = new_client
+        logger.info(f"Ollama model changed to: {model} (logging enabled)")
+    else:
+        # 로깅이 활성화된 상태라면 래핑해서 설정
+        if _logging_enabled and _logging_dir:
+            _llm_client_instance = LoggingLLMClient(new_client, _logging_dir)
+        else:
+            _llm_client_instance = new_client
+        logger.info(f"Ollama model changed to: {model}")
+    
+    return _llm_client_instance
+
+
+def get_current_model_name() -> str:
+    """
+    현재 사용 중인 모델명 반환
+    
+    Returns:
+        모델명 (예: "qwen2.5:7b", "gpt-4", "claude-3-opus")
+        클라이언트가 초기화되지 않은 경우 "not_initialized" 반환
+    """
+    global _llm_client_instance
+    
+    if _llm_client_instance is None:
+        return "not_initialized"
+    
+    client = _llm_client_instance
+    
+    # LoggingLLMClient인 경우 내부 클라이언트에서 모델명 추출
+    if isinstance(client, LoggingLLMClient):
+        client = client._client
+    
+    if hasattr(client, 'model'):
+        return client.model
+    
+    return "unknown"
 
 
 # =============================================================================
@@ -401,8 +521,10 @@ def enable_llm_logging(log_dir: str = "./data/llm_logs") -> Path:
         base_client = OpenAIClient()
     elif provider in ("anthropic", "claude"):
         base_client = ClaudeClient()
+    elif provider == "ollama":
+        base_client = OllamaClient()
     else:
-        raise ValueError(f"Unsupported LLM Provider: {provider}")
+        raise ValueError(f"Unsupported LLM Provider: {provider}. Supported: openai, anthropic, ollama")
     
     _llm_client_instance = LoggingLLMClient(base_client, log_dir)
     return _llm_client_instance.get_session_dir()

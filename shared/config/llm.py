@@ -25,7 +25,13 @@ class LLMConfig:
     ANTHROPIC_API_KEY = os.getenv("ANTHROPIC_API_KEY")
     ANTHROPIC_MODEL = os.getenv("ANTHROPIC_MODEL", "claude-opus-4-5-20251101")
 
-    # --- 4. 공통 설정 ---
+    # --- 4. Ollama 설정 (로컬 LLM) ---
+    OLLAMA_BASE_URL = os.getenv("OLLAMA_BASE_URL", "http://localhost:11434/v1")
+    OLLAMA_MODEL = os.getenv("OLLAMA_MODEL", "qwen2.5:7b")
+    OLLAMA_API_KEY = os.getenv("OLLAMA_API_KEY", "ollama")  # Ollama는 API 키 불필요 (더미값)
+    OLLAMA_TIMEOUT = int(os.getenv("OLLAMA_TIMEOUT", "300"))  # 로컬 모델은 느릴 수 있음
+
+    # --- 5. 공통 설정 ---
     TEMPERATURE = float(os.getenv("LLM_TEMPERATURE", "0.0"))  # 분석 작업이므로 정확성을 위해 0
     
     # --- 5. Token 제한 설정 ---
