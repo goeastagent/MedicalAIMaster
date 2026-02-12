@@ -3,15 +3,18 @@
 멀티모델 비교 테스트 스크립트
 ============================
 
-여러 Ollama 모델로 QA 테스트를 실행하고 결과를 비교합니다.
+여러 Ollama 모델 또는 Hugging Face 모델로 QA 테스트를 실행하고 결과를 비교합니다.
 기본적으로 현재 설치된 모든 Ollama 모델을 자동으로 테스트합니다.
 
 사용법:
-    # 설치된 모든 모델 비교 (기본)
+    # 설치된 모든 Ollama 모델 비교 (기본)
     python compare_models.py
     
-    # 특정 모델만 비교
+    # 특정 모델만 비교 (Ollama)
     python compare_models.py --models qwen2.5:7b llama3.1:8b
+
+    # Hugging Face 모델 비교 (자동 감지)
+    python compare_models.py --models snuh/hari-q2.5
     
     # 다른 QA 데이터셋 사용
     python compare_models.py -i testdata/vitaldb_mid_qa_pairs.json
@@ -43,7 +46,7 @@ os.environ["LLM_PROVIDER"] = "ollama"
 
 from shared.llm import (
     enable_llm_logging,
-    set_ollama_model,
+    switch_model,
     get_current_model_name,
     reset_llm_client
 )
@@ -131,6 +134,11 @@ def filter_available_models(models: List[str]) -> List[str]:
     excluded = []
     
     for model in models:
+        # Hugging Face 모델 (슬래시 포함)은 설치 확인 없이 통과
+        if "/" in model:
+            available.append(model)
+            continue
+
         # 제외 목록 체크
         if model in MODELS_TO_EXCLUDE or any(model in ex or ex in model for ex in MODELS_TO_EXCLUDE):
             excluded.append(model)
@@ -148,7 +156,7 @@ def filter_available_models(models: List[str]) -> List[str]:
             print(f"   - {model}")
     
     if unavailable:
-        print(f"\n⚠️  설치되지 않은 모델 (스킵됨):")
+        print(f"\n⚠️  설치되지 않은 Ollama 모델 (스킵됨):")
         for model in unavailable:
             print(f"   - {model}")
         print(f"   설치: ollama pull <모델명>")
@@ -173,8 +181,8 @@ def run_single_model_test(
     print(f"{'='*60}")
     
     try:
-        # 1. 모델 변경
-        set_ollama_model(model)
+        # 1. 모델 변경 (자동 감지: / 포함 시 HF, 아니면 Ollama)
+        switch_model(model)
         current = get_current_model_name()
         print(f"   현재 모델: {current}")
         
@@ -337,8 +345,9 @@ def main():
         formatter_class=argparse.RawDescriptionHelpFormatter,
         epilog="""
 예시:
-  python compare_models.py                           # 설치된 모든 모델 비교 (기본)
+  python compare_models.py                           # 설치된 모든 Ollama 모델 비교 (기본)
   python compare_models.py --models qwen2.5:7b       # 특정 모델만
+  python compare_models.py --models snuh/hari-q2.5   # Hugging Face 모델
   python compare_models.py -i testdata/vitaldb_mid_qa_pairs.json  # 다른 데이터셋
         """
     )
@@ -369,16 +378,26 @@ def main():
         action="store_true",
         help="LLM 호출 로깅 비활성화"
     )
+    parser.add_argument(
+        "--ignore-ollama-check",
+        action="store_true",
+        help="Ollama 서버 실행 여부 확인 건너뛰기 (HF 모델만 테스트할 때 유용)"
+    )
     args = parser.parse_args()
     
     # 로깅 설정
     setup_logging(args.log_level)
     
-    # Ollama 서버 확인
-    if not check_ollama_available():
-        print("❌ Ollama 서버가 실행 중이지 않습니다.")
-        print("   다른 터미널에서 'ollama serve' 를 실행해주세요.")
-        sys.exit(1)
+    # Ollama 서버 확인 (HF 모델만 테스트하는 경우 무시 가능)
+    # 모델 목록에 HF 모델('/')이 포함되어 있으면 Ollama 체크를 강제하지 않음
+    has_hf_model = args.models and any("/" in m for m in args.models)
+    
+    if not args.ignore_ollama_check and not has_hf_model:
+        if not check_ollama_available():
+            print("❌ Ollama 서버가 실행 중이지 않습니다.")
+            print("   다른 터미널에서 'ollama serve' 를 실행해주세요.")
+            print("   (Hugging Face 모델만 테스트하려면 --ignore-ollama-check 옵션 사용)")
+            sys.exit(1)
     
     # LLM 로깅 설정
     if not args.no_llm_log:
@@ -410,8 +429,14 @@ def main():
             sys.exit(1)
     
     # 제외 목록 적용
+    # HF 모델은 제외 목록 로직을 타지 않도록 주의
     original_count = len(models)
-    models = [m for m in models if m not in MODELS_TO_EXCLUDE and not any(m in ex or ex in m for ex in MODELS_TO_EXCLUDE)]
+    
+    # HF 모델은 제외 로직에서 보호
+    models = [
+        m for m in models 
+        if "/" in m or (m not in MODELS_TO_EXCLUDE and not any(m in ex or ex in m for ex in MODELS_TO_EXCLUDE))
+    ]
     excluded_count = original_count - len(models)
     
     if excluded_count > 0:

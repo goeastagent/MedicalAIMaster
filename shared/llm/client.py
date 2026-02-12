@@ -2,7 +2,7 @@
 """
 LLM Client with tenacity retry logic
 
-Supports OpenAI, Anthropic (Claude), and Ollama (local LLMs).
+Supports OpenAI, Anthropic (Claude), Ollama (local LLMs), and Hugging Face Transformers.
 """
 
 import json
@@ -36,6 +36,14 @@ except ImportError:
     Anthropic = None
     AnthropicRateLimitError = Exception
     AnthropicAPIError = Exception
+
+try:
+    import torch
+    from transformers import AutoModelForCausalLM, AutoTokenizer
+except ImportError:
+    torch = None
+    AutoModelForCausalLM = None
+    AutoTokenizer = None
 
 
 # config 파일 임포트
@@ -221,13 +229,6 @@ class OllamaClient(AbstractLLMClient):
     
     Ollama는 OpenAI 호환 API를 제공하므로 openai 라이브러리를 재사용합니다.
     로컬에서 실행되는 다양한 오픈소스 LLM을 지원합니다.
-    
-    지원 모델 예시:
-        - qwen2.5:7b, qwen2.5:14b, qwen2.5:32b
-        - qwen2.5-coder:7b, qwen2.5-coder:14b
-        - llama3.1:8b, llama3.1:70b
-        - codestral:22b
-        - mistral:7b, mixtral:8x7b
     """
     
     def __init__(self, model: str = None):
@@ -268,6 +269,38 @@ class OllamaClient(AbstractLLMClient):
         return super().ask_json(prompt, max_tokens=max_tokens)
 
 
+class HuggingFaceClient(AbstractLLMClient):
+    """Hugging Face Transformers Client"""
+    def __init__(self, model_id: str):
+        if not torch or not AutoModelForCausalLM:
+            raise ImportError("transformers and torch are required. pip install transformers torch accelerate")
+        
+        self.model_id = model_id
+        logger.info(f"Loading Hugging Face model: {model_id}...")
+        
+        self.tokenizer = AutoTokenizer.from_pretrained(model_id)
+        self.model = AutoModelForCausalLM.from_pretrained(
+            model_id,
+            device_map="auto",
+            torch_dtype=torch.float16,
+            trust_remote_code=True
+        )
+        
+    def ask_text(self, prompt: str, max_tokens: int = None) -> str:
+        inputs = self.tokenizer(prompt, return_tensors="pt").to(self.model.device)
+        
+        outputs = self.model.generate(
+            **inputs,
+            max_new_tokens=max_tokens or LLMConfig.MAX_TOKENS,
+            temperature=LLMConfig.TEMPERATURE,
+            do_sample=False if LLMConfig.TEMPERATURE == 0 else True,
+            pad_token_id=self.tokenizer.eos_token_id
+        )
+        
+        generated_text = self.tokenizer.decode(outputs[0][inputs.input_ids.shape[1]:], skip_special_tokens=True)
+        return generated_text
+
+
 # Singleton instance cache
 _llm_client_instance = None
 
@@ -302,42 +335,36 @@ def reset_llm_client():
 
 
 def set_ollama_model(model: str) -> AbstractLLMClient:
+    """Legacy wrapper for backward compatibility"""
+    return switch_model(model)
+
+
+def switch_model(model_name: str) -> AbstractLLMClient:
     """
-    Ollama 모델을 동적으로 변경하고 새 클라이언트 반환
-    
-    멀티모델 비교 테스트에서 사용됩니다.
-    기존 싱글톤 인스턴스를 새 모델의 OllamaClient로 교체합니다.
-    
-    Args:
-        model: Ollama 모델명 (예: "qwen2.5:7b", "llama3.1:8b")
-    
-    Returns:
-        새로 설정된 LLM 클라이언트
-    
-    사용법:
-        from shared.llm import set_ollama_model
-        
-        set_ollama_model("qwen2.5-coder:7b")
-        # 이후 모든 LLM 호출이 새 모델 사용
+    Switch the active model, automatically detecting provider.
+    - If model_name contains '/', assume HuggingFace.
+    - Otherwise, assume Ollama.
     """
     global _llm_client_instance, _logging_enabled, _logging_dir
     
-    # 새 OllamaClient 생성
-    new_client = OllamaClient(model=model)
-    
-    # LoggingLLMClient로 래핑되어 있는 경우
-    if isinstance(_llm_client_instance, LoggingLLMClient):
-        # 내부 클라이언트만 교체 (로깅 세션 유지)
-        _llm_client_instance._client = new_client
-        logger.info(f"Ollama model changed to: {model} (logging enabled)")
+    if "/" in model_name:
+        # Hugging Face
+        new_client = HuggingFaceClient(model_id=model_name)
+        logger.info(f"Switched to Hugging Face model: {model_name}")
     else:
-        # 로깅이 활성화된 상태라면 래핑해서 설정
+        # Ollama
+        new_client = OllamaClient(model=model_name)
+        logger.info(f"Switched to Ollama model: {model_name}")
+
+    # Handle logging wrapper
+    if isinstance(_llm_client_instance, LoggingLLMClient):
+        _llm_client_instance._client = new_client
+    else:
         if _logging_enabled and _logging_dir:
             _llm_client_instance = LoggingLLMClient(new_client, _logging_dir)
         else:
             _llm_client_instance = new_client
-        logger.info(f"Ollama model changed to: {model}")
-    
+            
     return _llm_client_instance
 
 
@@ -362,6 +389,8 @@ def get_current_model_name() -> str:
     
     if hasattr(client, 'model'):
         return client.model
+    if hasattr(client, 'model_id'):
+        return client.model_id
     
     return "unknown"
 
@@ -396,6 +425,8 @@ class LoggingLLMClient(AbstractLLMClient):
         """래핑된 클라이언트의 모델명 반환"""
         if hasattr(self._client, 'model'):
             return self._client.model
+        if hasattr(self._client, 'model_id'):
+            return self._client.model_id
         return "unknown"
     
     def _save_log(

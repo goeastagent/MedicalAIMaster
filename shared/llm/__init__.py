@@ -3,7 +3,7 @@
 LLM Client Module
 
 LLM 클라이언트 및 유틸리티:
-- client.py: OpenAI, Anthropic, Ollama 클라이언트 및 로깅 기능
+- client.py: OpenAI, Anthropic, Ollama, HuggingFace 클라이언트 및 로깅 기능
 """
 
 from .client import (
@@ -13,11 +13,13 @@ from .client import (
     OpenAIClient,
     ClaudeClient,
     OllamaClient,
+    HuggingFaceClient,
     LoggingLLMClient,
     # Helper functions
     get_llm_client,
     reset_llm_client,
     set_ollama_model,
+    switch_model,
     get_current_model_name,
     enable_llm_logging,
     disable_llm_logging,
@@ -33,11 +35,13 @@ __all__ = [
     'OpenAIClient',
     'ClaudeClient',
     'OllamaClient',
+    'HuggingFaceClient',
     'LoggingLLMClient',
     # Helper functions
     'get_llm_client',
     'reset_llm_client',
     'set_ollama_model',
+    'switch_model',
     'get_current_model_name',
     'enable_llm_logging',
     'disable_llm_logging',
