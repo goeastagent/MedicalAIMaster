@@ -19,6 +19,7 @@ from datetime import datetime
 from typing import Any, Dict, List, Tuple
 
 import pandas as pd
+import numpy as np
 
 # 프로젝트 루트 추가
 project_root = Path(__file__).parent
@@ -96,107 +97,132 @@ def compare_values(expected: Any, actual: Any, format_type: str) -> Tuple[bool, 
     Args:
         expected: 기대값 (float 또는 dict)
         actual: 실제값
-        format_type: "float" 또는 "dict"
+        format_type: "float" 또는 "dict" 또는 "list"
     
     Returns:
         (is_correct, reason)
     """
-    if actual is None:
-        return False, "실제값이 None"
     
-    if format_type == "float":
-        # float 비교: 1% 이내 차이는 정답으로 인정
+    def normalize_nan(val):
+        """NaN 값을 None으로 변환"""
         try:
-            actual_float = float(actual)
-            expected_float = float(expected)
+            if isinstance(val, (float, np.floating)) and np.isnan(val):
+                return None
+            return val
+        except:
+            return val
+
+    def compare_nested(exp: Any, act: Any, path: str = "") -> Tuple[bool, str]:
+        """중첩 dict/list/값 재귀 비교 (tolerance 적용)"""
+        
+        # 1. NaN 처리 (Numpy NaN -> None)
+        act = normalize_nan(act)
+        exp = normalize_nan(exp)
+
+        # 2. None 비교
+        if exp is None:
+            if act is not None:
+                return False, f"{path}: Expected None, got {act}"
+            return True, "일치"
+        
+        if act is None:
+            return False, f"{path}: Expected {exp}, got None"
+
+        # 3. Dict 비교
+        if isinstance(exp, dict):
+            if not isinstance(act, dict):
+                return False, f"{path}: 타입 불일치 (expected dict, got {type(act).__name__})"
             
-            # 정확히 일치
-            if actual_float == expected_float:
-                return True, "정확히 일치"
+            exp_keys = set(exp.keys())
+            act_keys = set(act.keys())
             
-            # 허용 오차 계산: 상대 오차 1% 또는 절대 오차 0.001
-            rel_tol = 0.01  # 1%
-            abs_tol = 0.001
+            # 누락된 키만 에러로 처리 (추가 키는 무시)
+            missing = exp_keys - act_keys
+            if missing:
+                return False, f"{path}: 필수 키 누락: {missing}"
             
-            diff = abs(actual_float - expected_float)
+            for key in exp_keys:
+                key_path = f"{path}.{key}" if path else key
+                ok, msg = compare_nested(exp[key], act.get(key), key_path)
+                if not ok:
+                    return False, msg
             
-            if expected_float == 0:
-                # 기대값이 0인 경우 절대 오차만 사용
-                if diff <= abs_tol:
-                    return True, f"일치 (허용 오차 내, 차이: {diff:.6f})"
-            else:
-                # 상대 오차 계산
-                rel_diff = diff / abs(expected_float)
-                if rel_diff <= rel_tol:
-                    return True, f"일치 (허용 오차 내, 차이: {rel_diff*100:.4f}%)"
+            return True, "일치"
+        
+        # 4. List 비교
+        elif isinstance(exp, (list, tuple, np.ndarray)):
+            if not isinstance(act, (list, tuple, np.ndarray)):
+                return False, f"{path}: 타입 불일치 (expected list, got {type(act).__name__})"
             
-            # 허용 오차 초과
-            if expected_float != 0:
-                rel_diff = diff / abs(expected_float) * 100
-                return False, f"불일치 (차이: {diff:.6f}, {rel_diff:.4f}%)"
-            else:
-                return False, f"불일치 (차이: {diff:.6f})"
-        except (TypeError, ValueError) as e:
-            return False, f"float 변환 실패: {e}"
+            if len(exp) != len(act):
+                return False, f"{path}: 리스트 길이 불일치 (expected {len(exp)}, got {len(act)})"
+            
+            for i, (e, a) in enumerate(zip(exp, act)):
+                key_path = f"{path}[{i}]"
+                ok, msg = compare_nested(e, a, key_path)
+                if not ok:
+                    return False, msg
+            return True, "일치"
+
+        # 5. 숫자값 비교 (허용 오차 적용)
+        else:
+            try:
+                exp_val = float(exp)
+                act_val = float(act)
+                
+                # 허용 오차: 상대 오차 1% 또는 절대 오차 0.5
+                rel_tol = 0.01
+                abs_tol = 0.5
+                
+                if exp_val == 0:
+                    # 기대값이 0인 경우 절대 오차만 사용
+                    if abs(act_val) <= abs_tol:
+                        return True, "일치 (허용 오차 내)"
+                else:
+                    # 상대 오차 또는 절대 오차 허용
+                    if abs(exp_val - act_val) <= max(rel_tol * abs(exp_val), abs_tol):
+                        return True, "일치 (허용 오차 내)"
+                
+                return False, f"{path}: {exp_val} != {act_val}"
+            except (TypeError, ValueError):
+                # 문자열 등 다른 타입 비교
+                if str(exp) != str(act):
+                    return False, f"{path}: {exp} != {act}"
+                return True, "일치"
+
+    # 메인 비교 로직
+    if format_type == "float":
+        return compare_nested(expected, actual)
     
     elif format_type == "dict":
-        # dict 비교: 중첩 dict도 지원
-        if not isinstance(actual, dict):
-            return False, f"실제값이 dict가 아님: {type(actual)}"
-        
-        # 재귀적으로 dict 비교 (추가 키 무시, 허용 오차 적용)
-        def compare_nested(exp: Any, act: Any, path: str = "") -> Tuple[bool, str]:
-            """중첩 dict/값 재귀 비교 (tolerance 적용)"""
-            if isinstance(exp, dict):
-                if not isinstance(act, dict):
-                    return False, f"{path}: 타입 불일치 (expected dict, got {type(act).__name__})"
-                
-                exp_keys = set(exp.keys())
-                act_keys = set(act.keys())
-                
-                # 누락된 키만 에러로 처리 (추가 키는 무시)
-                missing = exp_keys - act_keys
-                if missing:
-                    return False, f"{path}: 필수 키 누락: {missing}"
-                
-                for key in exp_keys:
-                    key_path = f"{path}.{key}" if path else key
-                    ok, msg = compare_nested(exp[key], act[key], key_path)
-                    if not ok:
-                        return False, msg
-                
-                return True, "일치"
-            else:
-                # 숫자값 비교 (허용 오차 적용)
+        return compare_nested(expected, actual)
+
+    elif format_type == "list":
+        # 문자열로 된 리스트일 경우 파싱 시도 (actual)
+        if isinstance(actual, str):
+            try:
+                import json
+                actual = json.loads(actual.replace("'", '"').replace("None", "null"))
+            except:
                 try:
-                    exp_val = float(exp)
-                    act_val = float(act)
-                    
-                    # 허용 오차: 상대 오차 1% 또는 절대 오차 0.5
-                    rel_tol = 0.01
-                    abs_tol = 0.5
-                    
-                    if exp_val == 0:
-                        # 기대값이 0인 경우 절대 오차만 사용
-                        if abs(act_val) <= abs_tol:
-                            return True, "일치 (허용 오차 내)"
-                    else:
-                        # 상대 오차 또는 절대 오차 허용
-                        if abs(exp_val - act_val) <= max(rel_tol * abs(exp_val), abs_tol):
-                            return True, "일치 (허용 오차 내)"
-                    
-                    return False, f"{path}: {exp_val} != {act_val}"
-                except (TypeError, ValueError):
-                    # 문자열 등 다른 타입 비교
-                    if exp != act:
-                        return False, f"{path}: {exp} != {act}"
-                    return True, "일치"
+                    import ast
+                    actual = ast.literal_eval(actual)
+                except:
+                    pass
         
-        ok, msg = compare_nested(expected, actual)
-        if ok:
-            return True, "모든 키와 값 일치"
-        else:
-            return False, f"값 불일치: {msg}"
+        # 기대값 파싱 (expected)
+        if isinstance(expected, str):
+             try:
+                import json
+                expected = json.loads(expected.replace("'", '"').replace("None", "null"))
+             except:
+                try:
+                    import ast
+                    expected = ast.literal_eval(expected)
+                except:
+                    pass
+
+        return compare_nested(expected, actual)
     
     else:
         return False, f"알 수 없는 format: {format_type}"
@@ -479,8 +505,8 @@ def main():
     print(f"\n📚 {len(qa_pairs)}개의 QA 쌍 로드 완료")
     
     # TODO: 테스트용 - 4~8번째만 실행 (나중에 제거)
-    qa_pairs = qa_pairs[3:8]
-    print(f"⚠️  테스트 모드: 4~8번째 질의만 실행 ({len(qa_pairs)}개)")
+    # qa_pairs = qa_pairs[3:8]
+    # print(f"⚠️  테스트 모드: 4~8번째 질의만 실행 ({len(qa_pairs)}개)")
     
     # Orchestrator 생성
     orchestrator = Orchestrator()
