@@ -1,0 +1,42 @@
+[
+    {
+        "question": "caseid가 1인 환자의 HR 최댓값을 구해주세요. 결과는 단일 float 값으로 출력해주세요.",
+        "answer": 138.0,
+        "format": "float",
+        "parameter": "Solar8000/HR",
+        "tool_code": "import vitaldb\nimport numpy as np\n\ndef get_hr_max(case_id, interval=1):\n    vals = vitaldb.load_case(case_id, ['Solar8000/HR'], interval)\n    if vals is None: return None\n    hr = vals[:, 0]\n    return np.nanmax(hr)",
+        "corrected_answer": 139.0
+    },
+    {
+        "question": "caseid가 1인 환자의 HR 최솟값을 구해주세요. 결과는 단일 float 값으로 출력해주세요.",
+        "answer": 56.0,
+        "format": "float",
+        "parameter": "Solar8000/HR",
+        "tool_code": "import numpy as np\nimport vitaldb\n\ndef get_hr_min(case_id, interval=1):\n    vals = vitaldb.load_case(case_id, ['Solar8000/HR'], interval)\n    if vals is None or len(vals) == 0: return None\n    hr = vals[:, 0]\n    return np.nanmin(hr)",
+        "corrected_answer": 57.0
+    },
+    {
+        "question": "caseid가 1인 환자의 HR 중간값을 구해주세요. 결과는 단일 float 값으로 출력해주세요.",
+        "answer": 71.0,
+        "format": "float",
+        "parameter": "Solar8000/HR",
+        "tool_code": "import numpy as np\nimport vitaldb\n\ndef get_hr_median(case_id, interval=1):\n    vals = vitaldb.load_case(case_id, ['Solar8000/HR'], interval)\n    if vals is None or len(vals) == 0: return None\n    hr = vals[:, 0]\n    return np.nanmedian(hr)",
+        "corrected_answer": 74.0
+    },
+    {
+        "question": "caseid가 1인 환자의 동맥혈압(ABP)의 평균값을 구해주세요. 결과는 단일 float 값으로 출력해주세요.",
+        "answer": 81.74,
+        "format": "float",
+        "parameter": "Solar8000/ART_MBP",
+        "tool_code": "import numpy as np\nimport vitaldb\n\ndef get_abp_mean(case_id, interval=1):\n    track_name = 'Solar8000/ART_MBP'\n    vals = vitaldb.load_case(case_id, [track_name], interval)\n    if vals is None or len(vals) == 0: return None\n    abp_mbp = vals[:, 0]\n    return np.nanmean(abp_mbp)",
+        "corrected_answer": 81.85960726738851
+    },
+    {
+        "question": "caseid가 1인 환자의 동맥혈압(ABP) 최댓값을 구해주세요. 결과는 단일 float 값으로 출력해주세요.",
+        "answer": 245.0,
+        "format": "float",
+        "parameter": "Solar8000/ART_SBP",
+        "tool_code": "import numpy as np\nimport vitaldb\n\ndef get_abp_max(case_id, interval=1):\n    track_name = 'Solar8000/ART_SBP'\n    vals = vitaldb.load_case(case_id, [track_name], interval)\n    if vals is None or len(vals) == 0: return None\n    abp_sbp = vals[:, 0]\n    return np.nanmax(abp_sbp)",
+        "corrected_answer": 322.0
+    }
+]
