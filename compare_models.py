@@ -13,9 +13,6 @@
     # 특정 모델만 비교 (Ollama)
     python compare_models.py --models qwen2.5:7b llama3.1:8b
 
-    # Hugging Face 모델 비교 (자동 감지)
-    python compare_models.py --models snuh/hari-q2.5
-    
     # 다른 QA 데이터셋 사용
     python compare_models.py -i testdata/vitaldb_mid_qa_pairs.json
 
@@ -347,7 +344,6 @@ def main():
 예시:
   python compare_models.py                           # 설치된 모든 Ollama 모델 비교 (기본)
   python compare_models.py --models qwen2.5:7b       # 특정 모델만
-  python compare_models.py --models snuh/hari-q2.5   # Hugging Face 모델
   python compare_models.py -i testdata/vitaldb_mid_qa_pairs.json  # 다른 데이터셋
         """
     )
