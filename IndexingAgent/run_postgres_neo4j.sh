@@ -125,21 +125,23 @@ echo "0️⃣  Checking and stopping existing services..."
 if lsof -i :$PG_PORT >/dev/null 2>&1; then
     echo "⚠️  PostgreSQL is already running (Port: $PG_PORT). Stopping..."
     
-    # Try to stop using PID file
-    if [ -f "$PG_PID_FILE" ]; then
-        OLD_PG_PID=$(cat $PG_PID_FILE)
-        if [[ "$OLD_PG_PID" =~ ^[0-9]+$ ]] && kill -0 $OLD_PG_PID 2>/dev/null; then
-            kill -TERM $OLD_PG_PID 2>/dev/null || true
-            sleep 2
-        fi
+    # Get actual PID from port (reliable regardless of PID file state)
+    ACTUAL_PG_PID=$(lsof -ti :$PG_PORT 2>/dev/null | head -1)
+    
+    if [ -n "$ACTUAL_PG_PID" ]; then
+        echo "   - Sending SIGTERM to PID: $ACTUAL_PG_PID"
+        kill -TERM $ACTUAL_PG_PID 2>/dev/null || true
+        sleep 3
     fi
     
     # Force kill if still running
     if lsof -i :$PG_PORT >/dev/null 2>&1; then
-        # Try multiple patterns (port-based or data directory-based)
-        pkill -f "postgres.*-p.*$PG_PORT" 2>/dev/null || true
-        pkill -f "postgres.*-D.*postgres_data" 2>/dev/null || true
-        sleep 2
+        ACTUAL_PG_PID=$(lsof -ti :$PG_PORT 2>/dev/null | head -1)
+        if [ -n "$ACTUAL_PG_PID" ]; then
+            echo "   - Force kill (SIGKILL) PID: $ACTUAL_PG_PID"
+            kill -9 $ACTUAL_PG_PID 2>/dev/null || true
+            sleep 2
+        fi
     fi
     
     # Final check

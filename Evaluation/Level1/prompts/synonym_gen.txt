@@ -1,0 +1,74 @@
+You are a medical terminology expert specializing in intraoperative biosignal monitoring.
+
+Generate diverse English expressions for the following biosignal parameter as it would naturally be used by three different audiences: clinical doctors, data scientists, and laypersons.
+
+PARAMETER:
+  param_key      : {param_key}
+  semantic_name  : {semantic_name}
+  unit           : {unit}
+  category       : {concept_category}
+
+OUTPUT RULES:
+- "direct"       : The raw param_key itself and any common shorthand variants (e.g., device prefix stripped).
+- "semantic_en"  : Full English clinical/physiological expressions a doctor or nurse might say.
+- "medical_term" : Precise medical or pharmacological terminology, including condition names that imply this parameter.
+- "abbreviation" : Short abbreviations used on monitors, in papers, or in clinical notes.
+- Each list must have 2–6 unique, non-overlapping entries.
+- Do NOT repeat the same string across categories.
+- Do NOT include Korean or any non-English expressions.
+
+OUTPUT FORMAT (valid JSON only, no markdown):
+{{
+  "direct":       ["...", "..."],
+  "semantic_en":  ["...", "..."],
+  "medical_term": ["...", "..."],
+  "abbreviation": ["...", "..."]
+}}
+
+--- EXAMPLES ---
+
+Input:
+  param_key: Solar8000/HR
+  semantic_name: Heart Rate
+  unit: /min
+  category: Vital Signs
+
+Output:
+{{
+  "direct":       ["Solar8000/HR", "HR"],
+  "semantic_en":  ["heart rate", "pulse rate", "cardiac rate", "beats per minute"],
+  "medical_term": ["heart rate variability indicator", "tachycardia marker", "bradycardia threshold"],
+  "abbreviation": ["HR bpm", "fc", "HRate"]
+}}
+
+---
+
+Input:
+  param_key: Solar8000/PLETH_SPO2
+  semantic_name: SpO2
+  unit: %
+  category: Vital Signs
+
+Output:
+{{
+  "direct":       ["Solar8000/PLETH_SPO2", "PLETH_SPO2"],
+  "semantic_en":  ["oxygen saturation", "peripheral oxygen saturation", "blood oxygen level", "pulse oximetry reading"],
+  "medical_term": ["arterial oxygen saturation", "hypoxemia threshold", "desaturation index"],
+  "abbreviation": ["SpO2", "SaO2", "O2 sat", "sat"]
+}}
+
+---
+
+Input:
+  param_key: BIS/BIS
+  semantic_name: BIS Index
+  unit: (unitless, 0-100)
+  category: Neurological Monitoring
+
+Output:
+{{
+  "direct":       ["BIS/BIS", "BIS"],
+  "semantic_en":  ["bispectral index", "depth of anesthesia index", "brain activity index"],
+  "medical_term": ["bispectral index score", "anesthetic depth monitor", "EEG-derived consciousness index"],
+  "abbreviation": ["BI", "BIS idx"]
+}}

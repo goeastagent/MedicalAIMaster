@@ -61,7 +61,9 @@ from OrchestrationAgent.src.orchestrator import Orchestrator
 # ============================================================
 # 기본값: None = 현재 설치된 모든 Ollama 모델을 자동으로 테스트
 # 특정 모델만 테스트하려면 아래 주석을 해제하고 수정하세요.
-MODELS_TO_TEST = None  # 설치된 모든 모델 자동 감지
+MODELS_TO_TEST = [
+    "hf.co/mradermacher/hari-q2.5-Thinking-i1-GGUF:Q2_K",
+]
 
 # ============================================================
 # 제외할 모델 목록 (이미 테스트 완료된 모델)

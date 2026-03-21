@@ -1,0 +1,111 @@
+You are a test data generator creating adversarial queries for a medical AI retrieval system.
+The system maps natural language queries to biosignal parameter keys (param_keys) from VitalDB.
+
+Your task is to generate {n} adversarial queries of type: {adversarial_type}
+
+=== ADVERSARIAL TYPE DEFINITIONS ===
+
+"ambiguous"
+  - Take a normal clinical query and REMOVE all parameter-identifying hints.
+  - The resulting query must be so vague that the system cannot determine which parameters are needed
+    without asking for clarification.
+  - Expected system behavior: "clarify" (ask the user what they mean)
+  - Example transform: "What is the mean HR when MAP < 65?" → "How was the patient doing at that point?"
+
+"impossible"
+  - Generate a query that requests a physiological signal that does NOT exist in VitalDB's parameter table.
+  - The signal must sound plausible in a surgical context but is genuinely absent from the database.
+  - Do NOT use any of the known parameters listed below.
+  - Expected system behavior: "not_found"
+  - Signals known to be absent: {unavailable_signals}
+
+"confusing"
+  - Generate a query where the same physiological indicator is measured by MULTIPLE devices,
+    but the query does NOT specify which device to use.
+  - The system should detect the ambiguity and ask for clarification.
+  - Expected system behavior: "clarify"
+  - Use the following confusing parameter groups (same physiological indicator, multiple param_keys):
+{confusing_groups}
+
+=== CONTEXT FOR THIS BATCH ===
+
+adversarial_type    : {adversarial_type}
+source_queries      : {source_queries}
+query_style         : {query_style}
+
+=== RULES ===
+
+- Write in English only.
+- Match the declared query_style for vocabulary and tone:
+  * "doctor" — clinical terminology and professional phrasing
+  * "data_scientist" — statistical/analytical language
+  * "layperson" — plain everyday language
+- Each query must be clinically plausible (could come from a real user).
+- For "ambiguous": do NOT include any param_key, abbreviation, or physiological term that unambiguously identifies a parameter.
+- For "impossible": do NOT reference any param_key that exists in VitalDB.
+- For "confusing": do NOT specify a device name or device prefix in the query.
+- Each query must be linguistically distinct.
+
+=== OUTPUT FORMAT ===
+
+Return a JSON array of exactly {n} objects. No markdown, no explanations outside the JSON.
+
+[
+  {{
+    "query": "<adversarial natural language query>",
+    "adversarial_type": "{adversarial_type}",
+    "expected_behavior": "<clarify|not_found>",
+    "generation_notes": "<why this query is adversarial and what makes it challenging>"
+  }},
+  ...
+]
+
+=== FEW-SHOT EXAMPLES ===
+
+--- Example: ambiguous ---
+[
+  {{
+    "query": "How was the patient doing during the critical phase?",
+    "adversarial_type": "ambiguous",
+    "expected_behavior": "clarify",
+    "generation_notes": "'Critical phase' and 'doing' give no indication of which parameters to retrieve"
+  }},
+  {{
+    "query": "Show me what changed the most during the procedure.",
+    "adversarial_type": "ambiguous",
+    "expected_behavior": "clarify",
+    "generation_notes": "No parameter, time window, or unit is specified; completely under-specified"
+  }}
+]
+
+--- Example: impossible ---
+[
+  {{
+    "query": "Show me the continuous blood glucose waveform for case ID 2.",
+    "adversarial_type": "impossible",
+    "expected_behavior": "not_found",
+    "generation_notes": "Continuous intraoperative glucose waveform does not exist in VitalDB"
+  }},
+  {{
+    "query": "What was the intraoperative intracranial pressure trend?",
+    "adversarial_type": "impossible",
+    "expected_behavior": "not_found",
+    "generation_notes": "ICP monitoring is not captured in VitalDB's parameter set"
+  }}
+]
+
+--- Example: confusing ---
+[
+  {{
+    "query": "What is the average heart rate during the operation?",
+    "adversarial_type": "confusing",
+    "expected_behavior": "clarify",
+    "generation_notes": "Heart rate is available from Solar8000/HR, Solar8000/PLETH_HR, CardioQ/HR, and Vigilance/HR_AVG — device not specified"
+  }},
+  {{
+    "query": "Plot the end-tidal CO2 over time for case ID 7.",
+    "adversarial_type": "confusing",
+    "expected_behavior": "clarify",
+    "generation_notes": "EtCO2 exists as both Solar8000/ETCO2 and Primus/ETCO2 — device not specified"
+  }}
+]

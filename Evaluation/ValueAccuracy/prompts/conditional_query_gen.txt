@@ -1,0 +1,47 @@
+You are an expert SQL developer and medical data analyst.
+Your task is to generate a set of benchmark questions and their corresponding SQL queries to test an AI's ability to accurately retrieve and calculate values from a PostgreSQL database using complex, multi-hop logic.
+
+The target table is `parameter` in a medical database.
+
+### Table Schema: `parameter`
+- `param_id` (integer): Primary key
+- `param_key` (varchar): The unique string key for the parameter (e.g., 'Primus/CO2')
+- `concept_category` (varchar): The category of the parameter (e.g., 'Waveform/Signal', 'Respiratory', 'Hemodynamic'). THIS ACTS AS THE "TRACK NAME".
+- `unit` (varchar): Unit of measurement (e.g., 'mmHg', 'mV', '%', '/min')
+- `match_confidence` (float): A confidence score between 0.0 and 1.0.
+- `is_identifier` (boolean): True if this parameter is an identifier.
+
+### Instructions:
+Generate exactly {num_queries} distinct JSON objects.
+The queries MUST be of type `conditional_multi_hop`.
+
+**CRITICAL REQUIREMENT - QUERY STYLES:**
+You must evenly distribute the generated queries among the following 2 `query_style`s:
+
+1. **Multi-Independent**: Ask a single question that requires calculating values from TWO OR MORE DIFFERENT `concept_category` tracks independently, and then comparing or combining them (e.g., difference, sum, ratio).
+   - *Example*: "What is the absolute difference between the number of parameters with the unit 'mmHg' among the top 20 by param_id in the `Respiratory` category, and the number of parameters with the unit 'mmHg' among the top 20 by param_id in the `Hemodynamic` category?"
+2. **Multi-Conditional**: The calculation result from one `concept_category` track is used as a filtering condition for another `concept_category` track.
+   - *Example*: "First, find the maximum match_confidence among the top 30 parameters by param_id in the `Respiratory` category. Then, how many parameters among the top 30 by param_id in the `Hemodynamic` category have a match_confidence equal to or greater than that maximum value?"
+
+**CRITICAL REQUIREMENTS - SQL LOGIC:**
+1. **Scope Limitation (LIMIT):** The natural language query MUST explicitly restrict the initial search space (e.g., "param_id 기준 상위 20개"). The SQL MUST reflect this using `ORDER BY param_id ASC LIMIT X` inside a CTE (WITH clause) or Subquery.
+2. **Explicit Track Names:** Every natural language query MUST explicitly mention ALL the `concept_category` (Track Names) it is targeting. `track_names` array in JSON must contain all mentioned tracks.
+3. **Deterministic SQL:** The SQL must be perfectly valid PostgreSQL syntax, use `SELECT` or `WITH`, and be deterministic.
+
+### Output Format:
+Return a JSON array of objects with the following structure:
+[
+  {
+    "id": "va_cond_001",
+    "track_names": ["Respiratory", "Hemodynamic"],
+    "question_type": "conditional_multi_hop",
+    "query_style": "Multi-Conditional",
+    "query": "First, find the maximum match_confidence among the top 30 parameters by param_id in the `Respiratory` category. Then, how many parameters among the top 30 by param_id in the `Hemodynamic` category have a match_confidence equal to or greater than that maximum value?",
+    "ground_truth_logic": {
+      "language": "sql",
+      "code": "WITH RespTop AS (SELECT * FROM parameter WHERE concept_category = 'Respiratory' ORDER BY param_id ASC LIMIT 30), HemoTop AS (SELECT * FROM parameter WHERE concept_category = 'Hemodynamic' ORDER BY param_id ASC LIMIT 30), MaxResp AS (SELECT MAX(match_confidence) as max_val FROM RespTop) SELECT COUNT(*) FROM HemoTop WHERE match_confidence >= (SELECT max_val FROM MaxResp);"
+    }
+  }
+]
+
+The natural language `query` MUST be in English.

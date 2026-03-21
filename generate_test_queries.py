@@ -5,13 +5,14 @@ ChatGPT를 사용하여 페르소나별 테스트 질의를 생성합니다.
 """
 
 import json
+import os
 from datetime import datetime
 from openai import OpenAI
 
 # ============================================
 # 설정
 # ============================================
-API_KEY = "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"
+API_KEY = os.getenv("OPENAI_API_KEY", "")
 MODEL = "gpt-5.2-2025-12-11"
 
 # ============================================

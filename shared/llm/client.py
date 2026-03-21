@@ -342,13 +342,18 @@ def set_ollama_model(model: str) -> AbstractLLMClient:
 def switch_model(model_name: str) -> AbstractLLMClient:
     """
     Switch the active model, automatically detecting provider.
-    - If model_name contains '/', assume HuggingFace.
+    - If model_name starts with 'hf.co/', use Ollama (HF GGUF via Ollama Hub).
+    - Elif model_name contains '/', assume HuggingFace Transformers.
     - Otherwise, assume Ollama.
     """
     global _llm_client_instance, _logging_enabled, _logging_dir
-    
-    if "/" in model_name:
-        # Hugging Face
+
+    if model_name.startswith("hf.co/"):
+        # HuggingFace GGUF via Ollama Hub
+        new_client = OllamaClient(model=model_name)
+        logger.info(f"Switched to Ollama (HF Hub) model: {model_name}")
+    elif "/" in model_name:
+        # HuggingFace Transformers (direct loading)
         new_client = HuggingFaceClient(model_id=model_name)
         logger.info(f"Switched to Hugging Face model: {model_name}")
     else:

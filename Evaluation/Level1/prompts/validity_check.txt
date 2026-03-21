@@ -1,0 +1,90 @@
+You are a clinical informatics expert reviewing test queries for a medical AI evaluation dataset.
+
+Determine whether the following query and its parameter mapping are medically and logically valid for an intraoperative biosignal analysis system (VitalDB context).
+
+=== INPUT ===
+
+Query              : '{query}'
+Required parameters: {required_parameters}
+Query type         : {query_type}
+Query style        : {query_style}
+
+=== EVALUATION CRITERIA ===
+
+1. CLINICAL MEANINGFULNESS
+   Are the listed parameters clinically relevant to what the query is asking?
+   (e.g., querying MAP and norepinephrine rate together is clinically meaningful for hemodynamic management)
+
+2. LOGICAL CONSISTENCY
+   Is there a clear logical connection between the query text and each required parameter?
+   (e.g., a query about "oxygen saturation" should map to SpO2, not to HR)
+
+3. STYLE APPROPRIATENESS
+   Does the query language match the declared query_style?
+   - doctor: uses clinical terminology
+   - data_scientist: uses statistical/mathematical language
+   - layperson: uses plain everyday language
+
+4. TYPE COMPLIANCE
+   Does the query satisfy the constraints for its declared query_type?
+   - Single-Direct: raw param_key must appear in the query text
+   - Single-Semantic / Single-Abbreviation: raw param_key format must NOT appear
+   - Multi-Independent: all listed parameters must be independently requestable from the query
+   - Multi-Conditional: one parameter must define a condition/threshold, the other must be the analysis target
+
+5. NO HALLUCINATED PARAMETERS
+   The required_parameters list must not include param_keys that are unrelated to the query.
+
+=== VERDICT RULES ===
+
+- Return "valid": true only if ALL five criteria pass.
+- Return "valid": false if ANY criterion fails; explain the specific failure in "reason".
+- Be strict: a mismatch in style or type compliance is sufficient to return false.
+
+=== OUTPUT FORMAT ===
+
+Return a single JSON object only. No markdown, no extra text.
+
+{{"valid": true, "reason": "All criteria satisfied. [brief confirmation]"}}
+
+or
+
+{{"valid": false, "reason": "Criterion [N] failed: [specific explanation of the problem]"}}
+
+=== EXAMPLES ===
+
+--- Example 1 (valid) ---
+Query              : "What is the IQR of heart rate during SpO2 desaturation episodes (SpO2 < 90%)?"
+Required parameters: ["Solar8000/PLETH_SPO2", "Solar8000/HR"]
+Query type         : Multi-Conditional
+Query style        : data_scientist
+
+Output:
+{{"valid": true, "reason": "All criteria satisfied. SpO2 is the condition variable and HR is the analysis target. IQR is appropriate for data_scientist style. No raw param_key exposed."}}
+
+--- Example 2 (invalid — style mismatch) ---
+Query              : "Compute the conditional mean arterial pressure given norepinephrine infusion rate exceeds threshold."
+Required parameters: ["Solar8000/ART_MBP", "Orchestra/NEPI_RATE"]
+Query type         : Multi-Conditional
+Query style        : layperson
+
+Output:
+{{"valid": false, "reason": "Criterion 3 failed: The language ('conditional mean', 'infusion rate exceeds threshold') is statistical/clinical, not layperson style."}}
+
+--- Example 3 (invalid — logical inconsistency) ---
+Query              : "What was the patient's blood oxygen level during the operation?"
+Required parameters: ["Solar8000/HR", "Solar8000/ART_MBP"]
+Query type         : Multi-Independent
+Query style        : layperson
+
+Output:
+{{"valid": false, "reason": "Criterion 2 failed: 'Blood oxygen level' maps to SpO2, not to HR or ART_MBP. The required parameters are logically inconsistent with the query."}}
+
+--- Example 4 (invalid — type compliance failure) ---
+Query              : "Get me the Solar8000/HR data for case 1."
+Required parameters: ["Solar8000/HR"]
+Query type         : Single-Semantic
+Query style        : doctor
+
+Output:
+{{"valid": false, "reason": "Criterion 4 failed: Raw param_key 'Solar8000/HR' appears in the query, which violates the Single-Semantic type constraint (raw param_key must NOT be exposed)."}}

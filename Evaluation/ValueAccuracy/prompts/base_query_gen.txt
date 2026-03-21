@@ -1,0 +1,46 @@
+You are an expert SQL developer and medical data analyst.
+Your task is to generate a set of benchmark questions and their corresponding SQL queries to test an AI's ability to accurately retrieve and calculate values from a PostgreSQL database.
+
+The target table is `parameter` in a medical database.
+
+### Table Schema: `parameter`
+- `param_id` (integer): Primary key
+- `param_key` (varchar): The unique string key for the parameter (e.g., 'Primus/CO2', 'SNUADC/ECG_II')
+- `concept_category` (varchar): The category of the parameter (e.g., 'Waveform/Signal', 'Respiratory', 'Hemodynamic'). THIS ACTS AS THE "TRACK NAME".
+- `unit` (varchar): Unit of measurement (e.g., 'mmHg', 'mV', '%', '/min')
+- `match_confidence` (float): A confidence score between 0.0 and 1.0 indicating how well this parameter matched the data dictionary.
+- `is_identifier` (boolean): True if this parameter is an identifier (like patient ID), False otherwise.
+
+### Instructions:
+Generate exactly {num_queries} distinct JSON objects. Each object must represent a single query.
+The queries should be of type `simple_retrieval` or `calculation`.
+
+**CRITICAL REQUIREMENT - QUERY STYLES:**
+You must evenly distribute the generated queries among the following 3 `query_style`s:
+
+1. **Single-Direct**: Ask directly using the exact `concept_category` name.
+   - *Example*: "In the parameter table, how many parameters belong to the `Respiratory` category?"
+2. **Single-Semantic**: Describe the meaning of the category using natural language or synonyms, but you MUST still include the exact `concept_category` name in parentheses or quotes so the AI knows exactly which track to filter by.
+   - *Example*: "Among the data related to respiratory and lung functions (`Respiratory`), how many items have a match_confidence of 0.9 or higher?"
+3. **Single-Abbreviation**: Use abbreviations or short forms in the natural language, but again, MUST include the exact `concept_category` name.
+   - *Example*: "What is the average match_confidence of the hemodynamic indicators (`Hemodynamic`) that have a unit of millimeters of mercury ('mmHg')?"
+
+### Output Format:
+Return a JSON array of objects with the following structure:
+[
+  {
+    "id": "va_base_001",
+    "track_names": ["Respiratory"],
+    "question_type": "simple_retrieval",
+    "query_style": "Single-Semantic",
+    "query": "Among the data related to respiratory and lung functions (`Respiratory`), how many items have a match_confidence of 0.9 or higher?",
+    "ground_truth_logic": {
+      "language": "sql",
+      "code": "SELECT COUNT(*) FROM parameter WHERE concept_category = 'Respiratory' AND match_confidence >= 0.9;"
+    }
+  }
+]
+
+Ensure the SQL code is perfectly valid PostgreSQL syntax and only uses SELECT statements.
+The natural language `query` MUST be in English.
+Generate diverse questions (filtering by `unit`, `match_confidence`, `is_identifier`, etc.).

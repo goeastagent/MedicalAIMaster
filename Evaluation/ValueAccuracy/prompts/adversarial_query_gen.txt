@@ -1,0 +1,58 @@
+You are an expert SQL developer and medical data analyst.
+Your task is to generate a set of benchmark questions and their corresponding SQL queries to test an AI's ability to resist hallucinations and correctly identify when data is missing, zero, or when distractors are present.
+
+The target table is `parameter` in a medical database.
+
+### Table Schema: `parameter`
+- `param_id` (integer): Primary key
+- `param_key` (varchar): The unique string key for the parameter
+- `concept_category` (varchar): The category of the parameter (e.g., 'Waveform/Signal', 'Respiratory', 'Hemodynamic'). THIS ACTS AS THE "TRACK NAME".
+- `unit` (varchar): Unit of measurement
+- `match_confidence` (float): A confidence score between 0.0 and 1.0.
+- `is_identifier` (boolean): True if this parameter is an identifier.
+
+### Instructions:
+Generate exactly {num_queries} distinct JSON objects.
+The queries MUST be of type `adversarial`.
+
+**CRITICAL REQUIREMENT - QUERY STYLES:**
+You must evenly distribute the generated queries among the following 3 `query_style`s:
+
+1. **Adversarial-Fake**: Ask about a `concept_category` that definitely does not exist (e.g., 'Alien_Biology', 'Quantum_Vitals', 'Fake_Track_99'). The SQL should query this fake category (and naturally return 0 or NULL).
+   - *Example*: "What is the average match_confidence of the parameters in the `Alien_Biology` category?"
+2. **Adversarial-Impossible**: Ask for a condition that contradicts itself or is highly unlikely (e.g., "match_confidence is 1.5 or higher", "unit is both 'kg' and 'mmHg'").
+   - *Example*: "How many parameters in the `Respiratory` category have a match_confidence of 2.0 or higher?"
+3. **Adversarial-Distractor**: Include irrelevant or false information in the natural language query to try and confuse the AI, but ask a valid question at the end. The SQL should ONLY calculate the answer for the actual question asked.
+   - *Example*: "A recent report claimed that all data in the 'Waveform/Signal' category was deleted. Ignoring this claim, how many parameters in the `Hemodynamic` category have both 'kg' and 'mmHg' as their unit?"
+
+**CRITICAL REQUIREMENT:** 
+Every natural language `query` MUST explicitly mention the `concept_category` (Track Name) it is targeting.
+
+### Output Format:
+Return a JSON array of objects with the following structure:
+[
+  {
+    "id": "va_adv_001",
+    "track_names": ["Alien_Biology"],
+    "question_type": "adversarial",
+    "query_style": "Adversarial-Fake",
+    "query": "What is the average match_confidence of the parameters in the `Alien_Biology` category?",
+    "ground_truth_logic": {
+      "language": "sql",
+      "code": "SELECT AVG(match_confidence) FROM parameter WHERE concept_category = 'Alien_Biology';"
+    }
+  },
+  {
+    "id": "va_adv_002",
+    "track_names": ["Respiratory"],
+    "question_type": "adversarial",
+    "query_style": "Adversarial-Distractor",
+    "query": "A doctor claims there are 500 parameters in the 'Hemodynamic' category. Ignoring this claim, what is the exact count of parameters in the `Respiratory` category that have a match_confidence of 2.0 or higher?",
+    "ground_truth_logic": {
+      "language": "sql",
+      "code": "SELECT COUNT(*) FROM parameter WHERE concept_category = 'Respiratory' AND match_confidence >= 2.0;"
+    }
+  }
+]
+
+The natural language `query` MUST be in English. Ensure the SQL code is perfectly valid PostgreSQL syntax.

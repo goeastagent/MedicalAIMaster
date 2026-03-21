@@ -1,0 +1,141 @@
+You are a test data generator for a medical AI system that analyzes intraoperative biosignal data from VitalDB (6,384 surgical cases).
+
+Your task is to generate natural language queries in English using ONLY the parameters listed in the "AVAILABLE PARAMETERS" section below. Do not invent or assume any parameter that is not listed there.
+
+=== GENERATION CONSTRAINTS ===
+
+query_type  : {query_type}
+query_style : {query_style}
+
+Style guide:
+- "doctor"         → Use precise clinical terminology (e.g., "hypotension episode", "MAP < 65 mmHg", "intraoperative desaturation")
+- "data_scientist" → Use statistical/mathematical expressions (e.g., "IQR of", "Pearson correlation", "mean ± SD", "conditional on")
+- "layperson"      → Use plain everyday language (e.g., "when blood pressure dropped", "how fast the heart was beating", "oxygen levels")
+
+Type guide:
+- "Single-Direct"       → The query must contain the raw param_key exactly as-is (e.g., "Solar8000/HR"). Generate exactly 1 query per listed parameter.
+- "Single-Semantic"     → Refer to the parameter using its semantic meaning only. Do NOT expose the raw param_key format. Generate exactly 1 query per listed parameter.
+- "Single-Abbreviation" → Refer using a medical abbreviation or device trade name from the synonym list. Do NOT expose the raw param_key format. Generate exactly 1 query per listed parameter.
+- "Multi-Independent"   → Request all listed parameters independently in one query. Do NOT expose raw param_key format. Generate {n} queries total.
+- "Multi-Conditional"   → The [CONDITION] parameter defines a threshold/window; the [ANALYSIS] parameter is studied within that window. Do NOT expose raw param_key format. Generate {n} queries total.
+
+Additional rules:
+- caseid can be any integer between 1 and 10 (only include if it naturally fits the query).
+- Each query must be unique and linguistically distinct.
+- Write in English only.
+- Do NOT reference any parameter not listed in the "AVAILABLE PARAMETERS" section.
+
+=== AVAILABLE PARAMETERS ===
+
+{param_info}
+
+=== OUTPUT FORMAT ===
+
+Return a JSON array. No markdown, no explanations outside the JSON.
+
+For Single-* types: the array length equals the number of listed parameters (one query per parameter).
+For Multi-* types: the array length equals {n}.
+
+[
+  {{
+    "query": "<natural language query>",
+    "required_parameters": ["<param_key>", ...],
+    "query_style": "{query_style}",
+    "generation_notes": "<brief rationale: what clinical scenario this represents>"
+  }},
+  ...
+]
+
+=== FEW-SHOT EXAMPLES ===
+
+--- Example: Single-Direct × doctor (3 parameters in batch) ---
+Available parameters:
+  [1] Solar8000/HR        | Heart Rate     | /min  | expressions: heart rate, pulse, HR
+  [2] BIS/BIS             | BIS Index      | 0-100 | expressions: bispectral index, depth of anesthesia, BIS
+  [3] Solar8000/PLETH_SPO2| SpO2           | %     | expressions: oxygen saturation, SpO2, O2 sat
+
+Output:
+[
+  {{
+    "query": "Retrieve Solar8000/HR values for case ID 3 during the entire procedure.",
+    "required_parameters": ["Solar8000/HR"],
+    "query_style": "doctor",
+    "generation_notes": "Direct param_key reference for heart rate"
+  }},
+  {{
+    "query": "What were the BIS/BIS readings for case ID 7 throughout surgery?",
+    "required_parameters": ["BIS/BIS"],
+    "query_style": "doctor",
+    "generation_notes": "Direct param_key reference for anesthesia depth"
+  }},
+  {{
+    "query": "List the Solar8000/PLETH_SPO2 values recorded during case ID 1.",
+    "required_parameters": ["Solar8000/PLETH_SPO2"],
+    "query_style": "doctor",
+    "generation_notes": "Direct param_key reference for oxygen saturation"
+  }}
+]
+
+--- Example: Single-Semantic × layperson (2 parameters in batch) ---
+Available parameters:
+  [1] Solar8000/PLETH_SPO2 | SpO2  | % | expressions: oxygen saturation, blood oxygen level, O2 sat
+  [2] Solar8000/ART_MBP    | MAP   | mmHg | expressions: mean arterial pressure, average blood pressure, MAP
+
+Output:
+[
+  {{
+    "query": "How low did the patient's blood oxygen level drop during surgery?",
+    "required_parameters": ["Solar8000/PLETH_SPO2"],
+    "query_style": "layperson",
+    "generation_notes": "SpO2 expressed as 'blood oxygen level' — no raw key exposed"
+  }},
+  {{
+    "query": "Was the patient's blood pressure stable throughout the operation?",
+    "required_parameters": ["Solar8000/ART_MBP"],
+    "query_style": "layperson",
+    "generation_notes": "MAP expressed as 'blood pressure' — no raw key exposed"
+  }}
+]
+
+--- Example: Multi-Conditional × doctor (1 pair) ---
+Available parameters:
+  [CONDITION] Solar8000/ART_MBP   | Mean Arterial Pressure | mmHg | expressions: MAP, mean blood pressure, arterial pressure
+  [ANALYSIS]  Orchestra/NEPI_RATE | Norepinephrine Rate    | mcg/kg/min | expressions: norepinephrine, vasopressor infusion, NEPI
+
+Output:
+[
+  {{
+    "query": "What is the mean norepinephrine infusion rate during intraoperative hypotension (MAP < 65 mmHg)?",
+    "required_parameters": ["Solar8000/ART_MBP", "Orchestra/NEPI_RATE"],
+    "query_style": "doctor",
+    "generation_notes": "MAP defines the hypotensive window; NEPI_RATE is analyzed within it"
+  }},
+  {{
+    "query": "Analyze norepinephrine dose escalation patterns during sustained MAP drops below 60 mmHg.",
+    "required_parameters": ["Solar8000/ART_MBP", "Orchestra/NEPI_RATE"],
+    "query_style": "doctor",
+    "generation_notes": "Variant framing emphasizing dose escalation over time"
+  }}
+]
+
+--- Example: Multi-Conditional × data_scientist (1 pair) ---
+Available parameters:
+  [CONDITION] Solar8000/PLETH_SPO2 | SpO2 | % | expressions: oxygen saturation, SpO2, O2 saturation
+  [ANALYSIS]  Solar8000/HR         | Heart Rate | /min | expressions: heart rate, pulse rate, HR
+
+Output:
+[
+  {{
+    "query": "Compute the IQR of heart rate conditioned on SpO2 < 90% for case ID 5.",
+    "required_parameters": ["Solar8000/PLETH_SPO2", "Solar8000/HR"],
+    "query_style": "data_scientist",
+    "generation_notes": "SpO2 is the filter condition; HR is the variable with IQR statistic"
+  }},
+  {{
+    "query": "Fit a linear regression of HR on SpO2 during desaturation windows (SpO2 below 92%).",
+    "required_parameters": ["Solar8000/PLETH_SPO2", "Solar8000/HR"],
+    "query_style": "data_scientist",
+    "generation_notes": "Regression framing; desaturation threshold slightly relaxed"
+  }}
+]
+
