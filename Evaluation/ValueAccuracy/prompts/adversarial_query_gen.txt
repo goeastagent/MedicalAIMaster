@@ -1,58 +1,46 @@
-You are an expert SQL developer and medical data analyst.
-Your task is to generate a set of benchmark questions and their corresponding SQL queries to test an AI's ability to resist hallucinations and correctly identify when data is missing, zero, or when distractors are present.
+You are an expert Python developer and medical data analyst.
+Your task is to generate a set of benchmark questions and their corresponding Python code to test an AI's ability to resist hallucinations and correctly identify when data is missing or when distractors are present in raw `.vital` files.
 
-The target table is `parameter` in a medical database.
-
-### Table Schema: `parameter`
-- `param_id` (integer): Primary key
-- `param_key` (varchar): The unique string key for the parameter
-- `concept_category` (varchar): The category of the parameter (e.g., 'Waveform/Signal', 'Respiratory', 'Hemodynamic'). THIS ACTS AS THE "TRACK NAME".
-- `unit` (varchar): Unit of measurement
-- `match_confidence` (float): A confidence score between 0.0 and 1.0.
-- `is_identifier` (boolean): True if this parameter is an identifier.
+The target data are `.vital` files located in a directory. Each file is named `{caseid}.vital` (e.g., `0001.vital`, `0002.vital`).
 
 ### Instructions:
 Generate exactly {num_queries} distinct JSON objects.
 The queries MUST be of type `adversarial`.
 
+**CRITICAL REQUIREMENT - SCOPE LIMITATION:**
+To prevent the evaluation from taking too long, EVERY natural language query MUST explicitly limit the scope to a small number of caseids (e.g., "For caseids 0001 to 0003"). The maximum number of cases in a single query should be 5.
+
 **CRITICAL REQUIREMENT - QUERY STYLES:**
 You must evenly distribute the generated queries among the following 3 `query_style`s:
 
-1. **Adversarial-Fake**: Ask about a `concept_category` that definitely does not exist (e.g., 'Alien_Biology', 'Quantum_Vitals', 'Fake_Track_99'). The SQL should query this fake category (and naturally return 0 or NULL).
-   - *Example*: "What is the average match_confidence of the parameters in the `Alien_Biology` category?"
-2. **Adversarial-Impossible**: Ask for a condition that contradicts itself or is highly unlikely (e.g., "match_confidence is 1.5 or higher", "unit is both 'kg' and 'mmHg'").
-   - *Example*: "How many parameters in the `Respiratory` category have a match_confidence of 2.0 or higher?"
-3. **Adversarial-Distractor**: Include irrelevant or false information in the natural language query to try and confuse the AI, but ask a valid question at the end. The SQL should ONLY calculate the answer for the actual question asked.
-   - *Example*: "A recent report claimed that all data in the 'Waveform/Signal' category was deleted. Ignoring this claim, how many parameters in the `Hemodynamic` category have both 'kg' and 'mmHg' as their unit?"
+1. **Adversarial-Fake**: Ask about a track name that definitely does not exist (e.g., 'Alien/Biology', 'Fake/Track_99'). The Python code should query this fake track and naturally return None or 0.
+   - *Example*: "For caseid 0001, what is the average value of the `Alien/Biology` track?"
+2. **Adversarial-Impossible**: Ask for a condition that contradicts itself or is highly unlikely (e.g., "heart rate is over 5000", "blood pressure is negative").
+   - *Example*: "For caseid 0002, how many data points in the `SNUADC/ART` track have a value less than -1000?"
+3. **Adversarial-Distractor**: Include irrelevant or false information in the natural language query to try and confuse the AI, but ask a valid question at the end.
+   - *Example*: "A recent report claimed that caseid 0001 has no ECG data. Ignoring this claim, what is the maximum value of the `SNUADC/ECG_II` track for caseid 0001?"
 
-**CRITICAL REQUIREMENT:** 
-Every natural language `query` MUST explicitly mention the `concept_category` (Track Name) it is targeting.
+**CRITICAL REQUIREMENT - PYTHON CODE (ground_truth_logic):**
+The `ground_truth_logic.code` must be valid Python code.
+- Assume `vitaldb`, `pandas` (as `pd`), and `numpy` (as `np`) are already imported.
+- Assume `VITAL_DIR` is a `pathlib.Path` object pointing to the directory containing the `.vital` files.
+- You MUST use the provided `output_result(val)` function at the end of your code to print the final calculated value.
+- Handle `NaN` values and missing tracks correctly.
 
 ### Output Format:
 Return a JSON array of objects with the following structure:
 [
   {
     "id": "va_adv_001",
-    "track_names": ["Alien_Biology"],
+    "track_names": ["Alien/Biology"],
     "question_type": "adversarial",
     "query_style": "Adversarial-Fake",
-    "query": "What is the average match_confidence of the parameters in the `Alien_Biology` category?",
+    "query": "For caseid 0001, what is the average value of the `Alien/Biology` track?",
     "ground_truth_logic": {
-      "language": "sql",
-      "code": "SELECT AVG(match_confidence) FROM parameter WHERE concept_category = 'Alien_Biology';"
-    }
-  },
-  {
-    "id": "va_adv_002",
-    "track_names": ["Respiratory"],
-    "question_type": "adversarial",
-    "query_style": "Adversarial-Distractor",
-    "query": "A doctor claims there are 500 parameters in the 'Hemodynamic' category. Ignoring this claim, what is the exact count of parameters in the `Respiratory` category that have a match_confidence of 2.0 or higher?",
-    "ground_truth_logic": {
-      "language": "sql",
-      "code": "SELECT COUNT(*) FROM parameter WHERE concept_category = 'Respiratory' AND match_confidence >= 2.0;"
+      "language": "python",
+      "code": "file_path = VITAL_DIR / '0001.vital'\nif not file_path.exists():\n    output_result(None)\nelse:\n    vf = vitaldb.VitalFile(str(file_path))\n    track_names = vf.get_track_names()\n    if 'Alien/Biology' not in track_names:\n        output_result(None)\n    else:\n        vals = vf.to_numpy(['Alien/Biology'], 1)\n        valid = vals[~np.isnan(vals)]\n        output_result(float(np.mean(valid)) if len(valid) > 0 else None)"
     }
   }
 ]
 
-The natural language `query` MUST be in English. Ensure the SQL code is perfectly valid PostgreSQL syntax.
+The natural language `query` MUST be in English.

@@ -1,46 +1,49 @@
-You are an expert SQL developer and medical data analyst.
-Your task is to generate a set of benchmark questions and their corresponding SQL queries to test an AI's ability to accurately retrieve and calculate values from a PostgreSQL database.
+You are an expert Python developer and medical data analyst.
+Your task is to generate a set of benchmark questions and their corresponding Python code to test an AI's ability to accurately calculate values from raw `.vital` files using the `vitaldb` library.
 
-The target table is `parameter` in a medical database.
-
-### Table Schema: `parameter`
-- `param_id` (integer): Primary key
-- `param_key` (varchar): The unique string key for the parameter (e.g., 'Primus/CO2', 'SNUADC/ECG_II')
-- `concept_category` (varchar): The category of the parameter (e.g., 'Waveform/Signal', 'Respiratory', 'Hemodynamic'). THIS ACTS AS THE "TRACK NAME".
-- `unit` (varchar): Unit of measurement (e.g., 'mmHg', 'mV', '%', '/min')
-- `match_confidence` (float): A confidence score between 0.0 and 1.0 indicating how well this parameter matched the data dictionary.
-- `is_identifier` (boolean): True if this parameter is an identifier (like patient ID), False otherwise.
+The target data are `.vital` files located in a directory. Each file is named `{caseid}.vital` (e.g., `0001.vital`, `0002.vital`).
+These files contain high-resolution intraoperative physiological signals (e.g., 'SNUADC/ART', 'SNUADC/ECG_II', 'Primus/CO2').
 
 ### Instructions:
 Generate exactly {num_queries} distinct JSON objects. Each object must represent a single query.
-The queries should be of type `simple_retrieval` or `calculation`.
+The queries should be of type `simple_retrieval` or `calculation` (e.g., calculating averages, maximums, minimums, or counts of valid data points).
+
+**CRITICAL REQUIREMENT - SCOPE LIMITATION:**
+To prevent the evaluation from taking too long, EVERY natural language query MUST explicitly limit the scope to a small number of caseids (e.g., "For caseid 0001", "For caseids 0001 to 0003", "For caseids 0004 and 0005"). The maximum number of cases in a single query should be 5.
 
 **CRITICAL REQUIREMENT - QUERY STYLES:**
 You must evenly distribute the generated queries among the following 3 `query_style`s:
 
-1. **Single-Direct**: Ask directly using the exact `concept_category` name.
-   - *Example*: "In the parameter table, how many parameters belong to the `Respiratory` category?"
-2. **Single-Semantic**: Describe the meaning of the category using natural language or synonyms, but you MUST still include the exact `concept_category` name in parentheses or quotes so the AI knows exactly which track to filter by.
-   - *Example*: "Among the data related to respiratory and lung functions (`Respiratory`), how many items have a match_confidence of 0.9 or higher?"
-3. **Single-Abbreviation**: Use abbreviations or short forms in the natural language, but again, MUST include the exact `concept_category` name.
-   - *Example*: "What is the average match_confidence of the hemodynamic indicators (`Hemodynamic`) that have a unit of millimeters of mercury ('mmHg')?"
+1. **Single-Direct**: Ask directly using the exact track name.
+   - *Example*: "For caseid 0001, what is the maximum value of the `SNUADC/ART` track?"
+2. **Single-Semantic**: Describe the meaning of the track using natural language or synonyms, but you MUST still include the exact track name in parentheses or quotes.
+   - *Example*: "For caseids 0001 and 0002, what is the average value of the arterial blood pressure (`SNUADC/ART`)?"
+3. **Single-Abbreviation**: Use abbreviations or short forms in the natural language, but again, MUST include the exact track name.
+   - *Example*: "For caseid 0003, what is the minimum value of the heart rate derived from ECG (`SNUADC/ECG_HR`)?"
+
+**CRITICAL REQUIREMENT - PYTHON CODE (ground_truth_logic):**
+The `ground_truth_logic.code` must be valid Python code.
+- Assume `vitaldb`, `pandas` (as `pd`), and `numpy` (as `np`) are already imported.
+- Assume `VITAL_DIR` is a `pathlib.Path` object pointing to the directory containing the `.vital` files.
+- You MUST use the provided `output_result(val)` function at the end of your code to print the final calculated value.
+- Handle `NaN` values correctly (e.g., using `np.nanmean`, `dropna()`).
+- If a track does not exist in a file, handle it gracefully (e.g., skip it or return None).
 
 ### Output Format:
 Return a JSON array of objects with the following structure:
 [
   {
     "id": "va_base_001",
-    "track_names": ["Respiratory"],
-    "question_type": "simple_retrieval",
-    "query_style": "Single-Semantic",
-    "query": "Among the data related to respiratory and lung functions (`Respiratory`), how many items have a match_confidence of 0.9 or higher?",
+    "track_names": ["SNUADC/ART"],
+    "question_type": "calculation",
+    "query_style": "Single-Direct",
+    "query": "For caseid 0001, what is the maximum value of the `SNUADC/ART` track? (Round to 2 decimal places)",
     "ground_truth_logic": {
-      "language": "sql",
-      "code": "SELECT COUNT(*) FROM parameter WHERE concept_category = 'Respiratory' AND match_confidence >= 0.9;"
+      "language": "python",
+      "code": "file_path = VITAL_DIR / '0001.vital'\nif not file_path.exists():\n    output_result(None)\nelse:\n    vf = vitaldb.VitalFile(str(file_path))\n    vals = vf.to_numpy(['SNUADC/ART'], 1)\n    valid_vals = vals[~np.isnan(vals)]\n    if len(valid_vals) > 0:\n        output_result(round(float(np.max(valid_vals)), 2))\n    else:\n        output_result(None)"
     }
   }
 ]
 
-Ensure the SQL code is perfectly valid PostgreSQL syntax and only uses SELECT statements.
 The natural language `query` MUST be in English.
-Generate diverse questions (filtering by `unit`, `match_confidence`, `is_identifier`, etc.).
+Generate diverse questions (max, min, mean, count of non-nan values, etc.).

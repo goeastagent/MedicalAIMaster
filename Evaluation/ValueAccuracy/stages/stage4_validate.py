@@ -8,13 +8,13 @@ import sys
 # Add project root to sys.path
 sys.path.append(os.path.abspath(os.path.join(os.path.dirname(__file__), '../../..')))
 
-from Evaluation.ValueAccuracy.utils.db_executor import DBExecutor
+from Evaluation.ValueAccuracy.utils.vital_executor import VitalExecutor
 
 logging.basicConfig(level=logging.INFO, format='%(asctime)s - %(levelname)s - %(message)s')
 logger = logging.getLogger(__name__)
 
-def process_file(file_path: Path, executor: DBExecutor) -> list:
-    """Reads a JSONL file, executes the SQL for each query, and updates expected_value."""
+def process_file(file_path: Path, executor: VitalExecutor) -> list:
+    """Reads a JSONL file, executes the Python code for each query, and updates expected_value."""
     if not file_path.exists():
         logger.warning(f"File not found: {file_path}")
         return []
@@ -31,55 +31,22 @@ def process_file(file_path: Path, executor: DBExecutor) -> list:
                 logger.error(f"Failed to parse JSON line in {file_path.name}")
                 continue
 
-            sql_code = query_data.get("ground_truth_logic", {}).get("code", "")
-            if not sql_code:
-                logger.warning(f"No SQL code found for ID: {query_data.get('id')}")
+            code = query_data.get("ground_truth_logic", {}).get("code", "")
+            if not code:
+                logger.warning(f"No Python code found for ID: {query_data.get('id')}")
                 continue
 
-            # Execute the SQL query
-            logger.debug(f"Executing SQL for {query_data['id']}: {sql_code}")
+            # Execute the Python code using VitalExecutor
+            logger.debug(f"Executing code for {query_data['id']}")
             
-            # Use get_single_value if it's a simple scalar query (COUNT, AVG, MAX, etc.)
-            # Otherwise, use execute_query. We'll try execute_query first and format the result.
-            response = executor.execute_query(sql_code)
+            response = executor.execute_code(code)
             
             if not response["success"]:
-                logger.error(f"SQL Execution failed for {query_data['id']}: {response['error']}")
-                # We skip invalid SQL queries to ensure the benchmark is 100% clean
+                logger.error(f"Code Execution failed for {query_data['id']}: {response['error']}")
+                # We skip invalid queries to ensure the benchmark is 100% clean
                 continue
                 
-            results = response["result"]
-            
-            # Determine how to store the expected_value
-            if not results:
-                # Empty result (e.g., adversarial query with impossible conditions)
-                query_data["expected_value"] = 0 if "COUNT" in sql_code.upper() else None
-            elif len(results) == 1 and len(results[0]) == 1:
-                # Single scalar value (e.g., COUNT(*), AVG(match_confidence))
-                val = list(results[0].values())[0]
-                # Convert Decimal or other DB types to standard Python types for JSON serialization
-                if val is not None:
-                    try:
-                        val = float(val) if '.' in str(val) else int(val)
-                    except ValueError:
-                        pass # Keep as string if it can't be cast
-                query_data["expected_value"] = val
-            else:
-                # Multiple rows or columns (e.g., GROUP BY)
-                # Convert to a list of dicts, ensuring types are serializable
-                formatted_results = []
-                for row in results:
-                    formatted_row = {}
-                    for k, v in row.items():
-                        if v is not None:
-                            try:
-                                v = float(v) if '.' in str(v) else int(v)
-                            except ValueError:
-                                pass
-                        formatted_row[k] = v
-                    formatted_results.append(formatted_row)
-                query_data["expected_value"] = formatted_results
-
+            query_data["expected_value"] = response["result"]
             query_data["is_verified_by_execution"] = True
             validated_queries.append(query_data)
             logger.info(f"Verified {query_data['id']} -> Expected Value: {query_data['expected_value']}")
@@ -88,7 +55,7 @@ def process_file(file_path: Path, executor: DBExecutor) -> list:
 
 def validate_and_merge_datasets(output_filename: str = "value_accuracy_dataset.jsonl"):
     """
-    Reads all generated query files, executes their SQL to get the ground truth,
+    Reads all generated query files, executes their Python code to get the ground truth,
     and merges valid ones into a final benchmark dataset.
     """
     output_dir = Path(__file__).parent.parent / "output"
@@ -99,19 +66,15 @@ def validate_and_merge_datasets(output_filename: str = "value_accuracy_dataset.j
         output_dir / "adversarial_queries.jsonl"
     ]
 
-    executor = DBExecutor()
-    executor.connect()
+    executor = VitalExecutor()
 
     all_validated_queries = []
 
-    try:
-        for file_path in input_files:
-            logger.info(f"Processing {file_path.name}...")
-            validated = process_file(file_path, executor)
-            all_validated_queries.append(validated)
-            logger.info(f"Successfully validated {len(validated)} queries from {file_path.name}")
-    finally:
-        executor.close()
+    for file_path in input_files:
+        logger.info(f"Processing {file_path.name}...")
+        validated = process_file(file_path, executor)
+        all_validated_queries.append(validated)
+        logger.info(f"Successfully validated {len(validated)} queries from {file_path.name}")
 
     # Flatten list
     final_dataset = [q for sublist in all_validated_queries for q in sublist]

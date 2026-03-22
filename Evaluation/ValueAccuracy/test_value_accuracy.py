@@ -112,6 +112,16 @@ def compare_values(expected: Any, actual: Any) -> bool:
     Compares the expected value with the actual value returned by the agent.
     Handles None, scalars (int, float, str), and lists of dicts.
     """
+    # If actual is a string that looks like a dict, try to parse it
+    if isinstance(actual, str):
+        try:
+            # Sometimes it's wrapped in quotes or has single quotes
+            actual_parsed = json.loads(actual.replace("'", '"'))
+            if isinstance(actual_parsed, dict) and "answer" in actual_parsed:
+                actual = actual_parsed["answer"]
+        except Exception:
+            pass
+
     if expected is None:
         # For adversarial queries, the agent might return None, "None", "0", 0, or an empty list/dict
         if actual is None or actual == "None" or actual == "null":
@@ -176,7 +186,7 @@ def run_vitalagent(cases: List[Dict], progress_cb=None) -> List[CaseResult]:
         t0 = time.time()
         
         # Modify query to ask for JSON output
-        prompt = f"{case['query']}\n\nPlease output ONLY a JSON object with a single key 'answer' containing the final calculated value. Do not include any other text."
+        prompt = f"{case['query']}\n\nPlease output ONLY a JSON object with a single key 'answer' containing the final calculated value. Do not include any other text.\nIMPORTANT: When calling `vf.to_numpy(track_names, interval)`, you MUST use `interval=1` to match the expected ground truth calculation. If the query specifies a different interval or sampling rate (like 100 Hz, which means interval=1/100), use that instead. However, note that if the query says 'sampled at 100 Hz', it means you should pass `100` as the interval argument to `to_numpy` (e.g. `vf.to_numpy(['track'], 100)`), NOT `1/100`."
         
         raw_output = None
         agent_answer = None
@@ -197,6 +207,23 @@ def run_vitalagent(cases: List[Dict], progress_cb=None) -> List[CaseResult]:
                     agent_answer = raw_output
             else:
                 agent_answer = raw_output
+                
+            # If the agent answer is a dict, it might be the raw result object, let's try to extract answer
+            if hasattr(res, 'result') and isinstance(res.result, dict) and "answer" in res.result:
+                agent_answer = res.result["answer"]
+            elif isinstance(agent_answer, dict) and "answer" in agent_answer:
+                agent_answer = agent_answer["answer"]
+            elif hasattr(res, 'final_answer') and isinstance(res.final_answer, dict) and "answer" in res.final_answer:
+                agent_answer = res.final_answer["answer"]
+            elif isinstance(raw_output, str) and "answer" in raw_output:
+                # Sometimes the raw_output is a string representation of the result object
+                try:
+                    # Look for result={'answer': 365.44}
+                    match = re.search(r"result=\{'answer':\s*([^}]+)\}", raw_output)
+                    if match:
+                        agent_answer = float(match.group(1))
+                except Exception:
+                    pass
                 
         except Exception as e:
             elapsed = (time.time() - t0) * 1000
@@ -233,12 +260,14 @@ def run_claude_code_cli(cases: List[Dict], progress_cb=None) -> List[CaseResult]
         _log_progress("Claude-Code-CLI", idx, len(cases), case["id"])
         
         prompt = (
-            f"You are a medical data analyst. You have access to a PostgreSQL database named 'medical_data'. "
-            f"The target table is 'parameter'. "
-            f"Please execute the necessary SQL queries to answer the following question: '{case['query']}'.\n\n"
+            f"You are a medical data analyst. You need to write a python script that uses `vitaldb` to answer the following question: '{case['query']}'.\n\n"
+            f"The vital files are located at `/Users/goeastagent/products/MedicalAIMaster/IndexingAgent/data/raw/Open_VitalDB_1.0.0/vital_files/`.\n"
             f"Return ONLY a JSON object in this format: "
             f"{{\"answer\": <your_calculated_value>}} "
-            f"If the answer is empty or not found, return null for the answer."
+            f"If the answer is empty or not found, return null for the answer.\n"
+            f"You MUST output the python code you want to run. Do NOT try to run it yourself, just output the code inside a ```python block. I will run it for you.\n"
+            f"IMPORTANT: When calling `vf.to_numpy(track_names, interval)`, you MUST use `interval=1` to match the expected ground truth calculation. If the query specifies a different interval or sampling rate (like 100 Hz, which means interval=1/100), use that instead. However, note that if the query says 'sampled at 100 Hz', it means you should pass `100` as the interval argument to `to_numpy` (e.g. `vf.to_numpy(['track'], 100)`), NOT `1/100`.\n"
+            f"IMPORTANT: Make sure your python code prints the final answer using `print(json.dumps({{\"answer\": ...}}))`."
         )
 
         t0 = time.time()
@@ -256,11 +285,42 @@ def run_claude_code_cli(cases: List[Dict], progress_cb=None) -> List[CaseResult]
             )
             elapsed = (time.time() - t0) * 1000
             raw_output = process.stdout.strip()
+            
+            # If stdout is empty, check stderr
+            if not raw_output and process.stderr:
+                raw_output = process.stderr.strip()
+                
             if process.returncode != 0:
                 error_msg = process.stderr.strip()
 
             json_match = re.search(r'\{.*\}', raw_output, re.DOTALL)
-            if json_match:
+            code_match = re.search(r'```python\n(.*?)\n```', raw_output, re.DOTALL)
+            
+            if code_match:
+                code = code_match.group(1)
+                try:
+                    # Execute the code and capture output
+                    from Evaluation.ValueAccuracy.utils.vital_executor import VitalExecutor
+                    executor = VitalExecutor()
+                    res = executor.execute_code(code)
+                    if res["success"]:
+                        agent_answer = res["result"]
+                    else:
+                        # Try to parse the raw stdout if it's just a JSON parsing error
+                        if "Raw stdout:" in res.get("error", ""):
+                            try:
+                                raw_stdout = res["error"].split("Raw stdout:")[1].strip()
+                                # Handle np.float64 and single quotes
+                                raw_stdout = raw_stdout.replace("np.float64(", "").replace(")", "").replace("'", '"')
+                                parsed = json.loads(raw_stdout)
+                                agent_answer = parsed.get("answer", raw_stdout)
+                            except:
+                                agent_answer = f"Error: {res['error']}"
+                        else:
+                            agent_answer = f"Error: {res['error']}"
+                except Exception as e:
+                    agent_answer = f"Error executing code: {e}"
+            elif json_match:
                 try:
                     parsed = json.loads(json_match.group(0))
                     agent_answer = parsed.get("answer")
