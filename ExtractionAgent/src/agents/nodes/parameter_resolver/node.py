@@ -85,15 +85,20 @@ class ParameterResolverNode(BaseNode):
             
             # 2. Pass 1: Resolve with LLM (Flexible Mapper)
             if len(db_matches) == 0:
+                # If no matches found, decide between not_found and clarify
+                is_vague = any(cat in ["Unknown", "Other"] for cat in expected_categories)
+                mode = "clarify" if is_vague else "not_found"
+                reason = f"No matches found for keywords: {candidates}. Marked as {mode} due to category {expected_categories}."
+                
                 resolved = {
                     "term": term,
                     "param_keys": [],
                     "semantic_name": normalized,
                     "unit": None,
                     "concept_category": None,
-                    "resolution_mode": "not_found",
+                    "resolution_mode": mode,
                     "confidence": 0.0,
-                    "reasoning": f"No matches found for keywords: {candidates}"
+                    "reasoning": reason
                 }
             else:
                 resolved = self._resolve_with_llm(

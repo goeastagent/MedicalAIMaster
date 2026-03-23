@@ -94,6 +94,7 @@ Respond ONLY in the following JSON format:
    - If the query explicitly mentions a specific key that matches the database schema, do NOT add generic synonyms or alternative keywords
    - This ensures precise parameter resolution without ambiguity
    - Only add multiple candidates when the user uses general/ambiguous terminology
+10. **VAGUE OR AMBIGUOUS TERMS**: If the user uses vague terms (e.g., "the numbers", "patient status", "what happened", "everything"), DO NOT ignore them. Extract them as requested_parameters with category "Other" or "Unknown" so the downstream resolver can ask for clarification. Never return an empty requested_parameters list if the user is asking for data, even if the request is vague.
 """
 
 

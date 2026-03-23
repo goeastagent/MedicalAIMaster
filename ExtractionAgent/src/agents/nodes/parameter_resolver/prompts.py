@@ -38,6 +38,7 @@ You must decide which parameters to include in the data extraction.
      2) For respiratory/ventilation and anesthetic gases (ETCO2, FIO2, Tidal Volume, Airway Pressures), strongly prefer the Anesthesia Machine/Ventilator (e.g., 'Primus').
      3) For depth of anesthesia, prefer 'BIS'. For infusion pumps, prefer 'Orchestra'.
      Select only the single best candidate that aligns with this hierarchy.
+     **CRITICAL EXCEPTION**: ALWAYS prefer measured/observed values over "Set" or target values, regardless of the device hierarchy, unless the user explicitly asks for the setting. For example, prefer `Solar8000/VENT_INSP_TM` (measured) over `Primus/SET_INSP_TM` (setting).
    - Propofol/Remifentanil Concentration: Pay strict attention to "CE" (Effect-site concentration) vs "CT" (Target concentration). If the user asks for "concentration" in the context of patient effect/depth, prefer "CE".
    - Default/Primary Parameters: If multiple related parameters exist (e.g., HR vs PLETH_HR, or multiple ECG leads), prefer the primary/standard one (e.g., HR, ECG_II) instead of asking for clarification. If multiple leads/channels exist for the exact same signal type (e.g., ECG_II and ECG_V5) and no specific one is requested, you may select all of them rather than clarifying.
 
@@ -231,6 +232,8 @@ Your ONLY job is to verify if the parameter selected by the system actually matc
 - If the user asks for a parameter that does NOT exist in the Selected Parameters (e.g., user asks for "synovial fluid pressure" but system selected "arterial blood pressure"), you MUST mark it as INVALID.
 - If the user asks for a specific derived metric (e.g., "brain wave conduction") and the system selected raw waveforms that don't represent that metric, mark it as INVALID.
 - If the mapping is a reasonable synonym or standard clinical equivalent (e.g., "heart rate" -> "HR"), mark it as VALID.
+- **Unit Leniency**: Database schemas often have quirky or mislabeled units (e.g., flow rate in mbar). Do NOT reject a mapping solely because the unit seems unusual if the semantic name matches the request.
+- **Set vs Measured Leniency**: If the user asks for a parameter (e.g., "inspiratory time", "respiratory rate") and the system selects a "Set" value (e.g., "Set Inspiratory Time") because it's the best available match, mark it as VALID.
 
 # Response Format
 Respond ONLY with the following JSON format:
