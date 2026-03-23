@@ -241,24 +241,24 @@ MEDICAL_PARAM_PAIRS: list[ParamPair] = [
     # ── Hemodynamic-Pharmacologic ────────────────────────────────────────────
     {
         "param_a": "Solar8000/ART_MBP",
-        "param_b": "Orchestra/NEPI_RATE",
+        "param_b": "Orchestra/PPF20_RATE",
         "role_a": "condition",
         "role_b": "analysis",
-        "clinical_relation": "Norepinephrine response during hypotension",
+        "clinical_relation": "Propofol-induced hypotension (MAP vs infusion rate)",
     },
     {
         "param_a": "Solar8000/ART_SBP",
-        "param_b": "Orchestra/DOPA_RATE",
+        "param_b": "Orchestra/RFTN20_RATE",
         "role_a": "condition",
         "role_b": "analysis",
-        "clinical_relation": "SBP–dopamine dose response",
+        "clinical_relation": "SBP–remifentanil infusion rate response",
     },
     {
         "param_a": "Solar8000/ART_MBP",
-        "param_b": "Orchestra/PHEN_RATE",
+        "param_b": "Orchestra/RFTN20_CE",
         "role_a": "condition",
         "role_b": "analysis",
-        "clinical_relation": "MAP–phenylephrine response",
+        "clinical_relation": "MAP–remifentanil effect-site concentration",
     },
     {
         "param_a": "Solar8000/ART_DBP",
@@ -277,7 +277,7 @@ MEDICAL_PARAM_PAIRS: list[ParamPair] = [
     },
     {
         "param_a": "BIS/BIS",
-        "param_b": "Orchestra/RFTN50_CE",
+        "param_b": "Orchestra/RFTN20_CE",
         "role_a": "condition",
         "role_b": "analysis",
         "clinical_relation": "Anesthesia depth–remifentanil effect-site concentration",
@@ -362,6 +362,10 @@ class ValidationCriteria:
 
     # Every category must have at least this many cases
     MIN_CASES_PER_CATEGORY: int = 1
+
+    # Categories excluded from the MIN_CASES_PER_CATEGORY check.
+    # Current experiment uses vital signals only — no clinical/lab data sources.
+    EXCLUDED_CATEGORIES: tuple = ("vital+clinical", "vital+lab")
 
     # Each query style must fall within [MIN_STYLE_PCT, MAX_STYLE_PCT] of total
     MIN_STYLE_PCT: float = 0.25

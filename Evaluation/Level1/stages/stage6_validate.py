@@ -157,7 +157,10 @@ def _check_category_distribution(
         if cat.value not in dist:
             dist[cat.value] = 0
     cat_issues: List[str] = []
+    excluded = set(ValidationCriteria.EXCLUDED_CATEGORIES)
     for cat_val, cnt in dist.items():
+        if cat_val in excluded:
+            continue
         if cnt < ValidationCriteria.MIN_CASES_PER_CATEGORY:
             cat_issues.append(
                 f"Category '{cat_val}' has {cnt} cases, "

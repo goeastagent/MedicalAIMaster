@@ -215,10 +215,16 @@ def _build_single_batches(
 
     Returns a list of batch dicts, each containing:
       {"params": List[SynonymEntry], "query_type": ..., "query_style": ...}
+
+    Uses a cell-specific seed so that each (query_type, query_style) cell
+    draws a different subset of parameters, maximising param coverage
+    across the full batch plan.
     """
     all_entries = list(synonym_map.values())
-    random.seed(42)
-    random.shuffle(all_entries)
+
+    cell_seed = abs(hash((query_type.value, query_style.value, "level1"))) % (2**31)
+    rng = random.Random(cell_seed)
+    rng.shuffle(all_entries)
 
     multiplied_target = target * GenerationConfig.GENERATION_MULTIPLIER
     entries_to_use = all_entries[:multiplied_target]

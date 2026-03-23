@@ -24,6 +24,7 @@ from __future__ import annotations
 import argparse
 import json
 import logging
+import random
 import re
 import sys
 import time
@@ -40,7 +41,7 @@ _PROJECT_ROOT = Path(__file__).resolve().parents[3]
 if str(_PROJECT_ROOT) not in sys.path:
     sys.path.insert(0, str(_PROJECT_ROOT))
 
-from Evaluation.Level1.config import FilterConfig, Paths
+from Evaluation.Level1.config import FilterConfig, GenerationConfig, Paths, ValidationCriteria
 from Evaluation.Level1.models import QueryCandidate, QueryType
 from Evaluation.Level1.utils import append_jsonl
 
@@ -229,9 +230,12 @@ def filter_validity(
     result = _call_validity_llm(prompt)
     is_valid = result.get("valid", False)
     if not is_valid:
-        log.debug(
-            "Validity rejected: %s — %s",
-            candidate.query[:60], result.get("reason", "?"),
+        log.warning(
+            "Validity rejected [%s:%s]: %s — %s",
+            candidate.query_type.value,
+            candidate.query_style.value,
+            candidate.query[:80],
+            result.get("reason", "?"),
         )
     return bool(is_valid)
 
@@ -266,6 +270,12 @@ def run(
         candidates = candidates[:limit]
         log.info("Limiting to first %d candidates", limit)
 
+    # Shuffle to give all styles an equal chance at the coverage cap.
+    # Without this, whichever style appears first in the file consumes
+    # the per-param quota and later styles are disproportionately rejected.
+    random.seed(42)
+    random.shuffle(candidates)
+
     # Load validity prompt for Filter 4
     validity_prompt = (Paths.PROMPTS_DIR / "validity_check.txt").read_text(
         encoding="utf-8"
@@ -280,6 +290,16 @@ def run(
     # Coverage counter
     coverage_counter: Counter = Counter()
 
+    # Per-style cap to prevent any single style from dominating.
+    # Reserve headroom for adversarial cases added in Stage 5.
+    grand_total = GenerationConfig.grand_total_target()
+    adv_per_style = GenerationConfig.ADVERSARIAL_TARGET // 3
+    style_cap = int(grand_total * ValidationCriteria.MAX_STYLE_PCT) - adv_per_style
+    style_counter: Counter = Counter()
+    log.info("Style cap per style: %d (%.0f%% of %d minus %d adversarial reserve)",
+             style_cap, ValidationCriteria.MAX_STYLE_PCT * 100,
+             grand_total, adv_per_style)
+
     # Always create (or truncate) so downstream stages can read even if empty
     output_file.write_text("", encoding="utf-8")
 
@@ -289,10 +309,16 @@ def run(
         "rejected_coverage": 0,
         "rejected_duplicate": 0,
         "rejected_validity": 0,
+        "rejected_style_cap": 0,
         "passed": 0,
     }
 
     for idx, cand in enumerate(candidates, start=1):
+        # ── Filter 0: style cap ──
+        if style_counter[cand.query_style.value] >= style_cap:
+            stats["rejected_style_cap"] += 1
+            continue
+
         # ── Filter 1: param_key exposure ──
         if not filter_param_exposure(cand):
             stats["rejected_exposure"] += 1
@@ -318,6 +344,7 @@ def run(
         # ── Passed all filters ──
         stats["passed"] += 1
         _update_coverage(cand, coverage_counter)
+        style_counter[cand.query_style.value] += 1
         if not dry_run:
             append_jsonl(output_file, cand)
 
@@ -328,11 +355,13 @@ def run(
     log.info("=" * 60)
     log.info("Stage 4 complete.")
     log.info("  Total candidates      : %d", stats["total"])
+    log.info("  Rejected (style cap)  : %d", stats["rejected_style_cap"])
     log.info("  Rejected (exposure)   : %d", stats["rejected_exposure"])
     log.info("  Rejected (coverage)   : %d", stats["rejected_coverage"])
     log.info("  Rejected (duplicate)  : %d", stats["rejected_duplicate"])
     log.info("  Rejected (validity)   : %d", stats["rejected_validity"])
     log.info("  Passed                : %d", stats["passed"])
+    log.info("  Style breakdown       : %s", dict(style_counter))
     if not dry_run:
         log.info("  Output file           : %s", output_file)
 

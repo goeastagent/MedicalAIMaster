@@ -1,28 +1,51 @@
 You are an expert Python developer and medical data analyst.
 Your task is to generate a set of benchmark questions and their corresponding Python code to test an AI's ability to accurately calculate values from raw `.vital` files using the `vitaldb` library using complex, multi-hop logic.
 
-The target data are `.vital` files located in a directory. Each file is named `{caseid}.vital` (e.g., `0001.vital`, `0002.vital`).
+The target data are `.vital` files located in a directory. Each file is named `{caseid}.vital`.
+
+**CRITICAL - AVAILABLE DATA INVENTORY:**
+Only the following 3 case files exist. You MUST ONLY use these caseids and tracks:
+
+- **caseid 0001**: `SNUADC/ART`, `SNUADC/ECG_II`, `SNUADC/ECG_V5`, `SNUADC/PLETH`, `Primus/CO2`, `Primus/ETCO2`, `Primus/MV`, `Primus/TV`, `Primus/FIO2`, `Primus/FEO2`, `Primus/MAC`, `Primus/RR_CO2`, `Primus/AWP`, `Primus/COMPLIANCE`, `Primus/PIP_MBAR`, `Primus/PEEP_MBAR`, `BIS/BIS`, `BIS/EMG`, `BIS/SQI`, `BIS/SEF`, `BIS/SR`, `Solar8000/HR`, `Solar8000/PLETH_SPO2`, `Solar8000/PLETH_HR`, `Solar8000/BT`, `Solar8000/ART_SBP`, `Solar8000/ART_DBP`, `Solar8000/ART_MBP`, `Solar8000/ETCO2`, `Solar8000/RR_CO2`, `Solar8000/FIO2`, `Solar8000/FEO2`
+- **caseid 0002**: `SNUADC/ECG_II`, `SNUADC/ECG_V5`, `SNUADC/PLETH`, `Primus/CO2`, `Primus/ETCO2`, `Primus/MV`, `Primus/TV`, `Primus/FIO2`, `Primus/FEO2`, `Primus/MAC`, `Primus/RR_CO2`, `Primus/AWP`, `Primus/COMPLIANCE`, `Primus/PIP_MBAR`, `Primus/PEEP_MBAR`, `BIS/BIS`, `BIS/EMG`, `BIS/SQI`, `BIS/SEF`, `BIS/SR`, `Orchestra/RFTN20_CE`, `Orchestra/RFTN20_CP`, `Orchestra/RFTN20_RATE`, `Solar8000/HR`, `Solar8000/PLETH_SPO2`, `Solar8000/PLETH_HR`, `Solar8000/BT`, `Solar8000/ETCO2`, `Solar8000/RR_CO2`, `Solar8000/FIO2`, `Solar8000/FEO2`
+- **caseid 0009**: `SNUADC/ECG_II`, `SNUADC/ECG_V5`, `SNUADC/PLETH`, `Primus/CO2`, `Primus/ETCO2`, `Primus/MV`, `Primus/TV`, `Primus/FIO2`, `Primus/FEO2`, `Primus/MAC`, `Primus/RR_CO2`, `Primus/AWP`, `Primus/COMPLIANCE`, `Primus/PIP_MBAR`, `Primus/PEEP_MBAR`, `BIS/BIS`, `BIS/EMG`, `BIS/SQI`, `BIS/SEF`, `BIS/SR`, `Orchestra/PPF20_CE`, `Orchestra/PPF20_CP`, `Orchestra/PPF20_RATE`, `Orchestra/RFTN20_CE`, `Orchestra/RFTN20_CP`, `Orchestra/RFTN20_RATE`, `Solar8000/HR`, `Solar8000/PLETH_SPO2`, `Solar8000/PLETH_HR`, `Solar8000/BT`, `Solar8000/ETCO2`, `Solar8000/RR_CO2`, `Solar8000/FIO2`, `Solar8000/FEO2`
+
+Note: `SNUADC/ART` and `Solar8000/ART_SBP/DBP/MBP` ONLY exist in caseid 0001.
+Tracks common to ALL cases: `SNUADC/ECG_II`, `SNUADC/PLETH`, `Primus/CO2`, `Solar8000/HR`, `Solar8000/PLETH_SPO2`, `BIS/BIS`, etc.
 
 ### Instructions:
 Generate exactly {num_queries} distinct JSON objects.
 The queries MUST be of type `conditional_multi_hop`.
+All queries operate over the ENTIRE recording duration of the specified case(s).
 
 **CRITICAL REQUIREMENT - SCOPE LIMITATION:**
-To prevent the evaluation from taking too long, EVERY natural language query MUST explicitly limit the scope to a small number of caseids (e.g., "For caseids 0001 to 0005"). The maximum number of cases in a single query should be 5.
+You MUST ONLY reference caseids 0001, 0002, and 0009. Do NOT use any other caseids.
+You MUST ONLY use track names listed above for the specific caseid.
 
 **CRITICAL REQUIREMENT - QUERY STYLES:**
 You must evenly distribute the generated queries among the following 2 `query_style`s:
 
-1. **Multi-Independent**: Ask a single question that requires calculating values from TWO OR MORE DIFFERENT tracks independently, and then comparing or combining them (e.g., difference, sum, ratio).
-   - *Example*: "For caseid 0001, what is the absolute difference between the maximum value of `SNUADC/ART` and the maximum value of `SNUADC/ECG_HR`? (Round to 2 decimal places)"
-2. **Multi-Conditional**: The calculation result from one track or case is used as a condition for another.
-   - *Example*: "Among caseids 0001 to 0003, first find the caseid that has the highest maximum `SNUADC/ART` value. Then, for that specific caseid, what is the average value of `Primus/CO2`? (Round to 2 decimal places)"
+1. **Multi-Independent**: Calculate values from TWO OR MORE DIFFERENT tracks independently, then compare or combine them (e.g., difference, sum, ratio).
+   - *Example*: "For caseid 0001, over the entire recording sampled at 1 Hz, what is the absolute difference between the maximum `SNUADC/ART` value and the maximum `Solar8000/HR` value, ignoring NaN values? (Round to 2 decimal places)"
+2. **Multi-Conditional**: The result from one track or case is used as a condition for another.
+   - *Example*: "Among caseids 0001, 0002, and 0009 (over the entire recording, sampled at 1 Hz, ignoring NaN values), find the caseid with the highest mean `Primus/CO2`. Then, for that caseid, what is the median `Solar8000/HR`? (Round to 2 decimal places)"
+
+**CRITICAL REQUIREMENT - UNAMBIGUOUS SPECIFICATION:**
+Every query MUST be fully self-contained and unambiguous:
+
+1. **Sampling rate**: ALWAYS state "sampled at 1 Hz". Code MUST use `vf.to_numpy([track], 1)`.
+2. **Time range**: ALWAYS state "over the entire recording".
+3. **NaN handling**: ALWAYS state "ignoring NaN values" for aggregation queries.
+4. **Precision**: ALWAYS end with "(Round to N decimal places)" or "(Return as an integer)".
+5. **Aggregation scope**: When combining across cases, specify "pool all samples" vs "per-case then aggregate".
+6. **No duplicates**: Each query must be UNIQUE. Use diverse tracks and operations.
 
 **CRITICAL REQUIREMENT - PYTHON CODE (ground_truth_logic):**
 The `ground_truth_logic.code` must be valid Python code.
 - Assume `vitaldb`, `pandas` (as `pd`), and `numpy` (as `np`) are already imported.
 - Assume `VITAL_DIR` is a `pathlib.Path` object pointing to the directory containing the `.vital` files.
-- You MUST use the provided `output_result(val)` function at the end of your code to print the final calculated value.
+- You MUST use the provided `output_result(val)` function at the end of your code to print the final calculated value. Call it with EXACTLY ONE argument.
+- ALWAYS use `vf.to_numpy([track_name], 1)` with interval=1 (1 Hz sampling).
 - Handle `NaN` values correctly (e.g., using `np.nanmean`, `dropna()`).
 - If a track or file does not exist, handle it gracefully.
 
@@ -31,13 +54,13 @@ Return a JSON array of objects with the following structure:
 [
   {
     "id": "va_cond_001",
-    "track_names": ["SNUADC/ART", "Primus/CO2"],
+    "track_names": ["Primus/CO2", "Solar8000/HR"],
     "question_type": "conditional_multi_hop",
     "query_style": "Multi-Conditional",
-    "query": "Among caseids 0001 to 0003, first find the caseid that has the highest maximum `SNUADC/ART` value. Then, for that specific caseid, what is the average value of `Primus/CO2`? (Round to 2 decimal places)",
+    "query": "Among caseids 0001, 0002, and 0009 (over the entire recording, sampled at 1 Hz, ignoring NaN values), find the caseid with the highest mean `Primus/CO2`. Then, for that caseid, what is the median `Solar8000/HR`? (Round to 2 decimal places)",
     "ground_truth_logic": {
       "language": "python",
-      "code": "max_art = -float('inf')\ntarget_case = None\nfor caseid in ['0001', '0002', '0003']:\n    file_path = VITAL_DIR / f'{caseid}.vital'\n    if file_path.exists():\n        vf = vitaldb.VitalFile(str(file_path))\n        vals = vf.to_numpy(['SNUADC/ART'], 1)\n        valid = vals[~np.isnan(vals)]\n        if len(valid) > 0:\n            c_max = np.max(valid)\n            if c_max > max_art:\n                max_art = c_max\n                target_case = caseid\nif target_case:\n    vf = vitaldb.VitalFile(str(VITAL_DIR / f'{target_case}.vital'))\n    vals = vf.to_numpy(['Primus/CO2'], 1)\n    valid = vals[~np.isnan(vals)]\n    if len(valid) > 0:\n        output_result(round(float(np.mean(valid)), 2))\n    else:\n        output_result(None)\nelse:\n    output_result(None)"
+      "code": "best_case = None\nbest_mean = -float('inf')\nfor caseid in ['0001','0002','0009']:\n    fp = VITAL_DIR / f'{caseid}.vital'\n    if not fp.exists(): continue\n    vf = vitaldb.VitalFile(str(fp))\n    vals = vf.to_numpy(['Primus/CO2'], 1)\n    valid = vals[~np.isnan(vals)]\n    if len(valid) > 0:\n        m = float(np.mean(valid))\n        if m > best_mean:\n            best_mean = m\n            best_case = caseid\nif best_case:\n    vf = vitaldb.VitalFile(str(VITAL_DIR / f'{best_case}.vital'))\n    vals = vf.to_numpy(['Solar8000/HR'], 1)\n    valid = vals[~np.isnan(vals)]\n    if len(valid) > 0:\n        output_result(round(float(np.median(valid)), 2))\n    else:\n        output_result(None)\nelse:\n    output_result(None)"
     }
   }
 ]

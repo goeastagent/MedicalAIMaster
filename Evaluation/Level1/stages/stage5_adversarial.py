@@ -366,18 +366,34 @@ def _select_best(
     candidates: List[QueryCandidate],
     target: int,
 ) -> List[QueryCandidate]:
-    """Select up to `target` candidates, preferring diverse queries.
+    """Select up to `target` candidates with balanced style distribution.
 
-    Simple strategy: deduplicate exact matches, then take first N.
+    Deduplicates exact matches, then round-robin selects across query_styles
+    so that no single style dominates the adversarial set.
     """
     seen_queries: set = set()
-    unique = []
+    by_style: Dict[str, List[QueryCandidate]] = defaultdict(list)
     for c in candidates:
         q_norm = c.query.strip().lower()
         if q_norm not in seen_queries:
             seen_queries.add(q_norm)
-            unique.append(c)
-    return unique[:target]
+            by_style[c.query_style.value].append(c)
+
+    result: List[QueryCandidate] = []
+    style_keys = sorted(by_style.keys())
+    idx = 0
+    while len(result) < target and style_keys:
+        style = style_keys[idx % len(style_keys)]
+        if by_style[style]:
+            result.append(by_style[style].pop(0))
+        else:
+            style_keys.remove(style)
+            if not style_keys:
+                break
+            continue
+        idx += 1
+
+    return result
 
 
 

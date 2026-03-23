@@ -6,8 +6,8 @@ LLM prompts for resolving ambiguous parameter mappings
 when multiple database candidates match a user's requested term.
 """
 
-RESOLUTION_SYSTEM_PROMPT = """You are an expert in medical data parameter resolution.
-Your task is to select the most appropriate database parameters that match the user's requested measurement.
+RESOLUTION_SYSTEM_PROMPT = """You are an expert Medical Data Parameter Resolver.
+Your task is to map the user's natural language request to the most appropriate database parameters from the provided candidates.
 
 # Context
 
@@ -26,15 +26,20 @@ You must decide which parameters to include in the data extraction.
 
 # Instructions
 
-1. Analyze the user's FULL query to understand the context
-2. Consider which data source is most appropriate for the request
-3. Evaluate each candidate's semantic meaning, unit, and source
-4. Decide the resolution mode:
-   - "all_sources": Include ALL matching parameters (when they measure the same physiological signal from different sources)
-   - "specific": Include only the MOST relevant parameters (when context clearly indicates a preference)
-   - "clarify": Ask user for clarification (when candidates are semantically different and context is insufficient)
+1. Analyze the user's FULL query to understand the exact clinical intent.
+2. Evaluate the provided Database Candidates to find the best semantic match for the user's request. Be flexible with synonyms and clinical terminology.
+3. Determine the resolution mode:
+   - "retrieve": Found a valid semantic match. The candidate represents the same clinical concept the user asked for. (Select the specific param_keys).
+   - "clarify": Candidates match the general concept, but it's too ambiguous to choose without user input.
 
-5. Provide your reasoning for the decision
+4. Domain Specific Rules:
+   - Cross-Device Resolution (Hierarchy of Sources): If the exact same physiological parameter exists across multiple devices and the user didn't specify one, DO NOT ask for clarification and DO NOT return all of them. Instead, select ONLY ONE parameter based on the following clinical hierarchy:
+     1) For general vital signs (Heart Rate, Blood Pressure, SpO2), strongly prefer the Patient Monitor (e.g., 'Solar8000').
+     2) For respiratory/ventilation and anesthetic gases (ETCO2, FIO2, Tidal Volume, Airway Pressures), strongly prefer the Anesthesia Machine/Ventilator (e.g., 'Primus').
+     3) For depth of anesthesia, prefer 'BIS'. For infusion pumps, prefer 'Orchestra'.
+     Select only the single best candidate that aligns with this hierarchy.
+   - Propofol/Remifentanil Concentration: Pay strict attention to "CE" (Effect-site concentration) vs "CT" (Target concentration). If the user asks for "concentration" in the context of patient effect/depth, prefer "CE".
+   - Default/Primary Parameters: If multiple related parameters exist (e.g., HR vs PLETH_HR, or multiple ECG leads), prefer the primary/standard one (e.g., HR, ECG_II) instead of asking for clarification. If multiple leads/channels exist for the exact same signal type (e.g., ECG_II and ECG_V5) and no specific one is requested, you may select all of them rather than clarifying.
 
 # Response Format
 
@@ -42,10 +47,10 @@ Respond ONLY with the following JSON format:
 
 ```json
 {{
-    "resolution_mode": "all_sources | specific | clarify",
+    "resolution_mode": "retrieve | clarify",
     "selected_param_keys": ["param_key1", "param_key2"],
     "confidence": 0.95,
-    "reasoning": "Brief explanation of why these parameters were selected"
+    "reasoning": "Detailed explanation of why these parameters were selected or why it was deemed clarify."
 }}
 ```
 
@@ -53,9 +58,7 @@ Respond ONLY with the following JSON format:
 
 1. Real-time signals typically use "Device/Parameter" format (e.g., device parameters shown above)
 2. Lab values and clinical data use single-key format (e.g., clinical_lab parameters shown above)
-3. If candidates measure the same physiological signal from different devices, use "all_sources"
-4. If candidates are semantically different (e.g., systolic BP vs diastolic BP), use "clarify"
-5. Never return an empty selected_param_keys unless resolution_mode is "clarify"
+3. Never return an empty selected_param_keys unless resolution_mode is "clarify"
 """
 
 
@@ -214,3 +217,66 @@ def build_resolution_prompt(
     )
     
     return system_prompt, user_prompt
+
+VALIDATOR_SYSTEM_PROMPT = """You are a strict Medical Data Semantic Validator.
+Your ONLY job is to verify if the parameter selected by the system actually matches what the user asked for.
+
+# Instructions
+1. Read the User's Original Query.
+2. Look at the "Parameter Being Resolved" (what the user asked for).
+3. Look at the "Selected Parameters" (what the system mapped it to).
+4. Decide if this mapping is semantically valid and clinically appropriate.
+
+# Validation Rules
+- If the user asks for a parameter that does NOT exist in the Selected Parameters (e.g., user asks for "synovial fluid pressure" but system selected "arterial blood pressure"), you MUST mark it as INVALID.
+- If the user asks for a specific derived metric (e.g., "brain wave conduction") and the system selected raw waveforms that don't represent that metric, mark it as INVALID.
+- If the mapping is a reasonable synonym or standard clinical equivalent (e.g., "heart rate" -> "HR"), mark it as VALID.
+
+# Response Format
+Respond ONLY with the following JSON format:
+```json
+{{
+    "is_valid": true | false,
+    "error_type": "none | completely_irrelevant | missing_condition | wrong_parameter_type",
+    "reasoning": "Brief explanation of why this mapping is valid or invalid."
+}}
+```
+"""
+
+VALIDATOR_USER_PROMPT_TEMPLATE = """# User's Original Query
+"{original_query}"
+
+# Parameter Being Resolved (User's Request)
+- Original term: "{term}"
+
+# Selected Parameters (System's Mapping)
+{selected_details}
+
+Is this mapping semantically valid?"""
+
+def build_validator_prompt(
+    term: str,
+    original_query: str,
+    selected_matches: list
+) -> tuple[str, str]:
+    """
+    Build system and user prompts for the validation pass.
+    """
+    if not selected_matches:
+        selected_details = "None (System could not find any matches)"
+    else:
+        details_lines = []
+        for match in selected_matches:
+            details_lines.append(
+                f"- {match.get('param_key', 'N/A')}: {match.get('semantic_name', 'N/A')} "
+                f"({match.get('unit', 'N/A')}) [{match.get('concept_category', 'N/A')}]"
+            )
+        selected_details = "\n".join(details_lines)
+        
+    user_prompt = VALIDATOR_USER_PROMPT_TEMPLATE.format(
+        original_query=original_query or "(not provided)",
+        term=term,
+        selected_details=selected_details
+    )
+    
+    return VALIDATOR_SYSTEM_PROMPT, user_prompt

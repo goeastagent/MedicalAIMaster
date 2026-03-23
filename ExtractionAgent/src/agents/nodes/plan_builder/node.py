@@ -366,8 +366,17 @@ class PlanBuilderNode(BaseNode):
                 unmapped = [p for p in params if not p.get("param_keys")]
                 if unmapped:
                     terms = [p.get("term") for p in unmapped]
-                    warnings.append(f"Unmapped parameters: {terms}")
-                    confidence -= 0.15 * len(unmapped)
+                    
+                    # Check if any unmapped parameter was explicitly marked as not_found
+                    not_found_terms = [p.get("term") for p in params if p.get("resolution_mode") == "not_found"]
+                    if not_found_terms:
+                        warnings.append(f"Requested parameters not found in database: {not_found_terms}")
+                        confidence -= 0.5 * len(not_found_terms)  # Heavy penalty for explicitly not found
+                    
+                    other_unmapped = [t for t in terms if t not in not_found_terms]
+                    if other_unmapped:
+                        warnings.append(f"Unmapped parameters: {other_unmapped}")
+                        confidence -= 0.15 * len(other_unmapped)
                 
                 # Check low-confidence parameters
                 low_conf = [p for p in params if p.get("confidence", 1.0) < self.config.min_confidence]

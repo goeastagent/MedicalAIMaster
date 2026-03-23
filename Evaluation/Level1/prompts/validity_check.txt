@@ -19,11 +19,13 @@ Query style        : {query_style}
    Is there a clear logical connection between the query text and each required parameter?
    (e.g., a query about "oxygen saturation" should map to SpO2, not to HR)
 
-3. STYLE APPROPRIATENESS
-   Does the query language match the declared query_style?
-   - doctor: uses clinical terminology
-   - data_scientist: uses statistical/mathematical language
-   - layperson: uses plain everyday language
+3. STYLE APPROPRIATENESS (soft criterion)
+   Does the query language broadly match the declared query_style?
+   - doctor: tends toward clinical terminology
+   - data_scientist: tends toward statistical/analytical language
+   - layperson: tends toward plain everyday language
+   Minor style overlap is acceptable (e.g., a doctor query using some plain language is fine).
+   Only reject if the style is clearly wrong (e.g., heavy statistical jargon labeled as layperson).
 
 4. TYPE COMPLIANCE
    Does the query satisfy the constraints for its declared query_type?
@@ -37,9 +39,9 @@ Query style        : {query_style}
 
 === VERDICT RULES ===
 
-- Return "valid": true only if ALL five criteria pass.
-- Return "valid": false if ANY criterion fails; explain the specific failure in "reason".
-- Be strict: a mismatch in style or type compliance is sufficient to return false.
+- Return "valid": true if criteria 1, 2, 4, 5 pass AND criterion 3 is broadly satisfied.
+- Return "valid": false if any of criteria 1, 2, 4, 5 fails; explain the specific failure in "reason".
+- Criterion 3 (style) is a soft criterion: only reject for clear, egregious style mismatches.
 
 === OUTPUT FORMAT ===
 

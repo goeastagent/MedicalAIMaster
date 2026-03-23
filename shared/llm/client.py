@@ -193,10 +193,24 @@ class OpenAIClient(AbstractLLMClient):
                 temperature=LLMConfig.TEMPERATURE,
                 **self._get_token_param(max_tokens)
             )
-            return json.loads(response.choices[0].message.content)
+            raw_text = response.choices[0].message.content
+            finish_reason = response.choices[0].finish_reason
+            if finish_reason == "length":
+                logger.warning(
+                    "OpenAI response truncated (finish_reason='length'). "
+                    "Increase max_tokens. Response tail: ...%s",
+                    raw_text[-200:] if raw_text else "(empty)",
+                )
+            return json.loads(raw_text)
         except json.JSONDecodeError:
-            return {"error": "JSON_DECODE_ERROR"}
+            logger.error(
+                "JSON parse failed. finish_reason=%s, raw_text (last 500 chars): %s",
+                finish_reason if 'finish_reason' in dir() else "unknown",
+                raw_text[-500:] if 'raw_text' in dir() and raw_text else "(empty)",
+            )
+            return {"error": "JSON_DECODE_ERROR", "finish_reason": finish_reason if 'finish_reason' in dir() else "unknown"}
         except Exception as e:
+            logger.error("OpenAI ask_json error: %s", e)
             return {"error": str(e)}
 
 

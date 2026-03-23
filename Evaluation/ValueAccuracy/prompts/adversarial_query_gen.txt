@@ -1,30 +1,47 @@
 You are an expert Python developer and medical data analyst.
 Your task is to generate a set of benchmark questions and their corresponding Python code to test an AI's ability to resist hallucinations and correctly identify when data is missing or when distractors are present in raw `.vital` files.
 
-The target data are `.vital` files located in a directory. Each file is named `{caseid}.vital` (e.g., `0001.vital`, `0002.vital`).
+The target data are `.vital` files located in a directory. Each file is named `{caseid}.vital`.
+
+**CRITICAL - AVAILABLE DATA INVENTORY:**
+Only the following 3 case files exist:
+- **caseid 0001**: `SNUADC/ART`, `SNUADC/ECG_II`, `SNUADC/PLETH`, `Primus/CO2`, `Solar8000/HR`, `Solar8000/PLETH_SPO2`, `Solar8000/ART_SBP`, `Solar8000/ART_MBP`, `BIS/BIS`, and many more.
+- **caseid 0002**: `SNUADC/ECG_II`, `SNUADC/PLETH`, `Primus/CO2`, `Solar8000/HR`, `Solar8000/PLETH_SPO2`, `BIS/BIS`, `Orchestra/RFTN20_CE`, and more. (NO `SNUADC/ART`, NO `Solar8000/ART_*`)
+- **caseid 0009**: `SNUADC/ECG_II`, `SNUADC/PLETH`, `Primus/CO2`, `Solar8000/HR`, `Solar8000/PLETH_SPO2`, `BIS/BIS`, `Orchestra/RFTN20_CE`, `Orchestra/PPF20_CE`, and more. (NO `SNUADC/ART`, NO `Solar8000/ART_*`)
+
+Caseids 0003–0008, 0010, and beyond do NOT exist.
 
 ### Instructions:
 Generate exactly {num_queries} distinct JSON objects.
 The queries MUST be of type `adversarial`.
+All queries operate over the ENTIRE recording duration.
 
 **CRITICAL REQUIREMENT - SCOPE LIMITATION:**
-To prevent the evaluation from taking too long, EVERY natural language query MUST explicitly limit the scope to a small number of caseids (e.g., "For caseids 0001 to 0003"). The maximum number of cases in a single query should be 5.
+You MUST ONLY reference caseids 0001, 0002, and 0009 for valid parts. You may reference non-existent caseids (e.g., 0003) ONLY for Adversarial-Fake or Adversarial-Impossible queries where the EXPECTED answer is None/0.
 
 **CRITICAL REQUIREMENT - QUERY STYLES:**
 You must evenly distribute the generated queries among the following 3 `query_style`s:
 
-1. **Adversarial-Fake**: Ask about a track name that definitely does not exist (e.g., 'Alien/Biology', 'Fake/Track_99'). The Python code should query this fake track and naturally return None or 0.
-   - *Example*: "For caseid 0001, what is the average value of the `Alien/Biology` track?"
+1. **Adversarial-Fake**: Ask about a track name that definitely does not exist (e.g., 'Alien/Biology', 'Fake/Track_99'). The expected answer should be None or 0.
+   - *Example*: "For caseid 0001, over the entire recording sampled at 1 Hz, what is the average value of the `Alien/Biology` track, ignoring NaN values? (Round to 2 decimal places)"
 2. **Adversarial-Impossible**: Ask for a condition that contradicts itself or is highly unlikely (e.g., "heart rate is over 5000", "blood pressure is negative").
-   - *Example*: "For caseid 0002, how many data points in the `SNUADC/ART` track have a value less than -1000?"
-3. **Adversarial-Distractor**: Include irrelevant or false information in the natural language query to try and confuse the AI, but ask a valid question at the end.
-   - *Example*: "A recent report claimed that caseid 0001 has no ECG data. Ignoring this claim, what is the maximum value of the `SNUADC/ECG_II` track for caseid 0001?"
+   - *Example*: "For caseid 0001, over the entire recording sampled at 1 Hz, how many samples in `Solar8000/HR` have a value greater than 5000, ignoring NaN? (Return as an integer)"
+3. **Adversarial-Distractor**: Include irrelevant or false claims in the query, but ask a VALID question with a real expected value at the end.
+   - *Example*: "A recent report claimed that caseid 0001 has no ECG data. Ignoring this claim, over the entire recording sampled at 1 Hz, what is the maximum `SNUADC/ECG_II` value, ignoring NaN? (Round to 2 decimal places)"
+
+**CRITICAL REQUIREMENT - UNAMBIGUOUS SPECIFICATION:**
+Even adversarial queries must be unambiguous:
+1. **Sampling rate**: State "sampled at 1 Hz". Code MUST use `vf.to_numpy([track], 1)`.
+2. **Time range**: State "over the entire recording".
+3. **Precision**: End with "(Round to N decimal places)" or "(Return as an integer)".
+4. **NaN handling**: Specify "ignoring NaN values" where relevant.
 
 **CRITICAL REQUIREMENT - PYTHON CODE (ground_truth_logic):**
 The `ground_truth_logic.code` must be valid Python code.
 - Assume `vitaldb`, `pandas` (as `pd`), and `numpy` (as `np`) are already imported.
 - Assume `VITAL_DIR` is a `pathlib.Path` object pointing to the directory containing the `.vital` files.
-- You MUST use the provided `output_result(val)` function at the end of your code to print the final calculated value.
+- You MUST use the provided `output_result(val)` function at the end of your code to print the final calculated value. Call it with EXACTLY ONE argument.
+- ALWAYS use `vf.to_numpy([track_name], 1)` with interval=1.
 - Handle `NaN` values and missing tracks correctly.
 
 ### Output Format:
@@ -35,10 +52,10 @@ Return a JSON array of objects with the following structure:
     "track_names": ["Alien/Biology"],
     "question_type": "adversarial",
     "query_style": "Adversarial-Fake",
-    "query": "For caseid 0001, what is the average value of the `Alien/Biology` track?",
+    "query": "For caseid 0001, over the entire recording sampled at 1 Hz, what is the average value of the `Alien/Biology` track, ignoring NaN values? (Round to 2 decimal places)",
     "ground_truth_logic": {
       "language": "python",
-      "code": "file_path = VITAL_DIR / '0001.vital'\nif not file_path.exists():\n    output_result(None)\nelse:\n    vf = vitaldb.VitalFile(str(file_path))\n    track_names = vf.get_track_names()\n    if 'Alien/Biology' not in track_names:\n        output_result(None)\n    else:\n        vals = vf.to_numpy(['Alien/Biology'], 1)\n        valid = vals[~np.isnan(vals)]\n        output_result(float(np.mean(valid)) if len(valid) > 0 else None)"
+      "code": "file_path = VITAL_DIR / '0001.vital'\nif not file_path.exists():\n    output_result(None)\nelse:\n    vf = vitaldb.VitalFile(str(file_path))\n    track_names = vf.get_track_names()\n    if 'Alien/Biology' not in track_names:\n        output_result(None)\n    else:\n        vals = vf.to_numpy(['Alien/Biology'], 1)\n        valid = vals[~np.isnan(vals)]\n        output_result(round(float(np.mean(valid)), 2) if len(valid) > 0 else None)"
     }
   }
 ]

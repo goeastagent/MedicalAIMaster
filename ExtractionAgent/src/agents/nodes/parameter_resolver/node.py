@@ -13,7 +13,7 @@ from shared.langgraph import BaseNode, register_node
 from shared.config.llm import LLMConfig
 from ExtractionAgent.src.agents.state import ExtractionState
 from ExtractionAgent.src.config import ExtractionConfig
-from ExtractionAgent.src.agents.nodes.parameter_resolver.prompts import build_resolution_prompt
+from ExtractionAgent.src.agents.nodes.parameter_resolver.prompts import build_resolution_prompt, build_validator_prompt
 from shared.database.connection import get_db_manager
 from shared.llm.client import get_llm_client
 
@@ -83,22 +83,19 @@ class ParameterResolverNode(BaseNode):
             db_matches = self._search_parameters(candidates, expected_categories, schema_context)
             self.log(f"   Found {len(db_matches)} DB matches", indent=2)
             
-            # 2. Determine resolution based on match count
+            # 2. Pass 1: Resolve with LLM (Flexible Mapper)
             if len(db_matches) == 0:
-                # No matches - create clarify request
-                resolved = self._create_no_match_result(term, normalized, candidates)
-                ambiguities.append({
+                resolved = {
                     "term": term,
-                    "candidates": candidates,
-                    "question": f"Could not find parameter matching '{term}'. Please provide more details."
-                })
-                
-            elif len(db_matches) <= 3:
-                # Few matches - use all sources directly
-                resolved = self._create_all_sources_result(term, normalized, db_matches)
-                
+                    "param_keys": [],
+                    "semantic_name": normalized,
+                    "unit": None,
+                    "concept_category": None,
+                    "resolution_mode": "not_found",
+                    "confidence": 0.0,
+                    "reasoning": f"No matches found for keywords: {candidates}"
+                }
             else:
-                # Many matches - use LLM to decide with full context
                 resolved = self._resolve_with_llm(
                     term=term,
                     normalized=normalized,
@@ -109,19 +106,46 @@ class ParameterResolverNode(BaseNode):
                     temporal_context=temporal_context,
                     parameter_examples=parameter_examples
                 )
-                if resolved.get("resolution_mode") == "clarify":
-                    ambiguities.append({
-                        "term": term,
-                        "candidates": [m.get("param_key") for m in db_matches],
-                        "question": f"Multiple different types of '{term}' found. Which one do you need?"
-                    })
+            
+            # 3. Pass 2: Validate with LLM (Strict Validator)
+            if resolved.get("resolution_mode") in ("retrieve", "clarify") and resolved.get("param_keys"):
+                # Reconstruct selected_matches from param_keys
+                selected_keys = resolved["param_keys"]
+                selected_matches = [m for m in db_matches if m.get("param_key") in selected_keys]
+                
+                is_valid, validation_reasoning = self._validate_mapping_with_llm(
+                    term=term,
+                    original_query=original_query,
+                    selected_matches=selected_matches
+                )
+                
+                if not is_valid:
+                    self.log(f"   ❌ Validator rejected mapping: {validation_reasoning}", indent=2)
+                    resolved["resolution_mode"] = "not_found"
+                    resolved["param_keys"] = []
+                    resolved["confidence"] = 0.0
+                    resolved["reasoning"] = f"Validation failed: {validation_reasoning}"
+                else:
+                    self.log(f"   ✅ Validator approved mapping", indent=2)
+            
+            resolution_mode = resolved.get("resolution_mode")
+            
+            if resolution_mode == "clarify":
+                ambiguities.append({
+                    "term": term,
+                    "candidates": [m.get("param_key") for m in db_matches],
+                    "question": resolved.get("reasoning", f"Could not clearly identify '{term}'. Please clarify.")
+                })
+            elif resolution_mode == "not_found":
+                self.log(f"   ❌ Parameter not found or rejected: {resolved.get('reasoning')}", indent=2)
+                # It will be passed to PlanBuilder with confidence=0.0 and empty param_keys
             
             # Store db_matches for debugging
             resolved["db_matches"] = db_matches
             resolved["search_candidates"] = candidates
             
             resolved_parameters.append(resolved)
-            self.log(f"   → {len(resolved.get('param_keys', []))} param_keys mapped", indent=2)
+            self.log(f"   → {len(resolved.get('param_keys', []))} param_keys mapped (mode: {resolution_mode})", indent=2)
         
         has_ambiguity = len(ambiguities) > 0
         
@@ -288,68 +312,6 @@ class ParameterResolverNode(BaseNode):
             self.log(f"❌ DB fallback search error: {e}", indent=2)
             return []
     
-    def _create_no_match_result(
-        self, 
-        term: str, 
-        normalized: str, 
-        candidates: List[str]
-    ) -> Dict[str, Any]:
-        """Create result for no database matches."""
-        return {
-            "term": term,
-            "param_keys": [],
-            "semantic_name": normalized,
-            "unit": None,
-            "concept_category": None,
-            "resolution_mode": "clarify",
-            "confidence": 0.0,
-            "reasoning": f"No matches found for keywords: {candidates}"
-        }
-    
-    def _create_all_sources_result(
-        self, 
-        term: str, 
-        normalized: str, 
-        db_matches: List[Dict[str, Any]]
-    ) -> Dict[str, Any]:
-        """Create result using all matched sources."""
-        # Collect unique values
-        unique_semantic_names = list(set(
-            m.get("semantic_name") for m in db_matches if m.get("semantic_name")
-        ))
-        unique_units = list(set(
-            m.get("unit") for m in db_matches if m.get("unit")
-        ))
-        unique_categories = list(set(
-            m.get("concept_category") for m in db_matches if m.get("concept_category")
-        ))
-        
-        # Determine display values
-        if len(unique_semantic_names) == 1:
-            semantic_name = unique_semantic_names[0]
-        elif len(unique_semantic_names) > 1:
-            semantic_name = f"{normalized} ({len(db_matches)} types)"
-        else:
-            semantic_name = normalized
-        
-        unit = unique_units[0] if len(unique_units) == 1 else (
-            f"mixed ({len(unique_units)})" if unique_units else None
-        )
-        category = unique_categories[0] if len(unique_categories) == 1 else (
-            unique_categories[0] if unique_categories else None
-        )
-        
-        return {
-            "term": term,
-            "param_keys": [m.get("param_key") for m in db_matches],
-            "semantic_name": semantic_name,
-            "unit": unit,
-            "concept_category": category,
-            "resolution_mode": "all_sources",
-            "confidence": 0.9,
-            "reasoning": f"Using all {len(db_matches)} matched sources"
-        }
-    
     def _resolve_with_llm(
         self,
         term: str,
@@ -362,11 +324,10 @@ class ParameterResolverNode(BaseNode):
         parameter_examples: List[Dict[str, Any]] = None
     ) -> Dict[str, Any]:
         """
-        Use LLM to resolve when many candidates exist.
+        Pass 1: Use LLM as a flexible Resolver to map candidates.
         
         The LLM decides whether to:
-        - Use all sources (all_sources)
-        - Pick specific ones (specific)
+        - Retrieve specific parameters (retrieve)
         - Ask for clarification (clarify)
         
         Args:
@@ -391,87 +352,154 @@ class ParameterResolverNode(BaseNode):
         )
         
         try:
-            self.log("🤖 Calling LLM for resolution...", indent=2)
+            self.log("🤖 Calling LLM Resolver (Pass 1)...", indent=2)
             
             response = self.llm_client.ask_json(
                 system_prompt + "\n\n" + user_prompt,
                 max_tokens=LLMConfig.MAX_TOKENS
             )
             
-            resolution_mode = response.get("resolution_mode", "all_sources")
+            resolution_mode = response.get("resolution_mode", "clarify")
             selected_keys = response.get("selected_param_keys", [])
             confidence = response.get("confidence", 0.5)
             reasoning = response.get("reasoning", "")
             
-            # Option C (fix-2): ALWAYS trust LLM's selected_param_keys if provided
-            # This is the key fix - previously only "specific" mode used selected_keys
+            if resolution_mode == "clarify":
+                return {
+                    "term": term,
+                    "param_keys": selected_keys, # Might be empty or contain candidates for clarification
+                    "semantic_name": normalized,
+                    "unit": None,
+                    "concept_category": None,
+                    "resolution_mode": resolution_mode,
+                    "confidence": confidence,
+                    "reasoning": reasoning
+                }
+            
+            # resolution_mode == "retrieve"
             if selected_keys:
                 selected_matches = [
                     m for m in db_matches 
                     if m.get("param_key") in selected_keys
                 ]
-                self.log(f"   🎯 LLM selected {len(selected_keys)} keys → {len(selected_matches)} matched", indent=2)
+                self.log(f"   🎯 Resolver selected {len(selected_keys)} keys → {len(selected_matches)} matched", indent=2)
                 
-                # If LLM selected keys but none match DB results, fall back to all
+                # If LLM selected keys but none match DB results, it's a hallucination
                 if not selected_matches:
-                    self.log(f"   ⚠️ LLM selection didn't match DB, using all", indent=2)
-                    selected_matches = db_matches
-                    resolution_mode = "all_sources"
+                    self.log(f"   ⚠️ Resolver selection didn't match DB, falling back to clarify", indent=2)
+                    return {
+                        "term": term,
+                        "param_keys": [],
+                        "semantic_name": normalized,
+                        "unit": None,
+                        "concept_category": None,
+                        "resolution_mode": "clarify",
+                        "confidence": 0.0,
+                        "reasoning": "Resolver selected parameters that don't exist in the search results."
+                    }
             else:
-                # No selection from LLM - use all matches
-                selected_matches = db_matches
-            
-            # Get semantic info from selected matches
-            if selected_matches:
-                # Collect unique values from selected matches
-                unique_semantic_names = list(set(
-                    m.get("semantic_name") for m in selected_matches if m.get("semantic_name")
-                ))
-                unique_units = list(set(
-                    m.get("unit") for m in selected_matches if m.get("unit")
-                ))
-                unique_categories = list(set(
-                    m.get("concept_category") for m in selected_matches if m.get("concept_category")
-                ))
-                
-                # Determine display values
-                if len(unique_semantic_names) == 1:
-                    semantic_name = unique_semantic_names[0]
-                elif len(unique_semantic_names) > 1:
-                    semantic_name = f"{normalized} ({len(selected_matches)} types)"
-                else:
-                    semantic_name = normalized
-                
-                unit = unique_units[0] if len(unique_units) == 1 else (
-                    f"mixed ({len(unique_units)})" if unique_units else None
-                )
-                category = unique_categories[0] if len(unique_categories) == 1 else (
-                    unique_categories[0] if unique_categories else None
-                )
-                
+                # No selection from LLM but retrieve mode - fallback to clarify
                 return {
                     "term": term,
-                    "param_keys": [m.get("param_key") for m in selected_matches],
-                    "semantic_name": semantic_name,
-                    "unit": unit,
-                    "concept_category": category,
-                    "resolution_mode": resolution_mode,
-                    "confidence": confidence,
-                    "reasoning": reasoning
-                }
-            else:
-                return {
-                    "term": term,
-                    "param_keys": [m.get("param_key") for m in db_matches],
+                    "param_keys": [],
                     "semantic_name": normalized,
                     "unit": None,
                     "concept_category": None,
-                    "resolution_mode": "all_sources",
-                    "confidence": 0.7,
-                    "reasoning": "LLM selection empty, using all sources"
+                    "resolution_mode": "clarify",
+                    "confidence": 0.0,
+                    "reasoning": "Resolver chose retrieve but didn't select any parameters."
                 }
+            
+            # Get semantic info from selected matches
+            unique_semantic_names = list(set(
+                m.get("semantic_name") for m in selected_matches if m.get("semantic_name")
+            ))
+            unique_units = list(set(
+                m.get("unit") for m in selected_matches if m.get("unit")
+            ))
+            unique_categories = list(set(
+                m.get("concept_category") for m in selected_matches if m.get("concept_category")
+            ))
+            
+            # Determine display values
+            if len(unique_semantic_names) == 1:
+                semantic_name = unique_semantic_names[0]
+            elif len(unique_semantic_names) > 1:
+                semantic_name = f"{normalized} ({len(selected_matches)} types)"
+            else:
+                semantic_name = normalized
+            
+            unit = unique_units[0] if len(unique_units) == 1 else (
+                f"mixed ({len(unique_units)})" if unique_units else None
+            )
+            category = unique_categories[0] if len(unique_categories) == 1 else (
+                unique_categories[0] if unique_categories else None
+            )
+            
+            return {
+                "term": term,
+                "param_keys": [m.get("param_key") for m in selected_matches],
+                "semantic_name": semantic_name,
+                "unit": unit,
+                "concept_category": category,
+                "resolution_mode": resolution_mode,
+                "confidence": confidence,
+                "reasoning": reasoning
+            }
                 
         except Exception as e:
             self.log(f"❌ LLM resolution error: {e}", indent=2)
-            # Fallback to all sources
-            return self._create_all_sources_result(term, normalized, db_matches)
+            # Fallback to clarify
+            return {
+                "term": term,
+                "param_keys": [],
+                "semantic_name": normalized,
+                "unit": None,
+                "concept_category": None,
+                "resolution_mode": "clarify",
+                "confidence": 0.0,
+                "reasoning": f"Error during resolution: {str(e)}"
+            }
+
+    def _validate_mapping_with_llm(
+        self,
+        term: str,
+        original_query: str,
+        selected_matches: List[Dict[str, Any]]
+    ) -> tuple[bool, str]:
+        """
+        Pass 2: Use LLM as a strict Validator to check the Resolver's mapping.
+        
+        Args:
+            term: User's original term
+            original_query: Full user query
+            selected_matches: The parameters selected by the Resolver
+            
+        Returns:
+            Tuple of (is_valid: bool, reasoning: str)
+        """
+        system_prompt, user_prompt = build_validator_prompt(
+            term=term,
+            original_query=original_query,
+            selected_matches=selected_matches
+        )
+        
+        try:
+            self.log("🛡️ Calling LLM Validator (Pass 2)...", indent=2)
+            
+            # We could use a faster/cheaper model here if configured, 
+            # but for now we use the standard client
+            response = self.llm_client.ask_json(
+                system_prompt + "\n\n" + user_prompt,
+                max_tokens=LLMConfig.MAX_TOKENS
+            )
+            
+            is_valid = response.get("is_valid", False)
+            reasoning = response.get("reasoning", "No reasoning provided by validator.")
+            
+            return is_valid, reasoning
+            
+        except Exception as e:
+            self.log(f"❌ LLM validation error: {e}", indent=2)
+            # If validation fails technically, we default to rejecting to be safe
+            return False, f"Validator technical error: {str(e)}"

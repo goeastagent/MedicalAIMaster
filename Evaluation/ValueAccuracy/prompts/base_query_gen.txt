@@ -1,15 +1,25 @@
 You are an expert Python developer and medical data analyst.
 Your task is to generate a set of benchmark questions and their corresponding Python code to test an AI's ability to accurately calculate values from raw `.vital` files using the `vitaldb` library.
 
-The target data are `.vital` files located in a directory. Each file is named `{caseid}.vital` (e.g., `0001.vital`, `0002.vital`).
-These files contain high-resolution intraoperative physiological signals (e.g., 'SNUADC/ART', 'SNUADC/ECG_II', 'Primus/CO2').
+The target data are `.vital` files located in a directory. Each file is named `{caseid}.vital`.
+
+**CRITICAL - AVAILABLE DATA INVENTORY:**
+Only the following 3 case files exist. You MUST ONLY use these caseids and tracks:
+
+- **caseid 0001**: `SNUADC/ART`, `SNUADC/ECG_II`, `SNUADC/ECG_V5`, `SNUADC/PLETH`, `Primus/CO2`, `Primus/ETCO2`, `Primus/MV`, `Primus/TV`, `Primus/FIO2`, `Primus/FEO2`, `Primus/MAC`, `Primus/RR_CO2`, `Primus/AWP`, `Primus/COMPLIANCE`, `Primus/PIP_MBAR`, `Primus/PEEP_MBAR`, `Primus/PPLAT_MBAR`, `Primus/MAWP_MBAR`, `BIS/BIS`, `BIS/EMG`, `BIS/SQI`, `BIS/SEF`, `BIS/SR`, `Solar8000/HR`, `Solar8000/PLETH_SPO2`, `Solar8000/PLETH_HR`, `Solar8000/BT`, `Solar8000/ART_SBP`, `Solar8000/ART_DBP`, `Solar8000/ART_MBP`, `Solar8000/ETCO2`, `Solar8000/RR_CO2`, `Solar8000/FIO2`, `Solar8000/FEO2`
+- **caseid 0002**: `SNUADC/ECG_II`, `SNUADC/ECG_V5`, `SNUADC/PLETH`, `Primus/CO2`, `Primus/ETCO2`, `Primus/MV`, `Primus/TV`, `Primus/FIO2`, `Primus/FEO2`, `Primus/MAC`, `Primus/RR_CO2`, `Primus/AWP`, `Primus/COMPLIANCE`, `Primus/PIP_MBAR`, `Primus/PEEP_MBAR`, `Primus/PPLAT_MBAR`, `Primus/MAWP_MBAR`, `BIS/BIS`, `BIS/EMG`, `BIS/SQI`, `BIS/SEF`, `BIS/SR`, `Orchestra/RFTN20_CE`, `Orchestra/RFTN20_CP`, `Orchestra/RFTN20_RATE`, `Solar8000/HR`, `Solar8000/PLETH_SPO2`, `Solar8000/PLETH_HR`, `Solar8000/BT`, `Solar8000/ETCO2`, `Solar8000/RR_CO2`, `Solar8000/FIO2`, `Solar8000/FEO2`
+- **caseid 0009**: `SNUADC/ECG_II`, `SNUADC/ECG_V5`, `SNUADC/PLETH`, `Primus/CO2`, `Primus/ETCO2`, `Primus/MV`, `Primus/TV`, `Primus/FIO2`, `Primus/FEO2`, `Primus/MAC`, `Primus/RR_CO2`, `Primus/AWP`, `Primus/COMPLIANCE`, `Primus/PIP_MBAR`, `Primus/PEEP_MBAR`, `Primus/PPLAT_MBAR`, `Primus/MAWP_MBAR`, `BIS/BIS`, `BIS/EMG`, `BIS/SQI`, `BIS/SEF`, `BIS/SR`, `Orchestra/PPF20_CE`, `Orchestra/PPF20_CP`, `Orchestra/PPF20_RATE`, `Orchestra/RFTN20_CE`, `Orchestra/RFTN20_CP`, `Orchestra/RFTN20_RATE`, `Solar8000/HR`, `Solar8000/PLETH_SPO2`, `Solar8000/PLETH_HR`, `Solar8000/BT`, `Solar8000/ETCO2`, `Solar8000/RR_CO2`, `Solar8000/FIO2`, `Solar8000/FEO2`
+
+Note: `SNUADC/ART` (arterial waveform) and `Solar8000/ART_SBP/DBP/MBP` ONLY exist in caseid 0001.
 
 ### Instructions:
 Generate exactly {num_queries} distinct JSON objects. Each object must represent a single query.
 The queries should be of type `simple_retrieval` or `calculation` (e.g., calculating averages, maximums, minimums, or counts of valid data points).
+All queries operate over the ENTIRE recording duration of the specified case(s).
 
 **CRITICAL REQUIREMENT - SCOPE LIMITATION:**
-To prevent the evaluation from taking too long, EVERY natural language query MUST explicitly limit the scope to a small number of caseids (e.g., "For caseid 0001", "For caseids 0001 to 0003", "For caseids 0004 and 0005"). The maximum number of cases in a single query should be 5.
+You MUST ONLY reference caseids 0001, 0002, and 0009. Do NOT use any other caseids.
+You MUST ONLY use track names listed above for the specific caseid. Do NOT invent track names.
 
 **CRITICAL REQUIREMENT - QUERY STYLES:**
 You must evenly distribute the generated queries among the following 3 `query_style`s:
@@ -19,13 +29,27 @@ You must evenly distribute the generated queries among the following 3 `query_st
 2. **Single-Semantic**: Describe the meaning of the track using natural language or synonyms, but you MUST still include the exact track name in parentheses or quotes.
    - *Example*: "For caseids 0001 and 0002, what is the average value of the arterial blood pressure (`SNUADC/ART`)?"
 3. **Single-Abbreviation**: Use abbreviations or short forms in the natural language, but again, MUST include the exact track name.
-   - *Example*: "For caseid 0003, what is the minimum value of the heart rate derived from ECG (`SNUADC/ECG_HR`)?"
+   - *Example*: "For caseid 0002, what is the minimum heart rate (`Solar8000/HR`) over the entire recording, sampled at 1 Hz, ignoring NaN values? (Round to 1 decimal place)"
+
+**CRITICAL REQUIREMENT - UNAMBIGUOUS SPECIFICATION:**
+Every natural language query MUST be fully self-contained and unambiguous. A different developer reading ONLY the query must arrive at exactly one numerical answer. Enforce ALL of these:
+
+1. **Sampling rate**: ALWAYS state "sampled at 1 Hz". The ground truth code MUST use `vf.to_numpy([track], 1)` with interval=1.
+2. **Time range**: ALWAYS state "over the entire recording" to make clear the full recording is used.
+3. **NaN handling**: For mean/average/std queries, ALWAYS state "ignoring NaN values". For count queries, state "non-NaN samples" or "valid (non-NaN) samples".
+4. **Precision**: ALWAYS end the query with one of: "(Round to N decimal places)" or "(Return as an integer)".
+5. **Aggregation scope**: When the query spans multiple cases, ALWAYS specify one of:
+   - "pool all valid samples from all cases together" (one big array, then compute), OR
+   - "compute per case, then average the per-case results"
+6. **No duplicates**: Each query must target a UNIQUE combination of (track_names, caseids, aggregation_function). Do NOT repeat the same question with a different style.
+7. **Use diverse tracks**: Spread queries across different tracks — do NOT repeatedly query the same track (e.g., SNUADC/ART). Use BIS, Primus, Solar8000, Orchestra tracks too.
 
 **CRITICAL REQUIREMENT - PYTHON CODE (ground_truth_logic):**
 The `ground_truth_logic.code` must be valid Python code.
 - Assume `vitaldb`, `pandas` (as `pd`), and `numpy` (as `np`) are already imported.
 - Assume `VITAL_DIR` is a `pathlib.Path` object pointing to the directory containing the `.vital` files.
-- You MUST use the provided `output_result(val)` function at the end of your code to print the final calculated value.
+- You MUST use the provided `output_result(val)` function at the end of your code to print the final calculated value. Call it with EXACTLY ONE argument.
+- ALWAYS use `vf.to_numpy([track_name], 1)` with interval=1 (1 Hz sampling).
 - Handle `NaN` values correctly (e.g., using `np.nanmean`, `dropna()`).
 - If a track does not exist in a file, handle it gracefully (e.g., skip it or return None).
 
@@ -37,7 +61,7 @@ Return a JSON array of objects with the following structure:
     "track_names": ["SNUADC/ART"],
     "question_type": "calculation",
     "query_style": "Single-Direct",
-    "query": "For caseid 0001, what is the maximum value of the `SNUADC/ART` track? (Round to 2 decimal places)",
+    "query": "For caseid 0001, what is the maximum value of the `SNUADC/ART` track over the entire recording, sampled at 1 Hz, ignoring NaN values? (Round to 2 decimal places)",
     "ground_truth_logic": {
       "language": "python",
       "code": "file_path = VITAL_DIR / '0001.vital'\nif not file_path.exists():\n    output_result(None)\nelse:\n    vf = vitaldb.VitalFile(str(file_path))\n    vals = vf.to_numpy(['SNUADC/ART'], 1)\n    valid_vals = vals[~np.isnan(vals)]\n    if len(valid_vals) > 0:\n        output_result(round(float(np.max(valid_vals)), 2))\n    else:\n        output_result(None)"
@@ -46,4 +70,4 @@ Return a JSON array of objects with the following structure:
 ]
 
 The natural language `query` MUST be in English.
-Generate diverse questions (max, min, mean, count of non-nan values, etc.).
+Generate diverse questions (max, min, mean, count of non-nan values, std, median, etc.).
