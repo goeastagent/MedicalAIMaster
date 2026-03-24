@@ -206,7 +206,7 @@ SVA 질의는 **5개 카테고리**로 분류하며, 각 카테고리는 VitalAg
 
 **질의 요구사항:**
 - track 이름(`Device/Signal` 형식)을 절대 포함하지 않을 것
-- 시맨틱 표현이 단일 `param_key`(또는 지정된 acceptable alternative)로 해석 가능할 것
+- 시맨틱 표현이 `equivalence_group` 내의 파라미터로 해석 가능할 것
 - 기존 ValueAccuracy와 동일한 명확성 지시를 포함할 것: sampling rate, NaN handling, rounding precision
 - 모든 질의는 **영어**로만 작성할 것
 
@@ -215,9 +215,9 @@ SVA 질의는 **5개 카테고리**로 분류하며, 각 카테고리는 VitalAg
 ```json
 {
     "resolution_target": {
-        "intended_params": ["Solar8000/HR"],
-        "acceptable_alternatives": ["Solar8000/PLETH_HR"],
-        "resolution_rationale": "heart rate → Heart Rate concept → Patient Monitor hierarchy prefers Solar8000/HR"
+        "equivalence_group": ["Solar8000/HR", "Solar8000/PLETH_HR"],
+        "distractors": [],
+        "resolution_rationale": "heart rate → Solar8000/HR (direct), Solar8000/PLETH_HR (pleth-derived) 모두 의학적으로 유효한 heart rate 측정"
     }
 }
 ```
@@ -234,7 +234,7 @@ SVA 질의는 **5개 카테고리**로 분류하며, 각 카테고리는 VitalAg
 | `explicit_device_hint` | 장비를 자연어로 암시 (정확한 장비명은 아님) | "heart rate from the patient monitor" → `Solar8000/HR` |
 | `multi_source_compare` | 두 소스 모두 필요 (비교 질의) | "mean absolute difference of EtCO2 between the two devices" → `Primus/ETCO2` + `Solar8000/ETCO2` |
 
-**VitalAgent Cross-Device Resolution Hierarchy:**
+**VitalAgent Cross-Device Resolution Hierarchy** (참고용 — VitalAgent 내부 규칙):
 
 ```
 1) Vital Signs (HR, BP, SpO2) → Patient Monitor (Solar8000) 우선
@@ -244,18 +244,21 @@ SVA 질의는 **5개 카테고리**로 분류하며, 각 카테고리는 VitalAg
 5) Measured > Set value (항상, 장비 불문)
 ```
 
+> **주의**: 이 hierarchy는 VitalAgent의 내부 동작 규칙이며, SVA 채점에는 사용하지 않는다. SVA는 `equivalence_group` 기반으로 채점하므로, 이 hierarchy와 다른 파라미터를 선택하더라도 동등 그룹 내라면 정답으로 인정한다.
+
 **Ground Truth 필드:**
 
 ```json
 {
     "resolution_target": {
-        "intended_params": ["Primus/ETCO2"],
-        "acceptable_alternatives": [],
-        "distractors": ["Solar8000/ETCO2"],
-        "resolution_rationale": "호기말 CO2 → Respiratory concept → Ventilator(Primus) 우선"
+        "equivalence_group": ["Primus/ETCO2", "Solar8000/ETCO2"],
+        "distractors": [],
+        "resolution_rationale": "장비 힌트 없는 경우: ETCO2는 Primus(ventilator)와 Solar8000(monitor) 모두에서 측정되며 동등하게 유효"
     }
 }
 ```
+
+> **장비 힌트가 있는 경우**: "ventilator의 ETCO2" → `equivalence_group: ["Primus/ETCO2"]`, `distractors: ["Solar8000/ETCO2"]`로 축소
 
 #### C. Cohort-Signal Join (`cj`, 10개)
 
@@ -279,11 +282,13 @@ SVA 질의는 **5개 카테고리**로 분류하며, 각 카테고리는 VitalAg
 ```json
 {
     "resolution_target": {
-        "intended_params": ["Solar8000/HR"],
+        "equivalence_group": ["Solar8000/HR", "Solar8000/PLETH_HR"],
+        "distractors": [],
         "cohort_filter": "preop_htn == 1",
         "cohort_source": "clinical_data.csv",
         "join_key": "caseid",
-        "expected_matching_cases": ["0002", "0009"]
+        "expected_matching_cases": ["0002", "0009"],
+        "resolution_rationale": "heart rate 측정의 두 파라미터는 동등. 코호트 필터 후 매칭 케이스의 HR 계산"
     }
 }
 ```
@@ -334,7 +339,8 @@ else:
 ```json
 {
     "resolution_target": {
-        "intended_params": ["Solar8000/HR", "Solar8000/PLETH_SPO2", "Solar8000/ART_SBP", "Solar8000/ART_DBP", "Solar8000/ART_MBP"],
+        "equivalence_group": ["Solar8000/HR", "Solar8000/PLETH_SPO2", "Solar8000/ART_SBP", "Solar8000/ART_DBP", "Solar8000/ART_MBP"],
+        "distractors": [],
         "device_group_filter": "Solar8000",
         "functional_filter": "vital_signs",
         "resolution_rationale": "환자 모니터(Solar8000)에서 측정되는 활력징후 파라미터를 대상으로 각각 평균 계산. track_names.csv의 Solar8000 그룹 중 vital signs 관련 Description을 가진 파라미터를 선별"
@@ -342,7 +348,7 @@ else:
 }
 ```
 
-**참고**: Ontology 질의는 ground truth의 `intended_params`가 다수일 수 있으며, 결과도 단일 값이 아닌 딕셔너리/리스트 형태가 될 수 있다.
+**참고**: Ontology 질의는 `equivalence_group`이 탐색 후보 집합 역할을 하며 다수일 수 있다. 결과도 단일 값이 아닌 딕셔너리/리스트 형태가 될 수 있다.
 
 #### E. Adversarial-Semantic (`adv`, 5개)
 
@@ -361,9 +367,10 @@ else:
 ```json
 {
     "resolution_target": {
-        "intended_params": [],
+        "equivalence_group": [],
+        "distractors": ["BIS/BIS", "BIS/SQI"],
         "expected_behavior": "not_found",
-        "rationale": "EEG raw signal은 BIS 모듈에서 처리된 지표(BIS/BIS)만 존재하며, raw EEG waveform은 별도 track이 아님"
+        "resolution_rationale": "EEG raw signal은 BIS 모듈에서 처리된 지표(BIS/BIS)만 존재하며, raw EEG waveform은 별도 track이 아님"
     }
 }
 ```
@@ -387,6 +394,8 @@ else:
 
 ### 4-1. 공통 스키마
 
+> **Equivalence Group 원칙**: 의학적으로 동등한 파라미터들은 하나의 **동등 그룹(equivalence_group)** 으로 묶는다. 에이전트가 그룹 내 어떤 파라미터를 선택하든 **동일하게 정답으로 인정**한다. 이를 통해 특정 시스템의 내부 우선순위(hierarchy)에 대한 편향 없이 공정하게 평가할 수 있다.
+
 ```json
 {
     "id": "sva_sem_001",
@@ -395,10 +404,9 @@ else:
     "query": "For case 0001, what is the mean heart rate over the entire recording, sampled at 1 Hz, ignoring NaN values? (Round to 1 decimal place)",
 
     "resolution_target": {
-        "intended_params": ["Solar8000/HR"],
-        "acceptable_alternatives": ["Solar8000/PLETH_HR"],
+        "equivalence_group": ["Solar8000/HR", "Solar8000/PLETH_HR"],
         "distractors": [],
-        "resolution_rationale": "heart rate → Patient Monitor hierarchy prefers Solar8000/HR",
+        "resolution_rationale": "heart rate → Solar8000/HR and Solar8000/PLETH_HR are both valid heart rate measurements from the patient monitor",
         "expected_behavior": "retrieve"
     },
 
@@ -406,8 +414,8 @@ else:
         "language": "python",
         "code": "file_path = VITAL_DIR / '0001.vital'\n..."
     },
-    "expected_value": 77.2,
-    "alternative_values": {
+    "equivalence_values": {
+        "Solar8000/HR": 77.2,
         "Solar8000/PLETH_HR": 77.5
     },
 
@@ -425,9 +433,8 @@ else:
 | `query_style` | string | O | 카테고리별 하위 스타일 (3-2절 참조) |
 | `query` | string | O | 자연어 질의 (track 이름 미포함) |
 | `resolution_target` | object | O | 파라미터 해석 정답 정보 (4-3절 참조) |
-| `ground_truth_logic` | object | O | 실행 가능한 Python GT 코드 |
-| `expected_value` | any | O | GT 코드 실행 결과 (숫자, null, 리스트 등) |
-| `alternative_values` | object | △ | `acceptable_alternatives`의 각 param_key 사용 시 기대값 |
+| `ground_truth_logic` | object | O | 실행 가능한 Python GT 코드 (equivalence_group 내 모든 파라미터에 대해 값 계산) |
+| `equivalence_values` | object | O | `equivalence_group` 내 각 param_key → GT 계산 결과 매핑. 에이전트 출력이 이 중 아무 값과 일치하면 정답 |
 | `is_verified_by_execution` | bool | O | VitalExecutor로 실행 검증 완료 여부 |
 | `verification_timestamp` | string | O | 검증 시각 (ISO 8601) |
 
@@ -435,10 +442,9 @@ else:
 
 | 필드 | 타입 | 필수 | 설명 |
 | :--- | :--- | :---: | :--- |
-| `intended_params` | string[] | O | 정답 param_key 목록 |
-| `acceptable_alternatives` | string[] | △ | 정답으로 인정 가능한 대안 param_key |
-| `distractors` | string[] | △ | 동일 개념이지만 선택하면 안 되는 param_key |
-| `resolution_rationale` | string | O | 왜 이 param_key가 정답인지 근거 |
+| `equivalence_group` | string[] | O | **동등 그룹** — 의학적으로 동등한 param_key 집합. 이 중 어떤 것을 선택해도 동일하게 정답(1.0) 인정. Adversarial의 경우 빈 배열 `[]` |
+| `distractors` | string[] | △ | 유사해 보이지만 의학적으로 동등하지 않아 선택하면 오답인 param_key |
+| `resolution_rationale` | string | O | 동등 그룹 구성 근거 및 distractor 제외 사유 |
 | `expected_behavior` | string | O | `retrieve` \| `not_found` \| `clarify` |
 | `cohort_filter` | string | △ | (cj 전용) 코호트 필터 조건 표현식 |
 | `cohort_source` | string | △ | (cj 전용) 코호트 CSV 파일명 |
@@ -446,6 +452,16 @@ else:
 | `expected_matching_cases` | string[] | △ | (cj 전용) 필터링 후 매칭되는 케이스 ID |
 | `device_group_filter` | string | △ | (onto 전용) 장비 그룹 이름 (e.g., `Solar8000`, `Primus`) |
 | `functional_filter` | string | △ | (onto 전용) 기능적 분류 (e.g., `vital_signs`, `respiratory`, `hemodynamics`) |
+
+**Equivalence Group 구성 가이드라인:**
+
+| 카테고리 | equivalence_group 의미 | 예시 |
+| :--- | :--- | :--- |
+| `semantic_resolution` | 동일 생리학적 개념을 측정하는 모든 파라미터 | "heart rate" → `[Solar8000/HR, Solar8000/PLETH_HR]` |
+| `cross_device` | 쿼리에 장비 힌트가 없으면 모든 장비의 동일 개념 파라미터; 장비 힌트가 있으면 해당 장비의 파라미터만 | "end-tidal CO2" → `[Primus/ETCO2, Solar8000/ETCO2]`; "ventilator의 ETCO2" → `[Primus/ETCO2]` |
+| `cohort_signal_join` | 코호트 필터 후 사용할 신호 파라미터의 동등 그룹 | "hypertensive patients의 HR" → `[Solar8000/HR, Solar8000/PLETH_HR]` |
+| `ontology_based` | 탐색 대상이 되는 전체 후보 파라미터 집합 | "Primus의 모든 호흡 파라미터" → `[Primus/ETCO2, Primus/FIO2, ...]` |
+| `adversarial_semantic` | 빈 배열 (정답 파라미터가 존재하지 않음) | `[]` |
 
 ### 4-4. 카테고리별 스키마 예시
 
@@ -458,18 +474,19 @@ else:
     "query_style": "clinical",
     "query": "For case 0001, what is the mean heart rate over the entire recording, sampled at 1 Hz, ignoring NaN values? (Round to 1 decimal place)",
     "resolution_target": {
-        "intended_params": ["Solar8000/HR"],
-        "acceptable_alternatives": ["Solar8000/PLETH_HR"],
+        "equivalence_group": ["Solar8000/HR", "Solar8000/PLETH_HR"],
         "distractors": [],
-        "resolution_rationale": "heart rate → Patient Monitor hierarchy prefers Solar8000/HR",
+        "resolution_rationale": "heart rate → Solar8000/HR (direct HR) and Solar8000/PLETH_HR (plethysmograph-derived HR) are both medically valid heart rate measurements",
         "expected_behavior": "retrieve"
     },
     "ground_truth_logic": {
         "language": "python",
-        "code": "file_path = VITAL_DIR / '0001.vital'\nif not file_path.exists():\n    output_result(None)\nelse:\n    vf = vitaldb.VitalFile(str(file_path))\n    arr = vf.to_numpy(['Solar8000/HR'], 1)\n    x = np.asarray(arr).reshape(-1)\n    if np.all(np.isnan(x)):\n        output_result(None)\n    else:\n        output_result(round(float(np.nanmean(x)), 1))"
+        "code": "... (equivalence_group 내 모든 파라미터에 대해 각각 값 계산)"
     },
-    "expected_value": 77.2,
-    "alternative_values": {"Solar8000/PLETH_HR": 77.5},
+    "equivalence_values": {
+        "Solar8000/HR": 77.2,
+        "Solar8000/PLETH_HR": 77.5
+    },
     "is_verified_by_execution": true
 }
 ```
@@ -483,21 +500,24 @@ else:
     "query_style": "implicit_preference",
     "query": "For case 0002, what is the standard deviation of end-tidal CO2 over the entire recording, sampled at 1 Hz, ignoring NaN values? (Round to 2 decimal places)",
     "resolution_target": {
-        "intended_params": ["Primus/ETCO2"],
-        "acceptable_alternatives": [],
-        "distractors": ["Solar8000/ETCO2"],
-        "resolution_rationale": "end-tidal CO2 → Respiratory → Ventilator (Primus) hierarchy preferred. Solar8000/ETCO2 is a secondary measurement from the patient monitor",
+        "equivalence_group": ["Primus/ETCO2", "Solar8000/ETCO2"],
+        "distractors": [],
+        "resolution_rationale": "end-tidal CO2 → Primus/ETCO2 (ventilator 직접 측정)와 Solar8000/ETCO2 (patient monitor 측정) 모두 의학적으로 유효한 ETCO2 측정값. 장비 힌트 없으므로 동등 그룹",
         "expected_behavior": "retrieve"
     },
     "ground_truth_logic": {
         "language": "python",
         "code": "..."
     },
-    "expected_value": 12.45,
-    "alternative_values": {},
+    "equivalence_values": {
+        "Primus/ETCO2": 12.45,
+        "Solar8000/ETCO2": 12.38
+    },
     "is_verified_by_execution": true
 }
 ```
+
+> **Cross-Device 힌트 축소 예시**: 질의에 "from the ventilator" 같은 장비 힌트가 포함된 경우, `equivalence_group`을 `["Primus/ETCO2"]`로 축소하고 `Solar8000/ETCO2`를 `distractors`로 이동한다.
 
 **Cohort-Signal Join:**
 
@@ -508,20 +528,23 @@ else:
     "query_style": "filter_then_aggregate",
     "query": "What is the mean heart rate for patients with a history of hypertension (preop_htn=1), sampled at 1 Hz, ignoring NaN values? (Round to 2 decimal places)",
     "resolution_target": {
-        "intended_params": ["Solar8000/HR"],
+        "equivalence_group": ["Solar8000/HR", "Solar8000/PLETH_HR"],
+        "distractors": [],
         "cohort_filter": "preop_htn == 1",
         "cohort_source": "clinical_data.csv",
         "join_key": "caseid",
         "expected_matching_cases": ["0002"],
-        "resolution_rationale": "Filter cohort for preop_htn=1 → compute mean Solar8000/HR for matching cases",
+        "resolution_rationale": "Filter cohort for preop_htn=1 → compute mean HR for matching cases. Solar8000/HR, Solar8000/PLETH_HR 모두 heart rate의 유효한 측정이므로 동등 그룹",
         "expected_behavior": "retrieve"
     },
     "ground_truth_logic": {
         "language": "python",
         "code": "COHORT_PATH = VITAL_DIR.parent / 'clinical_data.csv'\ncohort = pd.read_csv(COHORT_PATH)\nfiltered = cohort[cohort['preop_htn'] == 1]\n..."
     },
-    "expected_value": 81.3,
-    "alternative_values": {},
+    "equivalence_values": {
+        "Solar8000/HR": 81.3,
+        "Solar8000/PLETH_HR": 81.7
+    },
     "is_verified_by_execution": true
 }
 ```
@@ -535,20 +558,25 @@ else:
     "query_style": "category_discovery",
     "query": "For case 0009, among all numeric respiratory parameters from the anesthesia machine, which one has the highest variability (standard deviation)? Return the parameter name and its SD value. Sampled at 1 Hz, ignoring NaN values. (Round to 2 decimal places)",
     "resolution_target": {
-        "intended_params": ["Primus/ETCO2", "Primus/FIO2", "Primus/FEO2", "Primus/TV", "Primus/MV", "Primus/RR_CO2", "Primus/CO2"],
+        "equivalence_group": ["Primus/ETCO2", "Primus/FIO2", "Primus/FEO2", "Primus/TV", "Primus/MV", "Primus/RR_CO2", "Primus/CO2"],
+        "distractors": [],
         "device_group_filter": "Primus",
         "functional_filter": "respiratory",
-        "resolution_rationale": "track_names.csv의 Primus 장비 그룹 중 Numeric(N) 타입 파라미터를 대상으로 std 계산 후 최대값 선택",
+        "resolution_rationale": "track_names.csv의 Primus 장비 그룹 중 Numeric(N) 타입 파라미터 전체가 탐색 대상. 에이전트는 이들 중 최대 std를 가진 파라미터를 식별해야 함",
         "expected_behavior": "retrieve"
     },
     "ground_truth_logic": {
         "language": "python",
         "code": "..."
     },
-    "expected_value": {"parameter": "Primus/TV", "std": 145.23},
+    "equivalence_values": {
+        "Primus/TV": {"parameter": "Primus/TV", "std": 145.23}
+    },
     "is_verified_by_execution": true
 }
 ```
+
+> **Ontology 카테고리 특수성**: `equivalence_group`이 "동등 대안"이 아닌 **탐색 후보 집합** 역할을 한다. 에이전트는 이 후보들을 발견하고 분석한 뒤, 질의 조건(최대 std 등)에 맞는 하나의 결과를 반환해야 한다. `equivalence_values`에는 정답 결과만 기록한다.
 
 **Adversarial-Semantic:**
 
@@ -559,11 +587,12 @@ else:
     "query_style": "nonexistent_concept",
     "query": "For case 0001, what is the mean voltage of the raw EEG waveform over the entire recording, sampled at 1 Hz, ignoring NaN values? (Round to 2 decimal places)",
     "resolution_target": {
-        "intended_params": [],
+        "equivalence_group": [],
+        "distractors": ["BIS/BIS", "BIS/SQI"],
         "expected_behavior": "not_found",
-        "resolution_rationale": "The BIS module provides processed EEG indices but no raw EEG waveform track exists"
+        "resolution_rationale": "The BIS module provides processed EEG indices but no raw EEG waveform track exists. BIS/BIS, BIS/SQI are related but NOT equivalent to raw EEG voltage"
     },
-    "expected_value": null,
+    "equivalence_values": {},
     "is_verified_by_execution": true
 }
 ```
@@ -772,10 +801,10 @@ Cross-Device pairs (internal): {cross_device_pairs}
 
 [Constraints]
 1. Each query must include: sampling rate (1 Hz), NaN handling (ignore), rounding precision, time scope
-2. The query must be resolvable to exactly one set of param_key(s) via semantic interpretation
+2. The query must be resolvable to a specific set of param_key(s) via semantic interpretation
 3. All queries must be in English only
 4. Mix styles: clinical, abbreviation, descriptive
-5. For each query, also generate the resolution_target with intended_params and rationale
+5. For each query, generate the resolution_target with equivalence_group (all medically equivalent params) and rationale
 6. Generate {n} queries in this batch
 
 [Output Format — JSON array]
@@ -784,9 +813,9 @@ Cross-Device pairs (internal): {cross_device_pairs}
     "query": "...",
     "query_style": "clinical",
     "resolution_target": {
-      "intended_params": ["Solar8000/HR"],
-      "acceptable_alternatives": ["Solar8000/PLETH_HR"],
-      "resolution_rationale": "..."
+      "equivalence_group": ["Solar8000/HR", "Solar8000/PLETH_HR"],
+      "distractors": [],
+      "resolution_rationale": "heart rate → both Solar8000/HR and PLETH_HR are valid HR measurements"
     }
   }
 ]
@@ -874,21 +903,25 @@ def run_stage2(metadata_context: dict):
 
 **파일**: `stages/stage3_ground_truth.py`
 
-**목적**: 각 질의에 대해 실행 가능한 Python GT 코드를 생성하고, `VitalExecutor`로 검증하여 `expected_value`를 확정.
+**목적**: 각 질의에 대해 실행 가능한 Python GT 코드를 생성하고, `VitalExecutor`로 검증하여 `equivalence_values`를 확정.
 
-**핵심 원칙**: GT 코드에는 `resolution_target.intended_params`의 정확한 param_key를 명시적으로 사용한다. 이 코드는 "시맨틱 해석이 올바르게 이루어졌을 때" 실행되어야 할 정답 코드이다.
+**핵심 원칙**: `equivalence_group` 내 **모든** 파라미터에 대해 GT 값을 계산한다. 이를 통해 에이전트가 그룹 내 어떤 파라미터를 선택하든 해당 파라미터의 정답값과 비교할 수 있다.
 
-**2-Pass 구조:**
+**3-Pass 구조:**
 
 ```
-Pass 1: LLM에게 GT 코드 생성 요청
+Pass 1: LLM에게 기준 GT 코드 생성 요청
    ↓
-   GT 코드에 intended_params의 param_key를 명시적으로 제공
+   equivalence_group의 첫 번째 param_key를 사용한 코드 생성
    ↓
-Pass 2: VitalExecutor로 실행
+Pass 2: VitalExecutor로 기준 코드 실행 검증
    ↓
-   성공 → expected_value 기록
-   실패 → 에러 메시지 + 코드를 LLM에게 피드백 → 재생성 (최대 3회)
+   성공 → 기준값 확보
+   실패 → 에러 피드백 → 재생성 (최대 3회)
+   ↓
+Pass 3: equivalence_group 내 나머지 파라미터에 대해 코드 변환 + 실행
+   ↓
+   모든 파라미터의 값을 equivalence_values에 기록
 ```
 
 **코드 생성 프롬프트:**
@@ -900,8 +933,8 @@ Generate Python code that computes the ground truth answer for the following que
 [Query]
 {query}
 
-[Resolution Information — USE THESE EXACT param_keys]
-Intended parameters: {intended_params}
+[Resolution Information — USE THIS EXACT param_key]
+Target parameter: {equivalence_group[0]}
 Case IDs to process: {extracted_case_ids}
 
 [Available Infrastructure]
@@ -912,39 +945,46 @@ Case IDs to process: {extracted_case_ids}
 - For cohort joins: COHORT_PATH = VITAL_DIR.parent / "clinical_data.csv"
 
 [Constraints]
-1. Use EXACTLY the param_keys listed in "Intended parameters"
+1. Use EXACTLY the param_key listed in "Target parameter"
 2. Follow the query's instructions for sampling rate, NaN handling, rounding
 3. Handle missing files/tracks gracefully (output_result(None))
 4. Call output_result() exactly once at the end
 ```
 
-**Alternative Values 생성:**
+**Equivalence Values 생성:**
 
-`acceptable_alternatives`가 있는 경우, 대안 param_key로도 동일한 계산을 수행하여 `alternative_values`를 기록:
+기준 코드가 검증되면, `equivalence_group` 내 모든 파라미터에 대해 동일 계산을 수행하여 `equivalence_values`를 완성한다:
 
 ```python
-def compute_alternative_values(case: dict, executor: VitalExecutor) -> dict:
-    alternatives = case["resolution_target"].get("acceptable_alternatives", [])
-    alt_values = {}
+def compute_equivalence_values(case: dict, executor: VitalExecutor) -> dict:
+    eq_group = case["resolution_target"].get("equivalence_group", [])
+    base_code = case["ground_truth_logic"]["code"]
+    base_param = eq_group[0] if eq_group else None
+    eq_values = {}
 
-    for alt_param in alternatives:
-        alt_code = case["ground_truth_logic"]["code"].replace(
-            case["resolution_target"]["intended_params"][0],
-            alt_param
-        )
-        result = executor.execute_code(alt_code)
-        if result["success"]:
-            alt_values[alt_param] = result["result"]
+    for param in eq_group:
+        if param == base_param:
+            eq_values[param] = case.get("_base_value")
+        else:
+            param_code = base_code.replace(base_param, param)
+            result = executor.execute_code(param_code)
+            if result["success"]:
+                eq_values[param] = result["result"]
+            else:
+                logger.warning(f"Failed to compute value for {param}: {result['error']}")
+                eq_values[param] = None
 
-    return alt_values
+    return eq_values
 ```
+
+> **Ontology 카테고리 예외**: ontology_based의 경우 `equivalence_group`은 탐색 후보 집합이므로, GT 코드가 전체 후보를 순회하여 조건에 맞는 결과를 반환한다. `equivalence_values`에는 최종 정답(e.g., 최대 std를 가진 파라미터)만 기록한다.
 
 **실행 검증 결과 처리:**
 
 | 실행 결과 | 처리 |
 | :--- | :--- |
-| 성공, 값 반환 | `expected_value` 기록, `is_verified_by_execution = True` |
-| 성공, None 반환 | `expected_value = None` 기록 (adversarial/nonexistent의 경우 정상) |
+| 성공, 값 반환 | 해당 param의 `equivalence_values[param]` 기록, 전체 완료 시 `is_verified_by_execution = True` |
+| 성공, None 반환 | `equivalence_values[param] = None` 기록 (adversarial의 경우 `equivalence_values = {}`) |
 | 실패, 에러 | LLM 재생성 요청 (최대 3회). 3회 모두 실패 시 제거 |
 | 타임아웃 | 제거 (60초 초과) |
 
@@ -986,7 +1026,9 @@ def check_determinism(case: dict, executor: VitalExecutor) -> bool:
     if not result_half["success"]:
         return True  # 에러 시 pass (interval 변경이 지원 안 될 수 있음)
 
-    original_value = case["expected_value"]
+    eq_values = case.get("equivalence_values", {})
+    first_param = list(eq_values.keys())[0] if eq_values else None
+    original_value = eq_values.get(first_param) if first_param else None
     half_value = result_half["result"]
 
     if original_value is None and half_value is None:
@@ -1003,17 +1045,19 @@ def check_determinism(case: dict, executor: VitalExecutor) -> bool:
 
 #### Filter 3: 시맨틱 중복 제거 (비용: 중간)
 
-동일 카테고리 내에서 SequenceMatcher 유사도 ≥ 0.80이고 expected_value가 동일하면 중복으로 판단.
+동일 카테고리 내에서 SequenceMatcher 유사도 ≥ 0.80이고 `equivalence_values`의 값 집합이 동일하면 중복으로 판단.
 
 ```python
 from difflib import SequenceMatcher
 
 DEDUP_THRESHOLD = 0.80
 
-def is_duplicate(new_query: str, new_value, existing: list) -> bool:
+def is_duplicate(new_query: str, new_eq_values: dict, existing: list) -> bool:
+    new_vals = set(v for v in new_eq_values.values() if v is not None)
     for ex in existing:
         sim = SequenceMatcher(None, new_query, ex["query"]).ratio()
-        if sim >= DEDUP_THRESHOLD and compare_values(new_value, ex["expected_value"]):
+        ex_vals = set(v for v in ex.get("equivalence_values", {}).values() if v is not None)
+        if sim >= DEDUP_THRESHOLD and new_vals == ex_vals:
             return True
     return False
 ```
@@ -1029,15 +1073,15 @@ Evaluate the following SVA benchmark query on 5 criteria.
 Query: "{query}"
 Category: {query_category}
 Resolution Target: {resolution_target}
-Expected Value: {expected_value}
+Equivalence Values: {equivalence_values}
 
 Criteria (score 1-5 each):
-1. SEMANTIC CLARITY: Is the query clearly interpretable to a single set of parameters
+1. SEMANTIC CLARITY: Is the query clearly interpretable to a specific set of parameters
    WITHOUT knowing the track names? (1=ambiguous, 5=unambiguous)
 2. CLINICAL VALIDITY: Is the query medically meaningful? (1=nonsensical, 5=realistic)
-3. RESOLUTION CORRECTNESS: Does the resolution_target correctly match the query intent?
-   (1=wrong params, 5=perfect match)
-4. GROUND TRUTH ALIGNMENT: Does the expected_value logically follow from the query?
+3. EQUIVALENCE GROUP CORRECTNESS: Are the parameters in equivalence_group truly medically
+   equivalent for this query? Are distractors correctly excluded? (1=wrong grouping, 5=perfect)
+4. GROUND TRUTH ALIGNMENT: Do the equivalence_values logically follow from the query?
    (1=clearly wrong, 5=correct)
 5. CATEGORY FIT: Does the query genuinely test the claimed category's capability?
    (1=wrong category, 5=perfect fit)
@@ -1134,7 +1178,7 @@ def assemble_final_dataset(filtered_candidates: list) -> list:
         "misleading_device_hint": 2,
         "ambiguous_scope": 1
     },
-    "unique_intended_params": 28,
+    "unique_equivalence_params": 28,
     "execution_verified_pct": 100.0,
     "null_value_ratio": 0.10,
     "filter_stats": {
@@ -1203,7 +1247,7 @@ def run_vitalagent_sva(cases: list) -> list:
             case_id=case["id"],
             scenario="VitalAgent",
             query=case["query"],
-            expected_value=case["expected_value"],
+            equivalence_values=case["equivalence_values"],
             agent_output=agent_answer,
             resolved_params=extraction_info.get("resolved_params") if extraction_info else None,
             generated_code=extraction_info.get("generated_code") if extraction_info else None,
@@ -1259,7 +1303,7 @@ def run_claude_code_cli_sva(cases: list) -> list:
             case_id=case["id"],
             scenario="Claude-Code-CLI",
             query=case["query"],
-            expected_value=case["expected_value"],
+            equivalence_values=case["equivalence_values"],
             agent_output=agent_answer,
             resolved_params=used_params,
             generated_code=code if code_match else None,
@@ -1313,31 +1357,31 @@ Composite Score = weighted sum of 3 layers
 
 ### 7-2. Layer 1: Parameter Resolution Score
 
-에이전트가 올바른 `param_key`를 선택했는지 평가한다.
+에이전트가 `equivalence_group` 내의 올바른 `param_key`를 선택했는지 평가한다. **Equivalence Group 원칙**에 따라, 그룹 내 어떤 파라미터를 선택해도 동일하게 정답(1.0)으로 인정한다.
 
 **점수 기준:**
 
 | 상황 | 점수 | 라벨 |
 | :--- | :---: | :--- |
-| `used_params == intended_params` | **1.0** | `exact_match` |
-| `used_params ⊆ (intended ∪ acceptable)` | **0.8** | `acceptable_alternative` |
-| `used_params ∩ (intended ∪ acceptable) ≠ ∅` | **0.4** | `partial_match` |
-| `used_params ∩ (intended ∪ acceptable) = ∅` | **0.0** | `wrong_param` |
+| `used_params ⊆ equivalence_group` (전부 그룹 내) | **1.0** | `correct` |
+| `used_params ∩ equivalence_group ≠ ∅` AND `used_params ⊄ equivalence_group` (일부만 그룹 내) | **0.5** | `partial_match` |
+| `used_params ∩ equivalence_group = ∅` (전부 그룹 밖) | **0.0** | `wrong_param` |
 | 코드 없음 / 파라미터 추출 불가 | **0.0** | `not_attempted` |
-| Adversarial: 정답이 `not_found`이고 에이전트가 null/에러 반환 | **1.0** | `correct_rejection` |
-| Adversarial: 정답이 `not_found`인데 에이전트가 값 반환 | **0.0** | `hallucination` |
+| Adversarial: `equivalence_group = []`이고 에이전트가 null/에러 반환 | **1.0** | `correct_rejection` |
+| Adversarial: `equivalence_group = []`인데 에이전트가 값 반환 | **0.0** | `hallucination` |
+
+> **기존 방식과의 차이**: 기존에는 `intended_params`(1.0) vs `acceptable_alternatives`(0.8)로 차등 점수를 부여했으나, 이는 특정 시스템의 내부 hierarchy에 편향될 수 있었다. 새 방식에서는 의학적 동등성만을 기준으로 하므로 더 공정하다.
 
 **구현:**
 
 ```python
 def score_resolution(case: dict, result: SVAResult) -> tuple:
     target = case["resolution_target"]
-    intended = set(target["intended_params"])
-    acceptable = set(target.get("acceptable_alternatives", []))
+    eq_group = set(target.get("equivalence_group", []))
     expected_behavior = target.get("expected_behavior", "retrieve")
 
-    # Adversarial 처리
-    if expected_behavior == "not_found":
+    # Adversarial 처리 (equivalence_group이 빈 경우)
+    if expected_behavior == "not_found" or len(eq_group) == 0:
         if result.agent_output is None or result.error_message:
             return 1.0, "correct_rejection"
         else:
@@ -1347,12 +1391,10 @@ def score_resolution(case: dict, result: SVAResult) -> tuple:
 
     if not used:
         return 0.0, "not_attempted"
-    if used == intended:
-        return 1.0, "exact_match"
-    if used <= (intended | acceptable):
-        return 0.8, "acceptable_alternative"
-    if used & (intended | acceptable):
-        return 0.4, "partial_match"
+    if used <= eq_group:
+        return 1.0, "correct"
+    if used & eq_group:
+        return 0.5, "partial_match"
     return 0.0, "wrong_param"
 ```
 
@@ -1370,38 +1412,36 @@ def score_resolution(case: dict, result: SVAResult) -> tuple:
 
 ### 7-4. Layer 3: Value Accuracy Score
 
-최종 반환값이 ground truth와 일치하는지 평가한다.
+최종 반환값이 `equivalence_values`의 **어느 값과든** 일치하는지 평가한다. Equivalence Group 내 어떤 파라미터를 선택했든, 해당 파라미터의 정답값과 일치하면 **동일하게 1.0**을 부여한다.
 
 | 상황 | 점수 | 라벨 |
 | :--- | :---: | :--- |
-| `expected_value`와 정확 일치 (tolerance 1e-5) | **1.0** | `exact_match` |
-| `alternative_values`의 값과 일치 | **0.5** | `alternative_match` |
+| `equivalence_values`의 어떤 값과든 정확 일치 (tolerance 1e-5) | **1.0** | `match` |
 | 불일치 | **0.0** | `mismatch` |
-| 양쪽 모두 None | **1.0** | `null_match` |
+| Adversarial: `equivalence_values = {}` 이고 에이전트가 null 반환 | **1.0** | `null_match` |
+| Adversarial: `equivalence_values = {}` 인데 에이전트가 값 반환 | **0.0** | `mismatch` |
+
+> **기존 방식과의 차이**: 기존에는 `expected_value` 일치 → 1.0, `alternative_values` 일치 → 0.5로 차등을 두었다. 새 방식에서는 `equivalence_values`의 모든 값이 동등하므로, 어느 값과 일치하든 1.0이다.
 
 **구현:**
 
 ```python
 def score_value(case: dict, result: SVAResult) -> tuple:
-    expected = case["expected_value"]
+    eq_values = case.get("equivalence_values", {})
     actual = result.agent_output
 
-    # null 매칭
-    if expected is None:
+    # Adversarial / null 매칭 (equivalence_values가 비어있는 경우)
+    if not eq_values:
         if actual is None or actual == "None" or actual == "null":
             return 1.0, "null_match"
         if isinstance(actual, (list, dict)) and len(actual) == 0:
             return 1.0, "null_match"
         return 0.0, "mismatch"
 
-    # 정확 일치
-    if compare_values(expected, actual):
-        return 1.0, "exact_match"
-
-    # Alternative values 일치
-    for alt_key, alt_val in case.get("alternative_values", {}).items():
-        if compare_values(alt_val, actual):
-            return 0.5, f"alternative_match ({alt_key})"
+    # equivalence_values 내 어떤 값과든 일치하면 정답
+    for param_key, expected_val in eq_values.items():
+        if expected_val is not None and compare_values(expected_val, actual):
+            return 1.0, f"match ({param_key})"
 
     return 0.0, "mismatch"
 ```
@@ -1424,8 +1464,8 @@ def compute_composite(resolution_score, execution_score, value_score):
 ```
 
 **가중치 근거:**
-- Resolution(0.4): SVA의 존재 이유는 시맨틱 해석 능력 평가. 가장 높은 가중치.
-- Value(0.4): 최종 정확도가 없으면 실용적 가치가 없으므로 동일 가중치.
+- Resolution(0.4): SVA의 존재 이유는 시맨틱 해석 능력 평가. 가장 높은 가중치. Equivalence Group 방식으로 공정성 확보.
+- Value(0.4): 최종 정확도가 없으면 실용적 가치가 없으므로 동일 가중치. `equivalence_values` 내 어떤 값이든 일치하면 1.0.
 - Execution(0.2): 코드 실행은 Resolution과 Value의 중간 과정이므로 낮은 가중치.
 
 ### 7-6. 집계 지표
@@ -1488,10 +1528,10 @@ VitalAgent           adversarial_semantic   5 100.0%  100.0% 100.0%  100.0%
 Claude-Code-CLI      adversarial_semantic   5  60.0%   80.0%  60.0%   64.0%
 
 --- Resolution Detail ---
-Scenario             exact  acceptable  partial  wrong  not_attempted  hallucination
-───────────────────────────────────────────────────────────────────────────────────
-VitalAgent             40          4        2      1           0              3
-Claude-Code-CLI        12          6        8     18           3              3
+Scenario             correct  partial  wrong  not_attempted  correct_rejection  hallucination
+───────────────────────────────────────────────────────────────────────────────────────────────
+VitalAgent              42        2      1           0              5                0
+Claude-Code-CLI         16        8     18           3              3                2
 ```
 
 ### 8-3. Detail 시트 컬럼
@@ -1503,14 +1543,14 @@ Claude-Code-CLI        12          6        8     18           3              3
 | `query_category` | semantic_resolution, cross_device, ... |
 | `query_style` | clinical, abbreviation, descriptive, implicit_preference, ... |
 | `query` | 전체 질의 텍스트 |
-| `intended_params` | 정답 param_key |
+| `equivalence_group` | 동등 그룹 param_key 목록 |
 | `resolved_params` | 에이전트가 실제 사용한 param_key |
-| `resolution_score` | 0.0 ~ 1.0 |
-| `resolution_detail` | exact_match, wrong_param, ... |
-| `expected_value` | GT 기대값 |
+| `resolution_score` | 0.0 / 0.5 / 1.0 |
+| `resolution_detail` | correct, partial_match, wrong_param, correct_rejection, hallucination, not_attempted |
+| `equivalence_values` | 동등 그룹 내 각 파라미터의 GT 값 |
 | `agent_output` | 에이전트 반환값 |
-| `value_score` | 0.0, 0.5, 1.0 |
-| `value_detail` | exact_match, alternative_match, mismatch |
+| `value_score` | 0.0 / 1.0 |
+| `value_detail` | match (param_key), mismatch, null_match |
 | `execution_score` | 0.0 / 1.0 |
 | `execution_detail` | success, runtime_error, timeout |
 | `composite_score` | 가중 합산 점수 |
