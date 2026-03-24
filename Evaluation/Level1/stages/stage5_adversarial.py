@@ -301,6 +301,10 @@ def _generate_confusing(
         log.warning("No confusing groups found — skipping confusing generation.")
         return []
 
+    all_confusing_pks = sorted({
+        pk for g in confusing_groups for pk in g["param_keys"]
+    })
+
     results = []
     for style in styles:
         n = n_generate // len(styles) + (1 if n_generate % len(styles) else 0)
@@ -314,7 +318,10 @@ def _generate_confusing(
         )
         raw_items = _call_adversarial_llm(prompt, dry_run=dry_run)
         for item in raw_items:
-            cand = _to_adversarial_candidate(item, "confusing", style=style)
+            cand = _to_adversarial_candidate(
+                item, "confusing", style=style,
+                confusing_param_keys=all_confusing_pks,
+            )
             if cand:
                 results.append(cand)
         if not dry_run:
@@ -331,6 +338,7 @@ def _to_adversarial_candidate(
     raw: dict,
     expected_type: str,
     style: QueryStyle = QueryStyle.DOCTOR,
+    confusing_param_keys: Optional[List[str]] = None,
 ) -> Optional[QueryCandidate]:
     """Convert raw LLM output to QueryCandidate with adversarial ground truth."""
     try:
@@ -342,11 +350,22 @@ def _to_adversarial_candidate(
         else:
             behavior = ExpectedBehavior.CLARIFY
 
+        acceptable_behaviors: List[ExpectedBehavior] = []
+        valid_params: List[str] = []
+
+        if adv_type == "confusing":
+            acceptable_behaviors = [ExpectedBehavior.CLARIFY, ExpectedBehavior.RETRIEVE]
+            valid_params = confusing_param_keys or []
+        elif adv_type == "impossible":
+            acceptable_behaviors = [ExpectedBehavior.NOT_FOUND, ExpectedBehavior.CLARIFY]
+
         gt = GroundTruth(
             required_parameters=[],
             acceptable_alternatives={},
             expected_behavior=behavior,
             retrieval_notes=raw.get("generation_notes"),
+            acceptable_behaviors=acceptable_behaviors,
+            confusing_valid_params=valid_params,
         )
 
         return QueryCandidate(

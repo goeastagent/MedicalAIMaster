@@ -60,7 +60,8 @@ class Orchestrator:
         self, 
         query: str,
         max_retries: Optional[int] = None,
-        timeout_seconds: Optional[int] = None
+        timeout_seconds: Optional[int] = None,
+        _extraction_result: Optional[Dict[str, Any]] = None,
     ) -> OrchestrationResult:
         """
         질의 실행 - 전체 파이프라인
@@ -69,6 +70,7 @@ class Orchestrator:
             query: 자연어 질의
             max_retries: 코드 생성 재시도 횟수 (None이면 config 값)
             timeout_seconds: 실행 타임아웃 (None이면 config 값)
+            _extraction_result: 이미 수행된 extraction 결과 (run_auto에서 전달, 외부 호출 금지)
         
         Returns:
             OrchestrationResult
@@ -85,8 +87,12 @@ class Orchestrator:
         
         try:
             # Step 1: Extraction - 실행 계획 생성
-            logger.info("📝 Step 1/3: Running ExtractionAgent...")
-            extraction_result = self._run_extraction(query)
+            if _extraction_result is not None:
+                logger.info("📝 Step 1/3: Reusing pre-computed extraction result")
+                extraction_result = _extraction_result
+            else:
+                logger.info("📝 Step 1/3: Running ExtractionAgent...")
+                extraction_result = self._run_extraction(query)
             
             if not extraction_result.get("execution_plan"):
                 logger.error("❌ Extraction failed: No execution plan generated")
@@ -836,6 +842,7 @@ case_list = cohort[cohort['filter'] == 'value']['{entity_col}'].astype(str).toli
         max_retries: Optional[int] = None,
         timeout_seconds: Optional[int] = None,
         progress_callback: Optional[Callable[[int, int, int], None]] = None,
+        _extraction_result: Optional[Dict[str, Any]] = None,
     ) -> OrchestrationResult:
         """
         Map-Reduce 모드로 대용량 데이터 처리
@@ -851,6 +858,7 @@ case_list = cohort[cohort['filter'] == 'value']['{entity_col}'].astype(str).toli
             max_retries: 코드 생성 재시도 횟수
             timeout_seconds: 실행 타임아웃
             progress_callback: 진행 콜백 fn(batch_idx, total_batches, processed_count)
+            _extraction_result: 이미 수행된 extraction 결과 (run_auto에서 전달, 외부 호출 금지)
         
         Returns:
             OrchestrationResult
@@ -884,8 +892,12 @@ case_list = cohort[cohort['filter'] == 'value']['{entity_col}'].astype(str).toli
         
         try:
             # Step 1: Extraction - 실행 계획 생성
-            logger.info("📝 Step 1/4: Running ExtractionAgent...")
-            extraction_result = self._run_extraction(query)
+            if _extraction_result is not None:
+                logger.info("📝 Step 1/4: Reusing pre-computed extraction result")
+                extraction_result = _extraction_result
+            else:
+                logger.info("📝 Step 1/4: Running ExtractionAgent...")
+                extraction_result = self._run_extraction(query)
             
             if not extraction_result.get("execution_plan"):
                 logger.error("❌ Extraction failed: No execution plan generated")
@@ -1084,7 +1096,7 @@ case_list = cohort[cohort['filter'] == 'value']['{entity_col}'].astype(str).toli
         request = MapReduceRequest(
             task_description=query,
             expected_output="The result format depends on the query",
-            hints=self._generate_mapreduce_hints(query, param_keys, entity_data_columns),
+            hints="",
             dataset_description=dataset_description,
             entity_id_column=entity_id_column,
             total_entities=total_cases,
@@ -1343,49 +1355,41 @@ case_list = cohort[cohort['filter'] == 'value']['{entity_col}'].astype(str).toli
         배치 단위로 데이터를 로드하고, map_func를 실행한 후,
         최종 reduce_func로 집계합니다.
         """
-        import pandas as pd
-        import numpy as np
-        from typing import Any, List, Dict, Optional, Tuple
+        from typing import Any as _Any, List as _List, Dict as _Dict, Optional as _Opt, Tuple as _Tup
         
-        # 함수 컴파일
+        # SandboxExecutor를 사용하여 RestrictedPython 환경에서 함수 컴파일
         try:
-            # 안전한 실행 환경 구성
-            safe_globals = {
-                "pd": pd,
-                "np": np,
-                "pandas": pd,
-                "numpy": np,
-                "math": __import__("math"),
-                "datetime": __import__("datetime"),
-                "statistics": __import__("statistics"),
-                "collections": __import__("collections"),
-                # typing 모듈 추가 (LLM이 타입 힌트 사용 시 필요)
-                "Any": Any,
-                "List": List,
-                "Dict": Dict,
-                "Optional": Optional,
-                "Tuple": Tuple,
-            }
+            from AnalysisAgent.src.code_gen.sandbox import SandboxExecutor, HAS_RESTRICTED_PYTHON
+            if HAS_RESTRICTED_PYTHON:
+                from RestrictedPython import compile_restricted
             
-            # scipy 추가 (있으면)
-            try:
-                import scipy.stats as stats
-                safe_globals["stats"] = stats
-                safe_globals["scipy"] = __import__("scipy")
-            except ImportError:
-                pass
+            sandbox = self._sandbox or SandboxExecutor(timeout_seconds=timeout)
+            exec_globals = sandbox._create_exec_globals({})
             
-            # map_func 컴파일
-            map_globals = safe_globals.copy()
-            exec(map_code, map_globals)
+            exec_globals.update({
+                "Any": _Any, "List": _List, "Dict": _Dict,
+                "Optional": _Opt, "Tuple": _Tup,
+            })
+            
+            # map_func 컴파일 (RestrictedPython 적용)
+            map_globals = dict(exec_globals)
+            if HAS_RESTRICTED_PYTHON:
+                map_byte_code = compile_restricted(map_code, '<map_func>', 'exec')
+                exec(map_byte_code, map_globals)
+            else:
+                exec(map_code, map_globals)
             map_func = map_globals.get("map_func")
             
             if not callable(map_func):
                 return {"success": False, "error": "map_func is not callable"}
             
-            # reduce_func 컴파일
-            reduce_globals = safe_globals.copy()
-            exec(reduce_code, reduce_globals)
+            # reduce_func 컴파일 (RestrictedPython 적용)
+            reduce_globals = dict(exec_globals)
+            if HAS_RESTRICTED_PYTHON:
+                reduce_byte_code = compile_restricted(reduce_code, '<reduce_func>', 'exec')
+                exec(reduce_byte_code, reduce_globals)
+            else:
+                exec(reduce_code, reduce_globals)
             reduce_func = reduce_globals.get("reduce_func")
             
             if not callable(reduce_func):
@@ -1529,22 +1533,6 @@ case_list = cohort[cohort['filter'] == 'value']['{entity_col}'].astype(str).toli
                 "map_errors": map_errors[:10],
             }
     
-    def _generate_mapreduce_hints(
-        self,
-        query: str,
-        param_keys: List[str],
-        entity_data_columns: Optional[List[str]] = None,
-    ) -> str:
-        """
-        Map-Reduce용 힌트 생성 (최소화)
-        
-        철학: 컨텍스트(스키마 + 샘플 데이터)가 충분하면 LLM이 스스로 추론.
-        힌트는 최소한만 제공하고, 에러 발생 시 수정 프롬프트에서 구체적 가이드 제공.
-        """
-        # 힌트 없음 - 데이터 컨텍스트에 의존
-        # LLM은 entity_data_sample, metadata_sample을 보고 스스로 추론
-        return ""
-    
     def _get_llm_client(self):
         """LLM 클라이언트 반환 (Lazy init)"""
         if self._llm_client is None:
@@ -1607,13 +1595,14 @@ case_list = cohort[cohort['filter'] == 'value']['{entity_col}'].astype(str).toli
         
         logger.info(f"🔍 Auto mode: {total_cases} cases (threshold: {threshold})")
         
-        # 모드 선택
+        # 모드 선택 — extraction 결과를 전달하여 재실행 방지
         if total_cases > threshold:
             logger.info(f"📊 Selecting Map-Reduce mode (cases > threshold)")
             return self.run_mapreduce(
                 query=query,
                 max_retries=max_retries,
                 timeout_seconds=timeout_seconds,
+                _extraction_result=extraction_result,
                 **kwargs,
             )
         else:
@@ -1622,5 +1611,6 @@ case_list = cohort[cohort['filter'] == 'value']['{entity_col}'].astype(str).toli
                 query=query,
                 max_retries=max_retries,
                 timeout_seconds=timeout_seconds,
+                _extraction_result=extraction_result,
             )
 

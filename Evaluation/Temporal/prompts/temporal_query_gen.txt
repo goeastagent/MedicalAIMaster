@@ -7,9 +7,47 @@ The target data are `.vital` files located in a directory. Each file is named `{
 Only the following 3 case files exist. You MUST ONLY use these caseids and their valid tracks.
 Assume 1 Hz sampling rate (1 index = 1 second).
 
-- **caseid 0001** (Total Duration: 11543 seconds): `SNUADC/ART`, `SNUADC/ECG_II`, `Primus/CO2`, `Solar8000/HR`, `Solar8000/PLETH_SPO2`, `BIS/BIS`, etc.
-- **caseid 0002** (Total Duration: 15741 seconds): `SNUADC/ECG_II`, `Primus/CO2`, `Solar8000/HR`, `Solar8000/PLETH_SPO2`, `BIS/BIS`, etc. (NO `SNUADC/ART`)
-- **caseid 0009** (Total Duration: 4481 seconds): `SNUADC/ECG_II`, `Primus/CO2`, `Solar8000/HR`, `Solar8000/PLETH_SPO2`, `BIS/BIS`, etc. (NO `SNUADC/ART`)
+- **caseid 0001** (Total Duration: 11543 seconds / ~192 minutes):
+  `SNUADC/ART`, `SNUADC/ECG_II`, `SNUADC/ECG_V5`, `SNUADC/PLETH`,
+  `Solar8000/HR`, `Solar8000/ART_MBP`, `Solar8000/ART_SBP`, `Solar8000/ART_DBP`,
+  `Solar8000/PLETH_SPO2`, `Solar8000/PLETH_HR`, `Solar8000/BT`,
+  `Solar8000/ETCO2`, `Solar8000/RR_CO2`, `Solar8000/FIO2`, `Solar8000/FEO2`,
+  `Solar8000/VENT_MV`, `Solar8000/VENT_TV`, `Solar8000/VENT_RR`, `Solar8000/VENT_PIP`, `Solar8000/VENT_PPLAT`, `Solar8000/VENT_MAWP`,
+  `Solar8000/NIBP_MBP`, `Solar8000/NIBP_SBP`, `Solar8000/NIBP_DBP`,
+  `Primus/CO2`, `Primus/ETCO2`, `Primus/MV`, `Primus/TV`, `Primus/FIO2`, `Primus/FEO2`,
+  `Primus/MAC`, `Primus/RR_CO2`, `Primus/AWP`, `Primus/COMPLIANCE`,
+  `Primus/PIP_MBAR`, `Primus/PEEP_MBAR`, `Primus/PPLAT_MBAR`, `Primus/MAWP_MBAR`,
+  `BIS/BIS`, `BIS/EMG`, `BIS/SQI`, `BIS/SEF`, `BIS/SR`
+
+- **caseid 0002** (Total Duration: 15741 seconds / ~262 minutes):
+  `SNUADC/ECG_II`, `SNUADC/ECG_V5`, `SNUADC/PLETH`,
+  `Solar8000/HR`, `Solar8000/PLETH_SPO2`, `Solar8000/PLETH_HR`, `Solar8000/BT`,
+  `Solar8000/ETCO2`, `Solar8000/RR_CO2`, `Solar8000/FIO2`, `Solar8000/FEO2`,
+  `Solar8000/VENT_MV`, `Solar8000/VENT_TV`, `Solar8000/VENT_RR`, `Solar8000/VENT_PIP`, `Solar8000/VENT_PPLAT`, `Solar8000/VENT_MAWP`,
+  `Solar8000/NIBP_MBP`, `Solar8000/NIBP_SBP`, `Solar8000/NIBP_DBP`,
+  `Primus/CO2`, `Primus/ETCO2`, `Primus/MV`, `Primus/TV`, `Primus/FIO2`, `Primus/FEO2`,
+  `Primus/MAC`, `Primus/RR_CO2`, `Primus/AWP`, `Primus/COMPLIANCE`,
+  `Primus/PIP_MBAR`, `Primus/PEEP_MBAR`, `Primus/PPLAT_MBAR`, `Primus/MAWP_MBAR`,
+  `Orchestra/RFTN20_CE`, `Orchestra/RFTN20_CP`, `Orchestra/RFTN20_RATE`,
+  `BIS/BIS`, `BIS/EMG`, `BIS/SQI`, `BIS/SEF`, `BIS/SR`
+
+- **caseid 0009** (Total Duration: 4481 seconds / ~74 minutes):
+  `SNUADC/ECG_II`, `SNUADC/ECG_V5`, `SNUADC/PLETH`,
+  `Solar8000/HR`, `Solar8000/PLETH_SPO2`, `Solar8000/PLETH_HR`, `Solar8000/BT`,
+  `Solar8000/ETCO2`, `Solar8000/RR_CO2`, `Solar8000/FIO2`, `Solar8000/FEO2`,
+  `Solar8000/VENT_MV`, `Solar8000/VENT_TV`, `Solar8000/VENT_RR`, `Solar8000/VENT_PIP`, `Solar8000/VENT_PPLAT`, `Solar8000/VENT_MAWP`,
+  `Solar8000/NIBP_MBP`, `Solar8000/NIBP_SBP`, `Solar8000/NIBP_DBP`,
+  `Primus/CO2`, `Primus/ETCO2`, `Primus/MV`, `Primus/TV`, `Primus/FIO2`, `Primus/FEO2`,
+  `Primus/MAC`, `Primus/RR_CO2`, `Primus/AWP`, `Primus/COMPLIANCE`,
+  `Primus/PIP_MBAR`, `Primus/PEEP_MBAR`, `Primus/PPLAT_MBAR`, `Primus/MAWP_MBAR`,
+  `Orchestra/PPF20_CE`, `Orchestra/PPF20_CP`, `Orchestra/PPF20_RATE`,
+  `Orchestra/RFTN20_CE`, `Orchestra/RFTN20_CP`, `Orchestra/RFTN20_RATE`,
+  `BIS/BIS`, `BIS/EMG`, `BIS/SQI`, `BIS/SEF`, `BIS/SR`
+
+Note: `SNUADC/ART` and `Solar8000/ART_SBP/DBP/MBP` ONLY exist in caseid 0001.
+
+**CRITICAL - DATA QUALITY WARNINGS (DO NOT generate queries in these windows):**
+{quality_warnings}
 
 ### Instructions:
 Generate exactly {num_queries} distinct JSON objects. Each object must represent a single query.
@@ -19,16 +57,16 @@ The queries should be of type `temporal` (focusing on time-window slicing) or `t
 You must evenly distribute the generated queries among the following 4 `query_style`s:
 
 1. **Start-relative**: Specify a time window starting from the beginning of the recording.
-   - *Example*: "For caseid 0001, what is the maximum value of the `SNUADC/ART` track during the first 10 minutes (600 seconds), sampled at 1 Hz, ignoring NaN values? (Round to 2 decimal places)"
-   - *Code logic*: `vals[:600]`
+   - *Example*: "For caseid 0001, what is the maximum value of the `Solar8000/HR` track during the first 30 minutes (1800 seconds) of the recording, sampled at 1 Hz, ignoring NaN values? (Round to 2 decimal places)"
+   - *Code logic*: `vals[:1800]`
 2. **End-relative**: Specify a time window at the very end of the recording.
-   - *Example*: "For caseid 0002, what is the average `Solar8000/HR` during the last 5 minutes (300 seconds) of the recording, sampled at 1 Hz, ignoring NaN? (Round to 2 decimal places)"
+   - *Example*: "For caseid 0002, what is the average `Primus/ETCO2` during the last 5 minutes (300 seconds) of the recording, sampled at 1 Hz, ignoring NaN? (Round to 2 decimal places)"
    - *Code logic*: `vals[-300:]`
 3. **Interval-absolute**: Specify a specific start and end time in seconds or minutes.
-   - *Example*: "For caseid 0009, what is the minimum `BIS/BIS` value between 1000 seconds and 2000 seconds, sampled at 1 Hz, ignoring NaN? (Return as an integer)"
+   - *Example*: "For caseid 0009, what is the minimum `Orchestra/PPF20_CE` value between 1000 seconds and 2000 seconds, sampled at 1 Hz, ignoring NaN? (Return as an integer)"
    - *Code logic*: `vals[1000:2000]`
 4. **Ambiguous**: Intentionally omit a critical piece of information (e.g., the specific caseid, the exact time window, or the sampling rate/NaN handling) so the agent MUST ask for clarification.
-   - *Example*: "What is the average heart rate (`Solar8000/HR`) during the first 10 minutes?" (Missing caseid and NaN/sampling rate).
+   - *Example*: "What is the average heart rate during the first 10 minutes?" (Missing caseid and NaN/sampling rate).
    - *Code logic*: For ambiguous queries, the `ground_truth_logic.code` should just return `"AMBIGUOUS"`.
    - **IMPORTANT**: For each Ambiguous query, you MUST include a `"missing_info"` field listing exactly which pieces of information are missing (e.g., "caseid", "sampling_rate", "nan_handling", "time_range", "precision").
 
@@ -38,6 +76,21 @@ For non-ambiguous queries, they MUST be fully self-contained:
 2. **Time range**: ALWAYS specify the exact time window clearly (e.g., "first 10 minutes (600 seconds)"). Ensure the time window does NOT exceed the Total Duration of the caseid.
 3. **NaN handling**: ALWAYS state "ignoring NaN values".
 4. **Precision**: ALWAYS end the query with "(Round to N decimal places)" or "(Return as an integer)".
+5. **Standard deviation**: When asking for standard deviation, ALWAYS write "population standard deviation (ddof=0)". The ground truth code MUST use `np.std(valid_vals, ddof=0)`.
+
+**CRITICAL REQUIREMENT - DATA QUALITY CONSTRAINTS:**
+1. The chosen query window MUST have a NaN ratio BELOW 50%. Do NOT pick time windows where most data is missing.
+2. The chosen query window MUST have at least 3 distinct values. Do NOT pick windows where all values are constant (e.g., SpO2=100 for 10 minutes straight).
+3. Do NOT generate queries targeting the first 15 minutes of arterial pressure tracks (`Solar8000/ART_SBP`, `ART_DBP`, `ART_MBP`) in caseid 0001 — this period contains calibration artifacts.
+4. Do NOT generate End-relative queries on `Solar8000/NIBP_*` for caseid 0001 — NIBP data ends very early (before minute 14).
+5. For "non-NaN count" queries, the ground_truth_logic code MUST return `0` (not `None`) when all values in the window are NaN.
+
+**CRITICAL REQUIREMENT - DIVERSITY:**
+1. **No duplicate queries**: Each query must target a UNIQUE combination of (track_name, caseid, time_window, aggregation_function). Do NOT repeat the same question with a different wording.
+2. **Use diverse tracks**: Spread queries across MANY different tracks — use Solar8000, Primus, BIS, Orchestra, SNUADC tracks. Do NOT repeatedly query the same track.
+3. **Use diverse time windows**: Vary the start/end times significantly. Do NOT reuse the same window (e.g., "first 10 minutes") for multiple queries.
+4. **Use diverse aggregations**: Mix max, min, mean, median, population std (ddof=0), count of non-NaN, percentile, etc.
+5. **Use all three caseids**: Distribute temporal queries evenly — at least 4 queries per caseid out of 15 temporal queries.
 
 **CRITICAL REQUIREMENT - PYTHON CODE (ground_truth_logic):**
 The `ground_truth_logic.code` must be valid Python code.
@@ -47,20 +100,21 @@ The `ground_truth_logic.code` must be valid Python code.
 - ALWAYS use `vf.to_numpy([track_name], 1)` with interval=1 (1 Hz sampling).
 - Slice the numpy array according to the time window BEFORE removing NaNs.
 - Handle `NaN` values correctly (e.g., `valid_vals = window_vals[~np.isnan(window_vals)]`).
-- If a track does not exist or the sliced window has no valid data, return `None`.
+- If a track does not exist or the sliced window has no valid data, return `None` for value queries and `0` for count queries.
+- For standard deviation, ALWAYS use `np.std(valid_vals, ddof=0)`.
 
 ### Output Format:
 Return a JSON array of objects with the following structure:
 [
   {
     "id": "temp_001",
-    "track_names": ["SNUADC/ART"],
+    "track_names": ["Solar8000/HR"],
     "question_type": "temporal",
     "query_style": "Start-relative",
-    "query": "For caseid 0001, what is the maximum value of the `SNUADC/ART` track during the first 10 minutes (600 seconds) of the recording, sampled at 1 Hz, ignoring NaN values? (Round to 2 decimal places)",
+    "query": "For caseid 0001, what is the maximum value of the `Solar8000/HR` track during the first 30 minutes (1800 seconds) of the recording, sampled at 1 Hz, ignoring NaN values? (Round to 2 decimal places)",
     "ground_truth_logic": {
       "language": "python",
-      "code": "file_path = VITAL_DIR / '0001.vital'\nif not file_path.exists():\n    output_result(None)\nelse:\n    vf = vitaldb.VitalFile(str(file_path))\n    vals = vf.to_numpy(['SNUADC/ART'], 1)\n    window_vals = vals[:600]\n    valid_vals = window_vals[~np.isnan(window_vals)]\n    if len(valid_vals) > 0:\n        output_result(round(float(np.max(valid_vals)), 2))\n    else:\n        output_result(None)"
+      "code": "file_path = VITAL_DIR / '0001.vital'\nif not file_path.exists():\n    output_result(None)\nelse:\n    vf = vitaldb.VitalFile(str(file_path))\n    arr = vf.to_numpy(['Solar8000/HR'], 1)\n    if arr is None or arr.size == 0:\n        output_result(None)\n    else:\n        vals = arr[:, 0]\n        window_vals = vals[:1800]\n        valid_vals = window_vals[~np.isnan(window_vals)]\n        if len(valid_vals) == 0:\n            output_result(None)\n        else:\n            output_result(round(float(np.max(valid_vals)), 2))"
     }
   },
   {

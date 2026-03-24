@@ -45,7 +45,7 @@ _PROJECT_ROOT = Path(__file__).resolve().parents[3]
 if str(_PROJECT_ROOT) not in sys.path:
     sys.path.insert(0, str(_PROJECT_ROOT))
 
-from Evaluation.Level1.config import Paths
+from Evaluation.Level1.config import MANUAL_EQUIVALENCES, Paths
 from Evaluation.Level1.models import (
     ExpectedBehavior,
     GroundTruth,
@@ -88,45 +88,88 @@ def load_candidates(path: Path) -> List[QueryCandidate]:
 # Physiology grouping — find interchangeable param_keys
 # ---------------------------------------------------------------------------
 
+def _normalize_track_description(desc: str) -> str:
+    """Remove device qualifiers to get the core physiological description."""
+    desc = re.sub(r"\s*\(from ventilator\)", "", desc, flags=re.IGNORECASE)
+    desc = re.sub(r"\s*\(PEEP\)", "", desc, flags=re.IGNORECASE)
+    return desc.strip().lower()
+
+
+def _load_track_descriptions(csv_path: Path) -> Dict[str, str]:
+    """Load track_names.csv and return {param_key: normalized_description}.
+
+    Falls back to an empty dict if the file is missing so the pipeline
+    still works (just without description-based matching).
+    """
+    if not csv_path.exists():
+        log.warning("track_names.csv not found at %s — skipping description-based matching", csv_path)
+        return {}
+    import csv
+    desc_map: Dict[str, str] = {}
+    with open(csv_path, encoding="utf-8-sig") as f:
+        reader = csv.DictReader(f)
+        for row in reader:
+            pk = row.get("Parameter", "").strip()
+            desc = row.get("Description", "").strip()
+            if pk and desc:
+                desc_map[pk] = _normalize_track_description(desc)
+    return desc_map
+
+
 def build_alternatives_map(
     synonym_map: Dict[str, SynonymEntry],
+    track_names_csv: Optional[Path] = None,
+    manual_equivalences: Optional[List[tuple]] = None,
 ) -> Dict[str, Set[str]]:
     """For each param_key, find all interchangeable param_keys.
 
-    Two grouping strategies combined:
-      A) Exact signal-suffix match  (e.g., Solar8000/HR ↔ CardioQ/HR)
-      B) Same semantic_name match   (e.g., HR ↔ PLETH_HR if both
-         share semantic_name "Heart Rate")
+    Three sources combined (priority order):
+      A) track_names.csv normalized description match — authoritative
+      B) Exact signal-suffix match  (e.g., Solar8000/HR ↔ CardioQ/HR)
+      C) MANUAL_EQUIVALENCES for pairs that differ in wording
 
     Only param_keys present in synonym_map (i.e., verified in DB) are
-    included, satisfying condition ②.
+    included, satisfying condition ② (exists in VitalDB).
     """
-    # A: group by signal suffix (part after '/')
+    valid_keys = set(synonym_map.keys())
+
+    # ── Source A: track_names.csv description grouping ──
+    desc_groups: Dict[str, Set[str]] = defaultdict(set)
+    desc_map: Dict[str, str] = {}
+    if track_names_csv:
+        desc_map = _load_track_descriptions(track_names_csv)
+        for pk, norm_desc in desc_map.items():
+            if pk in valid_keys:
+                desc_groups[norm_desc].add(pk)
+
+    # ── Source B: exact signal-suffix match ──
     signal_groups: Dict[str, Set[str]] = defaultdict(set)
-    for pk in synonym_map:
+    for pk in valid_keys:
         signal = pk.split("/", 1)[1] if "/" in pk else pk
         signal_groups[signal].add(pk)
 
-    # B: group by normalized semantic_name
-    semantic_groups: Dict[str, Set[str]] = defaultdict(set)
-    for pk, entry in synonym_map.items():
-        if entry.semantic_name:
-            key = entry.semantic_name.strip().lower()
-            semantic_groups[key].add(pk)
+    # ── Source C: manual equivalences ──
+    manual_map: Dict[str, Set[str]] = defaultdict(set)
+    for a, b in (manual_equivalences or []):
+        if a in valid_keys and b in valid_keys:
+            manual_map[a].add(b)
+            manual_map[b].add(a)
 
-    # Merge: for each param_key, union all groups it belongs to
+    # ── Merge all sources ──
     alt_map: Dict[str, Set[str]] = {}
-    for pk, entry in synonym_map.items():
+    for pk in valid_keys:
         alts: Set[str] = set()
+
+        norm_desc = desc_map.get(pk)
+        if norm_desc:
+            alts.update(desc_groups.get(norm_desc, set()))
 
         signal = pk.split("/", 1)[1] if "/" in pk else pk
         alts.update(signal_groups.get(signal, set()))
 
-        if entry.semantic_name:
-            key = entry.semantic_name.strip().lower()
-            alts.update(semantic_groups.get(key, set()))
+        alts.update(manual_map.get(pk, set()))
 
-        alts.discard(pk)  # remove self
+        alts.discard(pk)
         alt_map[pk] = alts
 
     return alt_map
@@ -247,11 +290,15 @@ def run(dry_run: bool = False, limit: Optional[int] = None) -> dict:
         candidates = candidates[:limit]
         log.info("Limiting to first %d candidates", limit)
 
-    # Build physiology-based alternatives map
-    alt_map = build_alternatives_map(synonym_map)
+    # Build physiology-based alternatives map using track_names.csv
+    alt_map = build_alternatives_map(
+        synonym_map,
+        track_names_csv=Paths.TRACK_NAMES_CSV,
+        manual_equivalences=MANUAL_EQUIVALENCES,
+    )
     n_with_alts = sum(1 for v in alt_map.values() if v)
     log.info(
-        "Alternatives map: %d params, %d have alternatives",
+        "Alternatives map: %d params, %d have alternatives (track_names.csv + manual)",
         len(alt_map), n_with_alts,
     )
 

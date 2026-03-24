@@ -45,18 +45,42 @@ from pathlib import Path
 
 VITAL_DIR = Path(r"{self.vital_dir}")
 
+# Patch json.JSONEncoder so numpy types are auto-converted to native Python types.
+# This prevents "Object of type float32 is not JSON serializable" errors
+# regardless of how the LLM-generated code calls json.dumps.
+_original_json_default = json.JSONEncoder.default
+def _numpy_json_default(self, obj):
+    if isinstance(obj, np.integer):
+        return int(obj)
+    elif isinstance(obj, np.floating):
+        return float(obj)
+    elif isinstance(obj, np.ndarray):
+        return obj.tolist()
+    elif isinstance(obj, np.bool_):
+        return bool(obj)
+    elif isinstance(obj, (pd.Timestamp,)):
+        return str(obj)
+    try:
+        if pd.isna(obj):
+            return None
+    except (TypeError, ValueError):
+        pass
+    return _original_json_default(self, obj)
+json.JSONEncoder.default = _numpy_json_default
+
 # Helper function to ensure output is captured correctly
 def output_result(val):
-    # Convert numpy types to native python types for JSON serialization
-    if isinstance(val, (np.integer, np.int64, np.int32)):
+    if isinstance(val, (np.integer,)):
         val = int(val)
-    elif isinstance(val, (np.floating, np.float64, np.float32)):
+    elif isinstance(val, (np.floating,)):
         val = float(val)
     elif isinstance(val, np.ndarray):
         val = val.tolist()
-    elif pd.isna(val):
-        val = None
-        
+    try:
+        if pd.isna(val):
+            val = None
+    except (TypeError, ValueError):
+        pass
     print(json.dumps({{"result": val}}))
 
 """
@@ -87,18 +111,28 @@ def output_result(val):
             # Parse the output
             output_str = result.stdout.strip()
             
-            # Find the last line that looks like our JSON output
+            # Find the last line that looks like JSON output.
+            # LLM code may use {"result": ...} or {"answer": ...}.
             json_output = None
+            found_null = False
             for line in reversed(output_str.split('\n')):
-                if line.startswith('{"result":'):
+                line = line.strip()
+                if line.startswith('{'):
                     try:
                         parsed = json.loads(line)
-                        json_output = parsed.get("result")
-                        break
+                        if "result" in parsed:
+                            json_output = parsed["result"]
+                            break
+                        elif "answer" in parsed:
+                            json_output = parsed["answer"]
+                            break
                     except json.JSONDecodeError:
                         continue
-                        
-            if json_output is not None or '{"result": null}' in output_str:
+
+            if '{"result": null}' in output_str or '{"answer": null}' in output_str:
+                found_null = True
+
+            if json_output is not None or found_null:
                 return {
                     "success": True,
                     "result": json_output,

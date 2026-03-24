@@ -142,7 +142,8 @@ class ExtractionState(TypedDict):
     # }
     
     # ═══════════════════════════════════════════════════════════════════════════
-    # Human-in-the-Loop (Future)
+    # Human-in-the-Loop — RESERVED, 현재 미사용
+    # ambiguity 처리 활성화 시 사용 예정 (Orchestrator에서 status="partial" 반환)
     # ═══════════════════════════════════════════════════════════════════════════
     needs_human_review: Optional[bool]
     human_question: Optional[str]

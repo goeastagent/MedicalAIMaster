@@ -158,6 +158,21 @@ class GroundTruth(BaseModel):
         default=None,
         description="Human-readable annotation for auditing or debugging.",
     )
+    acceptable_behaviors: List[ExpectedBehavior] = Field(
+        default_factory=list,
+        description=(
+            "Additional behaviors accepted as correct besides expected_behavior. "
+            "For adversarial cases: impossible may accept both not_found and clarify; "
+            "confusing may accept both clarify and retrieve."
+        ),
+    )
+    confusing_valid_params: List[str] = Field(
+        default_factory=list,
+        description=(
+            "For confusing adversarial cases only: param_keys that are acceptable "
+            "if the system chooses to retrieve instead of asking for clarification."
+        ),
+    )
 
     @field_validator("acceptable_alternatives")
     @classmethod

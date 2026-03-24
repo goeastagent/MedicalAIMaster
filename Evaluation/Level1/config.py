@@ -42,9 +42,16 @@ class Paths:
     """
 
     BASE_DIR: Path = Path(__file__).parent.resolve()
+    PROJECT_ROOT: Path = BASE_DIR.parent.parent
     OUTPUT_DIR: Path = BASE_DIR / "output"
     PROMPTS_DIR: Path = BASE_DIR / "prompts"
     STAGES_DIR: Path = BASE_DIR / "stages"
+
+    # --- External reference data (VitalDB official track descriptions) ---
+    TRACK_NAMES_CSV: Path = (
+        PROJECT_ROOT / "IndexingAgent" / "data" / "raw"
+        / "Open_VitalDB_1.0.0" / "track_names.csv"
+    )
 
     # --- Stage outputs (each stage reads the previous stage's file) ---
 
@@ -376,6 +383,23 @@ class ValidationCriteria:
 
     # No two queries may exceed dedup threshold
     REQUIRE_NO_DUPLICATES: bool = True
+
+
+# ---------------------------------------------------------------------------
+# Manual Parameter Equivalences (Stage 3)
+# ---------------------------------------------------------------------------
+# Pairs where track_names.csv description matching fails due to wording
+# differences, but the parameters measure the same physiological quantity.
+# Each tuple (A, B) means A and B are interchangeable alternatives.
+
+MANUAL_EQUIVALENCES: list[tuple[str, str]] = [
+    ("Solar8000/VENT_TV",        "Primus/TV"),          # Tidal volume (measured vs generic)
+    ("Solar8000/VENT_MV",        "Primus/MV"),          # Minute ventilation vs Minute volume
+    ("Solar8000/VENT_SET_PCP",   "Primus/SET_PIP"),     # Set peak inspiratory pressure
+    ("Solar8000/VENT_SET_TV",    "Primus/SET_TV_L"),    # Set tidal volume
+    ("Solar8000/VENT_MEAS_PEEP", "Primus/PEEP_MBAR"),  # PEEP
+    ("Solar8000/VENT_RR",        "Primus/RR_CO2"),      # Respiratory rate (vent vs capnography)
+]
 
 
 # ---------------------------------------------------------------------------

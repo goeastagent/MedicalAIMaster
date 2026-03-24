@@ -23,6 +23,7 @@ import json
 import logging
 import math
 import re
+import statistics
 import sys
 import time
 import subprocess
@@ -69,12 +70,14 @@ class CaseResult:
     agent_output: Any
 
     value_match: bool = False             # for temporal (numeric)
+    match_type: str = ""                  # "exact" | "approx" | "mismatch" | "none_match"
     ambiguity_score: str = ""             # for temporal_ambiguous (PASS/PARTIAL_PASS/FAIL)
     ambiguity_reason: str = ""
 
     execution_time_ms: float = 0.0
     error_message: Optional[str] = None
     raw_response: Optional[str] = None
+    quality_flags: str = ""               # comma-separated flags from dataset generation
 
 @dataclass
 class AggregateMetrics:
@@ -85,6 +88,11 @@ class AggregateMetrics:
     accuracy: float = 0.0                 # temporal numeric accuracy
     ambiguity_pass_rate: float = 0.0      # temporal_ambiguous PASS+PARTIAL rate
     ambiguity_fail_rate: float = 0.0
+    mean_time_ms: float = 0.0
+    median_time_ms: float = 0.0
+    min_time_ms: float = 0.0
+    max_time_ms: float = 0.0
+    p95_time_ms: float = 0.0
 
 # ═══════════════════════════════════════════════════════════════════════════
 # 1. Dataset loader
@@ -103,8 +111,15 @@ def load_dataset(path: str) -> List[Dict[str, Any]]:
 # ═══════════════════════════════════════════════════════════════════════════
 
 FLOAT_TOLERANCE = 1e-2
+STRICT_FLOAT_TOLERANCE = 1e-4
 
-def compare_values(expected: Any, actual: Any) -> bool:
+
+def compare_values(expected: Any, actual: Any) -> tuple[bool, str]:
+    """
+    Compare expected vs actual and return (match, match_type).
+    match_type: "exact" (tight tolerance), "approx" (loose, e.g. ddof/rounding diff),
+                "none_match", "mismatch", "parse_error"
+    """
     if isinstance(actual, str):
         try:
             actual_parsed = json.loads(actual.replace("'", '"'))
@@ -115,23 +130,34 @@ def compare_values(expected: Any, actual: Any) -> bool:
 
     if expected is None:
         if actual is None or actual == "None" or actual == "null":
-            return True
+            return True, "none_match"
         if isinstance(actual, (list, dict)) and len(actual) == 0:
-            return True
+            return True, "none_match"
         if actual == 0 or actual == "0":
-            return True
-        return False
+            return True, "none_match"
+        return False, "mismatch"
 
     if isinstance(expected, (int, float)):
         try:
-            return math.isclose(float(expected), float(actual), rel_tol=FLOAT_TOLERANCE)
+            actual_f = float(actual)
+            expected_f = float(expected)
         except (ValueError, TypeError):
-            return False
+            return False, "parse_error"
+
+        if math.isclose(expected_f, actual_f, rel_tol=STRICT_FLOAT_TOLERANCE):
+            return True, "exact"
+        if math.isclose(expected_f, actual_f, rel_tol=FLOAT_TOLERANCE):
+            return True, "approx"
+        return False, "mismatch"
 
     if isinstance(expected, str):
-        return str(expected).strip().lower() == str(actual).strip().lower()
+        if str(expected).strip().lower() == str(actual).strip().lower():
+            return True, "exact"
+        return False, "mismatch"
 
-    return str(expected) == str(actual)
+    if str(expected) == str(actual):
+        return True, "exact"
+    return False, "mismatch"
 
 # ═══════════════════════════════════════════════════════════════════════════
 # 3. Scenario runners
@@ -249,18 +275,26 @@ def run_claude_code_cli(cases: List[Dict], progress_cb=None) -> List[CaseResult]
 # 4. Post-scoring: Ambiguity LLM Judge
 # ═══════════════════════════════════════════════════════════════════════════
 
-def score_ambiguous_cases(results: List[CaseResult]):
+def score_ambiguous_cases(results: List[CaseResult], dataset: List[Dict[str, Any]]):
     from shared.llm.client import get_llm_client
     llm = get_llm_client()
+
+    case_map = {c["id"]: c for c in dataset}
 
     for cr in results:
         if cr.question_type != "temporal_ambiguous":
             continue
+
+        case_data = case_map.get(cr.case_id, {})
+        missing_info = case_data.get(
+            "missing_info", "caseid, sampling rate, NaN handling, time range"
+        )
+
         eval_res = evaluate_ambiguous_response(
             llm,
             query=cr.query,
             agent_response=str(cr.agent_output or cr.raw_response or ""),
-            missing_info="caseid, sampling rate, NaN handling, time range",
+            missing_info=missing_info,
         )
         cr.ambiguity_score = eval_res.get("score", "ERROR")
         cr.ambiguity_reason = eval_res.get("reason", "")
@@ -282,6 +316,14 @@ def aggregate(results: List[CaseResult], scenario: str) -> List[AggregateMetrics
             aggs.append(_agg_slice(subset, scenario, dim, v))
     return aggs
 
+def _percentile(sorted_vals: List[float], pct: float) -> float:
+    if not sorted_vals:
+        return 0.0
+    k = (len(sorted_vals) - 1) * (pct / 100.0)
+    f = int(k)
+    c = f + 1 if f + 1 < len(sorted_vals) else f
+    return sorted_vals[f] + (k - f) * (sorted_vals[c] - sorted_vals[f])
+
 def _agg_slice(results: List[CaseResult], scenario: str, dim: str, val: str) -> AggregateMetrics:
     n = len(results)
     if n == 0:
@@ -297,6 +339,8 @@ def _agg_slice(results: List[CaseResult], scenario: str, dim: str, val: str) -> 
     amb_pass_rate = amb_pass / len(ambig) if ambig else 0.0
     amb_fail_rate = amb_fail / len(ambig) if ambig else 0.0
 
+    times = sorted(r.execution_time_ms for r in results)
+
     return AggregateMetrics(
         scenario=scenario,
         slice_name=dim,
@@ -305,6 +349,11 @@ def _agg_slice(results: List[CaseResult], scenario: str, dim: str, val: str) -> 
         accuracy=acc,
         ambiguity_pass_rate=amb_pass_rate,
         ambiguity_fail_rate=amb_fail_rate,
+        mean_time_ms=statistics.mean(times),
+        median_time_ms=statistics.median(times),
+        min_time_ms=times[0],
+        max_time_ms=times[-1],
+        p95_time_ms=_percentile(times, 95),
     )
 
 # ═══════════════════════════════════════════════════════════════════════════
@@ -328,10 +377,12 @@ def save_results_xlsx(
                 "expected_value": str(r.expected_value),
                 "agent_output": str(r.agent_output),
                 "value_match": r.value_match,
+                "match_type": r.match_type,
                 "ambiguity_score": r.ambiguity_score,
                 "ambiguity_reason": r.ambiguity_reason,
                 "time_ms": round(r.execution_time_ms, 1),
                 "error": r.error_message or "",
+                "quality_flags": r.quality_flags,
             })
     df_detail = pd.DataFrame(detail_rows)
 
@@ -346,11 +397,17 @@ def save_results_xlsx(
                 "numeric_accuracy%": round(a.accuracy * 100, 2),
                 "ambiguity_pass_rate%": round(a.ambiguity_pass_rate * 100, 2),
                 "ambiguity_fail_rate%": round(a.ambiguity_fail_rate * 100, 2),
+                "avg_ms": round(a.mean_time_ms, 1),
+                "median_ms": round(a.median_time_ms, 1),
+                "min_ms": round(a.min_time_ms, 1),
+                "max_ms": round(a.max_time_ms, 1),
+                "p95_ms": round(a.p95_time_ms, 1),
             })
     df_agg = pd.DataFrame(agg_rows)
 
     overall = df_agg[df_agg["dimension"] == "overall"].set_index("scenario")
-    pivot_cols = ["count", "numeric_accuracy%", "ambiguity_pass_rate%", "ambiguity_fail_rate%"]
+    pivot_cols = ["count", "numeric_accuracy%", "ambiguity_pass_rate%", "ambiguity_fail_rate%",
+                  "avg_ms", "median_ms", "min_ms", "max_ms", "p95_ms"]
     df_pivot = overall[pivot_cols].T if not overall.empty else pd.DataFrame()
 
     with pd.ExcelWriter(output_path, engine="openpyxl") as writer:
@@ -366,12 +423,13 @@ def save_results_xlsx(
 # ═══════════════════════════════════════════════════════════════════════════
 
 def print_comparison_table(all_aggs: Dict[str, List[AggregateMetrics]]):
-    header = f"{'Scenario':<25} {'N':>4} {'NumAcc%':>8} {'AmbPass%':>9} {'AmbFail%':>9}"
-    print(f"\n{'=' * 60}")
+    header = (f"{'Scenario':<25} {'N':>4} {'NumAcc%':>8} {'AmbPass%':>9} {'AmbFail%':>9}"
+              f" {'Avg(ms)':>10} {'Med(ms)':>10} {'P95(ms)':>10}")
+    print(f"\n{'=' * 90}")
     print("  Temporal Evaluation — Scenario Comparison")
-    print(f"{'=' * 60}")
+    print(f"{'=' * 90}")
     print(header)
-    print("-" * 60)
+    print("-" * 90)
     for scenario, aggs in all_aggs.items():
         ov = next((a for a in aggs if a.slice_name == "overall"), None)
         if not ov:
@@ -381,14 +439,15 @@ def print_comparison_table(all_aggs: Dict[str, List[AggregateMetrics]]):
             f"{ov.accuracy * 100:>7.2f}% "
             f"{ov.ambiguity_pass_rate * 100:>8.2f}% "
             f"{ov.ambiguity_fail_rate * 100:>8.2f}%"
+            f" {ov.mean_time_ms:>10.1f} {ov.median_time_ms:>10.1f} {ov.p95_time_ms:>10.1f}"
         )
-    print(f"{'=' * 60}\n")
+    print(f"{'=' * 90}\n")
 
 def print_breakdown(all_aggs: Dict[str, List[AggregateMetrics]], dim: str):
     print(f"\n--- Breakdown by {dim} ---")
-    header = f"{'Scenario':<25} {dim:<25} {'N':>4} {'NumAcc%':>8} {'AmbPass%':>9}"
+    header = f"{'Scenario':<25} {dim:<25} {'N':>4} {'NumAcc%':>8} {'AmbPass%':>9} {'Avg(ms)':>10}"
     print(header)
-    print("-" * 75)
+    print("-" * 85)
     for scenario, aggs in all_aggs.items():
         for a in aggs:
             if a.slice_name != dim:
@@ -397,6 +456,7 @@ def print_breakdown(all_aggs: Dict[str, List[AggregateMetrics]], dim: str):
                 f"{a.scenario:<25} {a.slice_value:<25} {a.count:>4} "
                 f"{a.accuracy * 100:>7.2f}% "
                 f"{a.ambiguity_pass_rate * 100:>8.2f}%"
+                f" {a.mean_time_ms:>10.1f}"
             )
 
 # ═══════════════════════════════════════════════════════════════════════════
@@ -425,7 +485,14 @@ def _extract_answer(raw_output, res_obj=None):
 
 def _build_case_result(case, scenario, agent_answer, raw_output, elapsed, error):
     is_ambiguous = case.get("question_type") == "temporal_ambiguous"
-    match = False if is_ambiguous else compare_values(case.get("expected_value"), agent_answer)
+
+    if is_ambiguous:
+        match, match_type = False, ""
+    else:
+        match, match_type = compare_values(case.get("expected_value"), agent_answer)
+
+    quality_flags = case.get("quality_flags", [])
+    flags_str = ", ".join(quality_flags) if isinstance(quality_flags, list) else str(quality_flags)
 
     return CaseResult(
         case_id=case["id"],
@@ -436,9 +503,11 @@ def _build_case_result(case, scenario, agent_answer, raw_output, elapsed, error)
         expected_value=case.get("expected_value"),
         agent_output=agent_answer,
         value_match=match,
+        match_type=match_type,
         execution_time_ms=elapsed,
         error_message=error,
         raw_response=str(raw_output) if raw_output else None,
+        quality_flags=flags_str,
     )
 
 # ═══════════════════════════════════════════════════════════════════════════
@@ -504,7 +573,7 @@ def main():
         elapsed = time.time() - t0
 
         # LLM Judge for ambiguous cases
-        score_ambiguous_cases(results)
+        score_ambiguous_cases(results, cases)
 
         scenario_name = results[0].scenario if results else scenario_key
         all_results[scenario_name] = results

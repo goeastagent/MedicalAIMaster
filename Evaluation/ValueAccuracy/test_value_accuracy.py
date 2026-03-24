@@ -22,6 +22,7 @@ import argparse
 import json
 import logging
 import re
+import statistics
 import sys
 import time
 import subprocess
@@ -90,6 +91,11 @@ class AggregateMetrics:
     slice_value: str = "all"
     count: int = 0
     accuracy: float = 0.0
+    mean_time_ms: float = 0.0
+    median_time_ms: float = 0.0
+    min_time_ms: float = 0.0
+    max_time_ms: float = 0.0
+    p95_time_ms: float = 0.0
 
 # ═══════════════════════════════════════════════════════════════════════════
 # 1. Dataset loader
@@ -262,6 +268,7 @@ def run_claude_code_cli(cases: List[Dict], progress_cb=None) -> List[CaseResult]
         prompt = (
             f"You are a medical data analyst. You need to write a python script that uses `vitaldb` to answer the following question: '{case['query']}'.\n\n"
             f"The vital files are located at `/Users/goeastagent/products/MedicalAIMaster/IndexingAgent/data/raw/Open_VitalDB_1.0.0/vital_files/`.\n"
+            f"IMPORTANT: Vital file names use 4-digit zero-padded caseids (e.g., `0001.vital`, `0002.vital`, `0009.vital`). Use `str(caseid).zfill(4) + '.vital'` to construct the filename.\n"
             f"Return ONLY a JSON object in this format: "
             f"{{\"answer\": <your_calculated_value>}} "
             f"If the answer is empty or not found, return null for the answer.\n"
@@ -299,25 +306,13 @@ def run_claude_code_cli(cases: List[Dict], progress_cb=None) -> List[CaseResult]
             if code_match:
                 code = code_match.group(1)
                 try:
-                    # Execute the code and capture output
                     from Evaluation.ValueAccuracy.utils.vital_executor import VitalExecutor
                     executor = VitalExecutor()
                     res = executor.execute_code(code)
                     if res["success"]:
                         agent_answer = res["result"]
                     else:
-                        # Try to parse the raw stdout if it's just a JSON parsing error
-                        if "Raw stdout:" in res.get("error", ""):
-                            try:
-                                raw_stdout = res["error"].split("Raw stdout:")[1].strip()
-                                # Handle np.float64 and single quotes
-                                raw_stdout = raw_stdout.replace("np.float64(", "").replace(")", "").replace("'", '"')
-                                parsed = json.loads(raw_stdout)
-                                agent_answer = parsed.get("answer", raw_stdout)
-                            except:
-                                agent_answer = f"Error: {res['error']}"
-                        else:
-                            agent_answer = f"Error: {res['error']}"
+                        agent_answer = f"Error: {res['error']}"
                 except Exception as e:
                     agent_answer = f"Error executing code: {e}"
             elif json_match:
@@ -374,18 +369,32 @@ def aggregate(results: List[CaseResult], scenario: str) -> List[AggregateMetrics
             aggs.append(_agg_slice(subset, scenario, dim, v))
     return aggs
 
+def _percentile(sorted_vals: List[float], pct: float) -> float:
+    if not sorted_vals:
+        return 0.0
+    k = (len(sorted_vals) - 1) * (pct / 100.0)
+    f = int(k)
+    c = f + 1 if f + 1 < len(sorted_vals) else f
+    return sorted_vals[f] + (k - f) * (sorted_vals[c] - sorted_vals[f])
+
 def _agg_slice(
     results: List[CaseResult], scenario: str, dim: str, val: str
 ) -> AggregateMetrics:
     n = len(results)
     if n == 0:
         return AggregateMetrics(scenario=scenario, slice_name=dim, slice_value=val)
+    times = sorted(r.execution_time_ms for r in results)
     return AggregateMetrics(
         scenario=scenario,
         slice_name=dim,
         slice_value=val,
         count=n,
         accuracy=sum(1 for r in results if r.value_match) / n,
+        mean_time_ms=statistics.mean(times),
+        median_time_ms=statistics.median(times),
+        min_time_ms=times[0],
+        max_time_ms=times[-1],
+        p95_time_ms=_percentile(times, 95),
     )
 
 # ═══════════════════════════════════════════════════════════════════════════
@@ -424,12 +433,17 @@ def save_results_xlsx(
                 "value": a.slice_value,
                 "count": a.count,
                 "accuracy%": round(a.accuracy * 100, 2),
+                "avg_ms": round(a.mean_time_ms, 1),
+                "median_ms": round(a.median_time_ms, 1),
+                "min_ms": round(a.min_time_ms, 1),
+                "max_ms": round(a.max_time_ms, 1),
+                "p95_ms": round(a.p95_time_ms, 1),
             })
     df_agg = pd.DataFrame(agg_rows)
 
     # Pivot: scenarios as columns, overall metrics
     overall = df_agg[df_agg["dimension"] == "overall"].set_index("scenario")
-    pivot_cols = ["count", "accuracy%"]
+    pivot_cols = ["count", "accuracy%", "avg_ms", "median_ms", "min_ms", "max_ms", "p95_ms"]
     df_pivot = overall[pivot_cols].T if not overall.empty else pd.DataFrame()
 
     with pd.ExcelWriter(output_path, engine="openpyxl") as writer:
@@ -445,32 +459,34 @@ def save_results_xlsx(
 # ═══════════════════════════════════════════════════════════════════════════
 
 def print_comparison_table(all_aggs: Dict[str, List[AggregateMetrics]]):
-    header = f"{'Scenario':<30} {'N':>4} {'Accuracy%':>10}"
-    print(f"\n{'=' * 50}")
+    header = f"{'Scenario':<30} {'N':>4} {'Accuracy%':>10} {'Avg(ms)':>10} {'Med(ms)':>10} {'P95(ms)':>10}"
+    print(f"\n{'=' * 80}")
     print("  Value Accuracy Evaluation — Scenario Comparison")
-    print(f"{'=' * 50}")
+    print(f"{'=' * 80}")
     print(header)
-    print("-" * 50)
+    print("-" * 80)
     for scenario, aggs in all_aggs.items():
         ov = next((a for a in aggs if a.slice_name == "overall"), None)
         if not ov:
             continue
         print(
             f"{ov.scenario:<30} {ov.count:>4} {ov.accuracy * 100:>9.2f}%"
+            f" {ov.mean_time_ms:>10.1f} {ov.median_time_ms:>10.1f} {ov.p95_time_ms:>10.1f}"
         )
-    print(f"{'=' * 50}\n")
+    print(f"{'=' * 80}\n")
 
 def print_breakdown(all_aggs: Dict[str, List[AggregateMetrics]], dim: str):
     print(f"\n--- Breakdown by {dim} ---")
-    header = f"{'Scenario':<30} {dim:<25} {'N':>4} {'Accuracy%':>10}"
+    header = f"{'Scenario':<30} {dim:<25} {'N':>4} {'Accuracy%':>10} {'Avg(ms)':>10}"
     print(header)
-    print("-" * 75)
+    print("-" * 85)
     for scenario, aggs in all_aggs.items():
         for a in aggs:
             if a.slice_name != dim:
                 continue
             print(
                 f"{a.scenario:<30} {a.slice_value:<25} {a.count:>4} {a.accuracy * 100:>9.2f}%"
+                f" {a.mean_time_ms:>10.1f}"
             )
 
 # ═══════════════════════════════════════════════════════════════════════════

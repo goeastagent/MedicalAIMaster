@@ -29,6 +29,7 @@ import json
 import logging
 import os
 import re
+import statistics
 import sys
 import time
 import subprocess
@@ -121,6 +122,11 @@ class AggregateMetrics:
     mean_f1: float = 0.0
     behavior_accuracy: float = 0.0
     perfect_recall_rate: float = 0.0   # recall == 1.0
+    mean_time_ms: float = 0.0
+    median_time_ms: float = 0.0
+    min_time_ms: float = 0.0
+    max_time_ms: float = 0.0
+    p95_time_ms: float = 0.0
 
 
 # ═══════════════════════════════════════════════════════════════════════════
@@ -155,10 +161,27 @@ def compute_metrics(
     retrieved: List[str],
     expected_behavior: str,
     detected_behavior: str,
+    acceptable_behaviors: Optional[List[str]] = None,
+    confusing_valid_params: Optional[List[str]] = None,
 ) -> Tuple[float, float, float, bool]:
     """Return (recall, precision, f1, behavior_match)."""
 
-    behavior_match = expected_behavior == detected_behavior
+    if acceptable_behaviors:
+        behavior_match = detected_behavior in acceptable_behaviors
+    else:
+        behavior_match = expected_behavior == detected_behavior
+
+    # For confusing adversarial: if system retrieved a valid param, score it
+    if (expected_behavior != "retrieve"
+            and detected_behavior == "retrieve"
+            and confusing_valid_params
+            and retrieved):
+        valid_set = set(confusing_valid_params)
+        retrieved_set = set(retrieved)
+        hits = retrieved_set & valid_set
+        if hits:
+            precision = len(hits) / len(retrieved_set)
+            return 1.0, precision, 2 * precision / (1 + precision), True
 
     if expected_behavior != "retrieve":
         recall = 1.0 if behavior_match else 0.0
@@ -557,12 +580,21 @@ def aggregate(results: List[CaseResult], scenario: str) -> List[AggregateMetrics
     return aggs
 
 
+def _percentile(sorted_vals: List[float], pct: float) -> float:
+    if not sorted_vals:
+        return 0.0
+    k = (len(sorted_vals) - 1) * (pct / 100.0)
+    f = int(k)
+    c = f + 1 if f + 1 < len(sorted_vals) else f
+    return sorted_vals[f] + (k - f) * (sorted_vals[c] - sorted_vals[f])
+
 def _agg_slice(
     results: List[CaseResult], scenario: str, dim: str, val: str
 ) -> AggregateMetrics:
     n = len(results)
     if n == 0:
         return AggregateMetrics(scenario=scenario, slice_name=dim, slice_value=val)
+    times = sorted(r.execution_time_ms for r in results)
     return AggregateMetrics(
         scenario=scenario,
         slice_name=dim,
@@ -573,6 +605,11 @@ def _agg_slice(
         mean_f1=sum(r.f1 for r in results) / n,
         behavior_accuracy=sum(1 for r in results if r.behavior_match) / n,
         perfect_recall_rate=sum(1 for r in results if r.recall == 1.0) / n,
+        mean_time_ms=statistics.mean(times),
+        median_time_ms=statistics.median(times),
+        min_time_ms=times[0],
+        max_time_ms=times[-1],
+        p95_time_ms=_percentile(times, 95),
     )
 
 
@@ -623,12 +660,18 @@ def save_results_xlsx(
                 "f1": round(a.mean_f1, 4),
                 "behavior_acc": round(a.behavior_accuracy, 4),
                 "perfect_recall%": round(a.perfect_recall_rate * 100, 2),
+                "avg_ms": round(a.mean_time_ms, 1),
+                "median_ms": round(a.median_time_ms, 1),
+                "min_ms": round(a.min_time_ms, 1),
+                "max_ms": round(a.max_time_ms, 1),
+                "p95_ms": round(a.p95_time_ms, 1),
             })
     df_agg = pd.DataFrame(agg_rows)
 
     # Pivot: scenarios as columns, overall metrics
     overall = df_agg[df_agg["dimension"] == "overall"].set_index("scenario")
-    pivot_cols = ["count", "recall", "precision", "f1", "behavior_acc", "perfect_recall%"]
+    pivot_cols = ["count", "recall", "precision", "f1", "behavior_acc", "perfect_recall%",
+                  "avg_ms", "median_ms", "min_ms", "max_ms", "p95_ms"]
     df_pivot = overall[pivot_cols].T if not overall.empty else pd.DataFrame()
 
     with pd.ExcelWriter(output_path, engine="openpyxl") as writer:
@@ -645,12 +688,13 @@ def save_results_xlsx(
 # ═══════════════════════════════════════════════════════════════════════════
 
 def print_comparison_table(all_aggs: Dict[str, List[AggregateMetrics]]):
-    header = f"{'Scenario':<30} {'N':>4} {'Recall':>8} {'Prec':>8} {'F1':>8} {'BehAcc':>8} {'PerfR%':>8}"
-    print(f"\n{'=' * 82}")
+    header = (f"{'Scenario':<30} {'N':>4} {'Recall':>8} {'Prec':>8} {'F1':>8} "
+              f"{'BehAcc':>8} {'PerfR%':>8} {'Avg(ms)':>10} {'Med(ms)':>10} {'P95(ms)':>10}")
+    print(f"\n{'=' * 112}")
     print("  Level 1 Evaluation — Scenario Comparison")
-    print(f"{'=' * 82}")
+    print(f"{'=' * 112}")
     print(header)
-    print("-" * 82)
+    print("-" * 112)
     for scenario, aggs in all_aggs.items():
         ov = next((a for a in aggs if a.slice_name == "overall"), None)
         if not ov:
@@ -659,22 +703,23 @@ def print_comparison_table(all_aggs: Dict[str, List[AggregateMetrics]]):
             f"{ov.scenario:<30} {ov.count:>4} "
             f"{ov.mean_recall:>8.4f} {ov.mean_precision:>8.4f} {ov.mean_f1:>8.4f} "
             f"{ov.behavior_accuracy:>8.4f} {ov.perfect_recall_rate * 100:>7.2f}%"
+            f" {ov.mean_time_ms:>10.1f} {ov.median_time_ms:>10.1f} {ov.p95_time_ms:>10.1f}"
         )
-    print(f"{'=' * 82}\n")
+    print(f"{'=' * 112}\n")
 
 
 def print_breakdown(all_aggs: Dict[str, List[AggregateMetrics]], dim: str):
     print(f"\n--- Breakdown by {dim} ---")
-    header = f"{'Scenario':<30} {dim:<25} {'N':>4} {'Recall':>8} {'F1':>8}"
+    header = f"{'Scenario':<30} {dim:<25} {'N':>4} {'Recall':>8} {'F1':>8} {'Avg(ms)':>10}"
     print(header)
-    print("-" * 80)
+    print("-" * 90)
     for scenario, aggs in all_aggs.items():
         for a in aggs:
             if a.slice_name != dim:
                 continue
             print(
                 f"{a.scenario:<30} {a.slice_value:<25} {a.count:>4} "
-                f"{a.mean_recall:>8.4f} {a.mean_f1:>8.4f}"
+                f"{a.mean_recall:>8.4f} {a.mean_f1:>8.4f} {a.mean_time_ms:>10.1f}"
             )
 
 
@@ -695,9 +740,13 @@ def _build_case_result(
     required = gt["required_parameters"]
     alts = gt.get("acceptable_alternatives", {})
     expected_beh = gt["expected_behavior"]
+    acc_behaviors = gt.get("acceptable_behaviors", [])
+    confusing_params = gt.get("confusing_valid_params", [])
 
     recall, precision, f1, beh_match = compute_metrics(
-        required, alts, retrieved, expected_beh, detected
+        required, alts, retrieved, expected_beh, detected,
+        acceptable_behaviors=acc_behaviors or None,
+        confusing_valid_params=confusing_params or None,
     )
     return CaseResult(
         case_id=case["id"],
