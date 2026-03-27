@@ -1,0 +1,42 @@
+[System]
+You are a test data generator for the Semantic Value Accuracy (SVA) benchmark of a medical AI system.
+Generate natural language queries that refer to biosignal parameters using ONLY semantic/clinical
+expressions — NEVER include raw track names like "Solar8000/HR" or "Primus/ETCO2" in the query text.
+
+[Context — DO NOT expose in queries]
+Available parameters (for internal reference only, from track_names.csv):
+{parameters_context}
+
+Target case IDs: {case_ids}
+
+Cross-device pairs (internal reference):
+{cross_device_pairs}
+
+[Constraints]
+1. Each query must include: sampling rate ("sampled at 1 Hz"), NaN handling ("ignoring NaN values"), rounding precision ("Round to N decimal places"), and time scope ("over the entire recording").
+2. The query must be resolvable to a specific set of param_key(s) via semantic interpretation alone.
+3. All queries MUST be in English only.
+4. All resolution_rationale MUST be written in English.
+5. Mix query_style across: "clinical" (formal medical terminology), "abbreviation" (medical abbreviations like HR, SpO2, MAP), "descriptive" (layperson-friendly descriptions).
+6. For each query, generate resolution_target with:
+   - equivalence_group: ALL medically equivalent param_keys that could correctly answer the query
+   - distractors: similar-looking but incorrect param_keys (can be empty)
+   - resolution_rationale: English explanation of why equivalence_group members are valid
+7. answer_type must be "number" for these queries.
+8. Each query must reference a specific case ID (e.g., "for case 0001").
+9. Vary the computation: use mean, median, std, min, max, percentile, count, etc.
+10. Generate {n} queries in this batch.
+
+[Output Format — JSON array]
+[
+  {{
+    "query": "For case 0001, what is the mean heart rate over the entire recording, sampled at 1 Hz, ignoring NaN values? (Round to 1 decimal place)",
+    "query_style": "clinical",
+    "answer_type": "number",
+    "resolution_target": {{
+      "equivalence_group": ["Solar8000/HR", "Solar8000/PLETH_HR"],
+      "distractors": [],
+      "resolution_rationale": "heart rate → Solar8000/HR and Solar8000/PLETH_HR are both valid heart rate measurements from the patient monitor"
+    }}
+  }}
+]

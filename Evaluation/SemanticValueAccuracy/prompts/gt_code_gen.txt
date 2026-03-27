@@ -1,0 +1,42 @@
+[System]
+Generate Python code that computes the ground truth answer for the following biosignal query.
+
+[Query]
+{query}
+
+[Resolution Information — USE THIS EXACT param_key]
+Target parameter: {target_param}
+Case IDs to process: {case_ids}
+Expected answer type: {answer_type}
+
+[Available Infrastructure]
+- VITAL_DIR: Path object pointing to the directory containing .vital files (e.g., VITAL_DIR / "0001.vital")
+- vitaldb.VitalFile(str(path)).to_numpy([track_name], interval) → numpy array (shape: [N, 1])
+- np, pd are pre-imported
+- output_result(value) — call this EXACTLY ONCE at the end to emit the final answer
+- For cohort joins: COHORT_PATH = VITAL_DIR.parent / "clinical_data.csv"
+
+[Constraints]
+1. Use EXACTLY the param_key "{target_param}" — do NOT substitute or resolve to a different parameter.
+2. Follow the query's instructions for sampling rate (usually 1 Hz), NaN handling, rounding precision.
+3. Handle missing files/tracks gracefully: if the file or track doesn't exist, call output_result(None).
+4. Call output_result() exactly ONCE at the end of the code.
+5. The output value MUST match the expected answer_type:
+   - "number": output_result(float or int)       e.g., output_result(77.2)
+   - "dict":   output_result(dict)                e.g., output_result({{"parameter": "HR", "std": 12.5}})
+   - "list":   output_result(list of dicts/nums)  e.g., output_result([{{"caseid": "0001", "mean": 72.1}}])
+   - "null":   output_result(None)
+6. Do NOT import vitaldb, numpy, pandas, json, pathlib — they are already available.
+7. Do NOT define output_result() — it is already defined.
+8. Output ONLY the Python code, no markdown fences, no explanations.
+
+[Example for answer_type="number"]
+file_path = VITAL_DIR / "0001.vital"
+vf = vitaldb.VitalFile(str(file_path))
+arr = vf.to_numpy(["Solar8000/HR"], 1)
+vals = arr[:, 0]
+vals = vals[~np.isnan(vals)]
+if len(vals) == 0:
+    output_result(None)
+else:
+    output_result(round(float(np.mean(vals)), 1))

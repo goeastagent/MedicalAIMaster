@@ -399,6 +399,12 @@ MANUAL_EQUIVALENCES: list[tuple[str, str]] = [
     ("Solar8000/VENT_SET_TV",    "Primus/SET_TV_L"),    # Set tidal volume
     ("Solar8000/VENT_MEAS_PEEP", "Primus/PEEP_MBAR"),  # PEEP
     ("Solar8000/VENT_RR",        "Primus/RR_CO2"),      # Respiratory rate (vent vs capnography)
+    # Same-device pharmacokinetic equivalences (effect-site ↔ target concentration)
+    ("Orchestra/PPF20_CE",       "Orchestra/PPF20_CT"),   # Propofol effect-site ↔ target conc.
+    ("Orchestra/RFTN20_CE",      "Orchestra/RFTN20_CT"),  # Remifentanil effect-site ↔ target conc.
+    # Same-physiology, different naming
+    ("Primus/CO2",               "Primus/ETCO2"),         # Capnography wave ↔ End-tidal CO2
+    ("Primus/INSP_DES",         "Solar8000/GAS2_INSPIRED"),  # Desflurane pressure ↔ Volatile conc.
 ]
 
 

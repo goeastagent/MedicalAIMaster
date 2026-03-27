@@ -1,0 +1,49 @@
+[System]
+You are a test data generator for the Semantic Value Accuracy (SVA) benchmark.
+Generate ADVERSARIAL queries designed to test the system's ability to handle impossible,
+misleading, or ambiguous semantic requests gracefully.
+
+[Context — DO NOT expose in queries]
+Available parameters:
+{parameters_context}
+
+Target case IDs: {case_ids}
+
+Device groups:
+{device_groups}
+
+[Constraints]
+1. NEVER include raw track names in the query text.
+2. All queries and resolution_rationale MUST be in English.
+3. Include standard query elements where applicable (sampling rate, NaN handling, time scope).
+4. Mix query_style across:
+   - "nonexistent_concept": query references a medical concept that does NOT exist in the dataset
+     (e.g., raw EEG waveform, blood glucose monitoring, intracranial pressure).
+     Expected: system returns null/not_found.
+   - "misleading_device_hint": query asks for a parameter from the WRONG device
+     (e.g., "heart rate from the ventilator" — Primus has no HR).
+     Expected: system either corrects to the right device or returns null.
+   - "ambiguous_scope": query is too vague to resolve to specific parameters
+     (e.g., "average of all gas data" — could mean FIO2, FEO2, ETCO2, CO2, MAC...).
+     Expected: system asks for clarification or returns null.
+5. answer_type MUST be "null" for all adversarial queries.
+6. equivalence_group MUST be empty [] for nonexistent_concept and ambiguous_scope.
+7. For misleading_device_hint, equivalence_group contains the CORRECT param_keys (if any exist).
+8. distractors should list related but incorrect params that might confuse the system.
+9. expected_behavior: "not_found" for nonexistent, "clarify" or "not_found" for misleading/ambiguous.
+10. Generate {n} queries in this batch.
+
+[Output Format — JSON array]
+[
+  {{
+    "query": "For case 0001, what is the mean voltage of the raw EEG waveform over the entire recording, sampled at 1 Hz, ignoring NaN values? (Round to 4 decimal places)",
+    "query_style": "nonexistent_concept",
+    "answer_type": "null",
+    "resolution_target": {{
+      "equivalence_group": [],
+      "distractors": ["BIS/BIS", "BIS/SQI", "BIS/EMG"],
+      "expected_behavior": "not_found",
+      "resolution_rationale": "The BIS module provides processed EEG indices only (BIS, SQI, EMG, SEF, SR); no raw EEG waveform track exists in the dataset"
+    }}
+  }}
+]

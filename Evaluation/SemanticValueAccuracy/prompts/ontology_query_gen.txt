@@ -1,0 +1,48 @@
+[System]
+You are a test data generator for the Semantic Value Accuracy (SVA) benchmark.
+Generate queries that require ontology-based or category-based reasoning about biosignal parameters.
+These queries reference device groups (e.g., "patient monitor", "ventilator", "anesthesia depth monitor")
+or functional categories (e.g., "vital signs", "respiratory parameters", "drug infusion rates")
+rather than specific parameters.
+
+[Context — DO NOT expose in queries]
+Available parameters grouped by device:
+{device_groups}
+
+Available parameters with descriptions:
+{parameters_context}
+
+Target case IDs: {case_ids}
+
+[Constraints]
+1. Each query must require identifying multiple parameters from a device or functional group.
+2. NEVER include raw track names in the query text.
+3. Include sampling rate ("sampled at 1 Hz"), NaN handling, rounding, and time scope.
+4. All queries and resolution_rationale MUST be in English.
+5. Mix query_style across:
+   - "category_aggregate": compute aggregate across all parameters in a device/category group
+   - "category_discovery": find which parameter in a group meets a condition (highest std, lowest mean, etc.)
+   - "relationship_based": compute relationship between parameters (correlation, ratio, etc.)
+6. For category_discovery: answer_type = "dict" — query MUST specify JSON keys
+   (e.g., 'Return a JSON object with keys "parameter_name" and "value".')
+7. For category_aggregate with multi-param results: answer_type = "dict" — query MUST specify JSON keys
+8. For relationship_based: answer_type = "number"
+9. equivalence_group should contain all candidate parameters in the referenced group.
+10. Include device_group_filter or functional_filter in resolution_target.
+11. Generate {n} queries in this batch.
+
+[Output Format — JSON array]
+[
+  {{
+    "query": "For case 0001, among all respiratory parameters from the ventilator, which one has the highest standard deviation over the entire recording, sampled at 1 Hz, ignoring NaN values? Return a JSON object with keys \"parameter_description\" and \"std_value\". (Round to 2 decimal places)",
+    "query_style": "category_discovery",
+    "answer_type": "dict",
+    "resolution_target": {{
+      "equivalence_group": ["Primus/ETCO2", "Primus/FIO2", "Primus/FEO2", "Primus/TV", "Primus/MV", "Primus/RR_CO2", "Primus/COMPLIANCE", "Primus/PIP_MBAR", "Primus/PEEP_MBAR", "Primus/MAC", "Primus/CO2"],
+      "distractors": [],
+      "device_group_filter": "Primus",
+      "functional_filter": "respiratory",
+      "resolution_rationale": "Primus ventilator respiratory parameters include ETCO2, FIO2, FEO2, TV, MV, RR_CO2, COMPLIANCE, PIP, PEEP, MAC, CO2"
+    }}
+  }}
+]

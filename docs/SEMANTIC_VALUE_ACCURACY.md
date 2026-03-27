@@ -217,7 +217,7 @@ SVA 질의는 **5개 카테고리**로 분류하며, 각 카테고리는 VitalAg
     "resolution_target": {
         "equivalence_group": ["Solar8000/HR", "Solar8000/PLETH_HR"],
         "distractors": [],
-        "resolution_rationale": "heart rate → Solar8000/HR (direct), Solar8000/PLETH_HR (pleth-derived) 모두 의학적으로 유효한 heart rate 측정"
+        "resolution_rationale": "heart rate → Solar8000/HR (direct) and Solar8000/PLETH_HR (pleth-derived) are both medically valid heart rate measurements"
     }
 }
 ```
@@ -253,7 +253,7 @@ SVA 질의는 **5개 카테고리**로 분류하며, 각 카테고리는 VitalAg
     "resolution_target": {
         "equivalence_group": ["Primus/ETCO2", "Solar8000/ETCO2"],
         "distractors": [],
-        "resolution_rationale": "장비 힌트 없는 경우: ETCO2는 Primus(ventilator)와 Solar8000(monitor) 모두에서 측정되며 동등하게 유효"
+        "resolution_rationale": "No device hint provided: ETCO2 is measured by both Primus (ventilator) and Solar8000 (monitor), both are equally valid"
     }
 }
 ```
@@ -288,7 +288,7 @@ SVA 질의는 **5개 카테고리**로 분류하며, 각 카테고리는 VitalAg
         "cohort_source": "clinical_data.csv",
         "join_key": "caseid",
         "expected_matching_cases": ["0002", "0009"],
-        "resolution_rationale": "heart rate 측정의 두 파라미터는 동등. 코호트 필터 후 매칭 케이스의 HR 계산"
+        "resolution_rationale": "Both Solar8000/HR and PLETH_HR are equivalent heart rate measurements. Filter cohort then compute HR for matching cases"
     }
 }
 ```
@@ -343,7 +343,7 @@ else:
         "distractors": [],
         "device_group_filter": "Solar8000",
         "functional_filter": "vital_signs",
-        "resolution_rationale": "환자 모니터(Solar8000)에서 측정되는 활력징후 파라미터를 대상으로 각각 평균 계산. track_names.csv의 Solar8000 그룹 중 vital signs 관련 Description을 가진 파라미터를 선별"
+        "resolution_rationale": "Compute mean for each vital sign parameter from the patient monitor (Solar8000). Selected from the Solar8000 device group in track_names.csv where Description relates to vital signs"
     }
 }
 ```
@@ -370,7 +370,7 @@ else:
         "equivalence_group": [],
         "distractors": ["BIS/BIS", "BIS/SQI"],
         "expected_behavior": "not_found",
-        "resolution_rationale": "EEG raw signal은 BIS 모듈에서 처리된 지표(BIS/BIS)만 존재하며, raw EEG waveform은 별도 track이 아님"
+        "resolution_rationale": "The BIS module only provides processed EEG indices (BIS/BIS); no raw EEG waveform track exists in the dataset"
     }
 }
 ```
@@ -410,6 +410,8 @@ else:
         "expected_behavior": "retrieve"
     },
 
+    "answer_type": "number",
+
     "ground_truth_logic": {
         "language": "python",
         "code": "file_path = VITAL_DIR / '0001.vital'\n..."
@@ -434,6 +436,7 @@ else:
 | `query` | string | O | 자연어 질의 (track 이름 미포함) |
 | `resolution_target` | object | O | 파라미터 해석 정답 정보 (4-3절 참조) |
 | `ground_truth_logic` | object | O | 실행 가능한 Python GT 코드 (equivalence_group 내 모든 파라미터에 대해 값 계산) |
+| `answer_type` | string | O | 기대 응답값의 타입. `number` \| `dict` \| `list` \| `null`. 채점 시 비교 전략 결정에 사용 (4-5절 참조) |
 | `equivalence_values` | object | O | `equivalence_group` 내 각 param_key → GT 계산 결과 매핑. 에이전트 출력이 이 중 아무 값과 일치하면 정답 |
 | `is_verified_by_execution` | bool | O | VitalExecutor로 실행 검증 완료 여부 |
 | `verification_timestamp` | string | O | 검증 시각 (ISO 8601) |
@@ -444,7 +447,7 @@ else:
 | :--- | :--- | :---: | :--- |
 | `equivalence_group` | string[] | O | **동등 그룹** — 의학적으로 동등한 param_key 집합. 이 중 어떤 것을 선택해도 동일하게 정답(1.0) 인정. Adversarial의 경우 빈 배열 `[]` |
 | `distractors` | string[] | △ | 유사해 보이지만 의학적으로 동등하지 않아 선택하면 오답인 param_key |
-| `resolution_rationale` | string | O | 동등 그룹 구성 근거 및 distractor 제외 사유 |
+| `resolution_rationale` | string | O | 동등 그룹 구성 근거 및 distractor 제외 사유. **반드시 영어로 작성** |
 | `expected_behavior` | string | O | `retrieve` \| `not_found` \| `clarify` |
 | `cohort_filter` | string | △ | (cj 전용) 코호트 필터 조건 표현식 |
 | `cohort_source` | string | △ | (cj 전용) 코호트 CSV 파일명 |
@@ -458,8 +461,8 @@ else:
 | 카테고리 | equivalence_group 의미 | 예시 |
 | :--- | :--- | :--- |
 | `semantic_resolution` | 동일 생리학적 개념을 측정하는 모든 파라미터 | "heart rate" → `[Solar8000/HR, Solar8000/PLETH_HR]` |
-| `cross_device` | 쿼리에 장비 힌트가 없으면 모든 장비의 동일 개념 파라미터; 장비 힌트가 있으면 해당 장비의 파라미터만 | "end-tidal CO2" → `[Primus/ETCO2, Solar8000/ETCO2]`; "ventilator의 ETCO2" → `[Primus/ETCO2]` |
-| `cohort_signal_join` | 코호트 필터 후 사용할 신호 파라미터의 동등 그룹 | "hypertensive patients의 HR" → `[Solar8000/HR, Solar8000/PLETH_HR]` |
+| `cross_device` | 쿼리에 장비 힌트가 없으면 모든 장비의 동일 개념 파라미터; 장비 힌트가 있으면 해당 장비의 파라미터만 | "end-tidal CO2" → `[Primus/ETCO2, Solar8000/ETCO2]`; "ETCO2 from the ventilator" → `[Primus/ETCO2]` |
+| `cohort_signal_join` | 코호트 필터 후 사용할 신호 파라미터의 동등 그룹 | "HR for hypertensive patients" → `[Solar8000/HR, Solar8000/PLETH_HR]` |
 | `ontology_based` | 탐색 대상이 되는 전체 후보 파라미터 집합 | "Primus의 모든 호흡 파라미터" → `[Primus/ETCO2, Primus/FIO2, ...]` |
 | `adversarial_semantic` | 빈 배열 (정답 파라미터가 존재하지 않음) | `[]` |
 
@@ -473,6 +476,7 @@ else:
     "query_category": "semantic_resolution",
     "query_style": "clinical",
     "query": "For case 0001, what is the mean heart rate over the entire recording, sampled at 1 Hz, ignoring NaN values? (Round to 1 decimal place)",
+    "answer_type": "number",
     "resolution_target": {
         "equivalence_group": ["Solar8000/HR", "Solar8000/PLETH_HR"],
         "distractors": [],
@@ -499,10 +503,11 @@ else:
     "query_category": "cross_device",
     "query_style": "implicit_preference",
     "query": "For case 0002, what is the standard deviation of end-tidal CO2 over the entire recording, sampled at 1 Hz, ignoring NaN values? (Round to 2 decimal places)",
+    "answer_type": "number",
     "resolution_target": {
         "equivalence_group": ["Primus/ETCO2", "Solar8000/ETCO2"],
         "distractors": [],
-        "resolution_rationale": "end-tidal CO2 → Primus/ETCO2 (ventilator 직접 측정)와 Solar8000/ETCO2 (patient monitor 측정) 모두 의학적으로 유효한 ETCO2 측정값. 장비 힌트 없으므로 동등 그룹",
+        "resolution_rationale": "end-tidal CO2 → Primus/ETCO2 (direct ventilator measurement) and Solar8000/ETCO2 (patient monitor measurement) are both medically valid ETCO2 readings. No device hint → equivalence group",
         "expected_behavior": "retrieve"
     },
     "ground_truth_logic": {
@@ -527,6 +532,7 @@ else:
     "query_category": "cohort_signal_join",
     "query_style": "filter_then_aggregate",
     "query": "What is the mean heart rate for patients with a history of hypertension (preop_htn=1), sampled at 1 Hz, ignoring NaN values? (Round to 2 decimal places)",
+    "answer_type": "number",
     "resolution_target": {
         "equivalence_group": ["Solar8000/HR", "Solar8000/PLETH_HR"],
         "distractors": [],
@@ -534,7 +540,7 @@ else:
         "cohort_source": "clinical_data.csv",
         "join_key": "caseid",
         "expected_matching_cases": ["0002"],
-        "resolution_rationale": "Filter cohort for preop_htn=1 → compute mean HR for matching cases. Solar8000/HR, Solar8000/PLETH_HR 모두 heart rate의 유효한 측정이므로 동등 그룹",
+        "resolution_rationale": "Filter cohort for preop_htn=1 → compute mean HR for matching cases. Solar8000/HR and Solar8000/PLETH_HR are both valid heart rate measurements → equivalence group",
         "expected_behavior": "retrieve"
     },
     "ground_truth_logic": {
@@ -556,13 +562,14 @@ else:
     "id": "sva_onto_001",
     "query_category": "ontology_based",
     "query_style": "category_discovery",
-    "query": "For case 0009, among all numeric respiratory parameters from the anesthesia machine, which one has the highest variability (standard deviation)? Return the parameter name and its SD value. Sampled at 1 Hz, ignoring NaN values. (Round to 2 decimal places)",
+    "query": "For case 0009, among all numeric respiratory parameters from the anesthesia machine, which one has the highest variability (standard deviation)? Return a JSON object with keys \"parameter\" and \"std\". Sampled at 1 Hz, ignoring NaN values. (Round to 2 decimal places)",
+    "answer_type": "dict",
     "resolution_target": {
         "equivalence_group": ["Primus/ETCO2", "Primus/FIO2", "Primus/FEO2", "Primus/TV", "Primus/MV", "Primus/RR_CO2", "Primus/CO2"],
         "distractors": [],
         "device_group_filter": "Primus",
         "functional_filter": "respiratory",
-        "resolution_rationale": "track_names.csv의 Primus 장비 그룹 중 Numeric(N) 타입 파라미터 전체가 탐색 대상. 에이전트는 이들 중 최대 std를 가진 파라미터를 식별해야 함",
+        "resolution_rationale": "All Numeric (N) type parameters in the Primus device group from track_names.csv are search candidates. Agent must identify the parameter with the highest standard deviation",
         "expected_behavior": "retrieve"
     },
     "ground_truth_logic": {
@@ -586,6 +593,7 @@ else:
     "query_category": "adversarial_semantic",
     "query_style": "nonexistent_concept",
     "query": "For case 0001, what is the mean voltage of the raw EEG waveform over the entire recording, sampled at 1 Hz, ignoring NaN values? (Round to 2 decimal places)",
+    "answer_type": "null",
     "resolution_target": {
         "equivalence_group": [],
         "distractors": ["BIS/BIS", "BIS/SQI"],
@@ -596,6 +604,85 @@ else:
     "is_verified_by_execution": true
 }
 ```
+
+### 4-5. 응답 형식 명세 (Answer Format Specification)
+
+질의 생성부터 채점까지 **일관된 응답 형식**을 유지하는 것이 3-Layer 채점의 정확성에 핵심적이다. `answer_type`에 따라 질의 내 형식 지시, GT 코드 출력, 에이전트 응답 래핑, 비교 전략이 달라진다.
+
+#### answer_type별 전체 흐름
+
+| `answer_type` | 질의 내 형식 지시 (query suffix) | GT 코드 `output_result()` 예시 | `equivalence_values` 예시 | 에이전트 기대 응답 | `compare_values` 전략 |
+| :--- | :--- | :--- | :--- | :--- | :--- |
+| `number` | "(Round to N decimal places)" | `output_result(77.2)` | `{"Solar8000/HR": 77.2}` | `{"answer": 77.2}` | `abs(expected - actual) < 1e-5` |
+| `dict` | "Return a JSON object with keys 'parameter' and 'value'." | `output_result({"parameter": "Primus/TV", "std": 145.23})` | `{"Primus/TV": {"parameter": "Primus/TV", "std": 145.23}}` | `{"answer": {"parameter": "Primus/TV", "std": 145.23}}` | Deep dict comparison: 각 key-value 재귀 비교 (숫자는 tolerance 적용) |
+| `list` | "Return a JSON array of values sorted in ascending order." | `output_result([72.1, 78.3, 81.0])` | `{"Solar8000/HR": [72.1, 78.3, 81.0]}` | `{"answer": [72.1, 78.3, 81.0]}` | 원소별 비교 (순서 포함), 각 원소에 타입별 비교 적용 |
+| `null` | — (adversarial: 형식 지시 없음) | `output_result(None)` | `{}` | `{"answer": null}` 또는 에러/거부 | `actual is None` 또는 빈 응답 허용 |
+
+#### 질의 내 형식 지시 규칙 (Format Instruction Rules)
+
+**모든 질의의 마지막 부분**에 아래 요소를 포함해야 한다:
+
+1. **계산 조건** (필수): sampling rate, NaN handling, time scope
+2. **정밀도 지시** (number인 경우 필수): `"(Round to N decimal places)"`
+3. **응답 구조 지시** (dict/list인 경우 필수): 반환할 JSON 구조를 명시
+
+**카테고리별 기본 answer_type:**
+
+| 카테고리 | 주요 answer_type | 설명 |
+| :--- | :--- | :--- |
+| `semantic_resolution` | `number` | 단일 통계값 (mean, median, std 등) |
+| `cross_device` | `number` | 단일 통계값 |
+| `cohort_signal_join` | `number` 또는 `list` | 단일 집계 또는 케이스별 값 목록 |
+| `ontology_based` | `dict` 또는 `number` | 탐색 결과 (파라미터명+값) 또는 집계값 |
+| `adversarial_semantic` | `null` | 존재하지 않는 개념 → null 기대 |
+
+#### 질의 형식 지시 예시
+
+**number (가장 빈번):**
+
+```
+For case 0001, what is the mean heart rate over the entire recording,
+sampled at 1 Hz, ignoring NaN values? (Round to 1 decimal place)
+```
+
+**dict (ontology discovery):**
+
+```
+For case 0009, among all numeric respiratory parameters from the anesthesia machine,
+which one has the highest variability (standard deviation)?
+Return a JSON object with keys "parameter" (the parameter name) and "std" (its SD value).
+Sampled at 1 Hz, ignoring NaN values. (Round to 2 decimal places)
+```
+
+**list (cohort multi-case):**
+
+```
+For patients with preop_htn=1, compute the mean heart rate per case.
+Return a JSON array of objects with keys "caseid" and "mean_hr", sorted by caseid.
+Sampled at 1 Hz, ignoring NaN values. (Round to 2 decimal places)
+```
+
+**null (adversarial):**
+
+```
+For case 0001, what is the mean voltage of the raw EEG waveform over the entire recording,
+sampled at 1 Hz, ignoring NaN values? (Round to 2 decimal places)
+```
+> Adversarial 질의는 형식 지시 자체는 일반 질의와 동일하게 유지한다. 에이전트가 "해당 파라미터가 존재하지 않음"을 판단하고 null/에러를 반환해야 하므로, 질의에서 의도를 드러내지 않는다.
+
+#### 에이전트 응답 래핑 규칙
+
+평가 시 양 시나리오 모두 `{"answer": <value>}` JSON 형식으로 응답을 래핑하도록 지시한다:
+
+```
+Respond with ONLY a JSON object in this exact format: {"answer": <value>}
+- If the answer is a single number: {"answer": 77.2}
+- If the answer is an object: {"answer": {"parameter": "X", "value": Y}}
+- If the answer is a list: {"answer": [1.0, 2.0, 3.0]}
+- If the data does not exist or cannot be computed: {"answer": null}
+```
+
+이 래핑 규칙은 **질의 자체에는 포함하지 않고**, 평가 파이프라인의 시나리오 프롬프트(6-2절, 6-3절)에서 에이전트에게 전달한다. 질의 데이터셋은 시나리오에 독립적이어야 한다.
 
 ---
 
@@ -769,10 +856,14 @@ def run_stage1():
 
 **공통 생성 규칙:**
 1. track 이름(`Device/Signal` 형식)을 질의 텍스트에 포함하지 말 것
-2. 각 질의에 `resolution_target` 포함 (LLM이 함께 생성)
+2. 각 질의에 `resolution_target` 및 `answer_type` 포함 (LLM이 함께 생성)
 3. 기존 ValueAccuracy와 동일한 unambiguity 지시 포함: sampling rate ("1 Hz"), NaN handling ("ignoring NaN"), rounding ("Round to N decimal places"), time scope ("entire recording")
 4. 모든 질의는 **영어**로만 작성할 것
-5. 결과는 단일 숫자, null, 또는 구조화된 JSON으로 한정
+5. `answer_type`에 따른 **응답 형식 지시를 질의 끝에 포함**할 것 (4-5절 참조):
+   - `number`: rounding precision만으로 충분 (e.g., "Round to 2 decimal places")
+   - `dict`: 반환할 JSON 키를 명시 (e.g., 'Return a JSON object with keys "parameter" and "std".')
+   - `list`: 정렬 기준과 원소 구조 명시 (e.g., 'Return a JSON array of objects with keys "caseid" and "mean_hr", sorted by caseid.')
+   - `null`: 형식 지시 불필요 (일반 질의처럼 작성하되, 정답이 존재하지 않는 시나리오)
 
 **카테고리별 프롬프트 파일:**
 
@@ -803,15 +894,20 @@ Cross-Device pairs (internal): {cross_device_pairs}
 1. Each query must include: sampling rate (1 Hz), NaN handling (ignore), rounding precision, time scope
 2. The query must be resolvable to a specific set of param_key(s) via semantic interpretation
 3. All queries must be in English only
-4. Mix styles: clinical, abbreviation, descriptive
-5. For each query, generate the resolution_target with equivalence_group (all medically equivalent params) and rationale
-6. Generate {n} queries in this batch
+4. All resolution_rationale must be written in English
+5. Mix styles: clinical, abbreviation, descriptive
+6. For each query, generate the resolution_target with equivalence_group (all medically equivalent params) and rationale
+7. For each query, specify answer_type ("number", "dict", "list", or "null")
+8. If answer_type is "dict" or "list", the query MUST include explicit instructions
+   specifying the expected JSON structure (keys, sort order, etc.)
+9. Generate {n} queries in this batch
 
 [Output Format — JSON array]
 [
   {
     "query": "...",
     "query_style": "clinical",
+    "answer_type": "number",
     "resolution_target": {
       "equivalence_group": ["Solar8000/HR", "Solar8000/PLETH_HR"],
       "distractors": [],
@@ -936,6 +1032,7 @@ Generate Python code that computes the ground truth answer for the following que
 [Resolution Information — USE THIS EXACT param_key]
 Target parameter: {equivalence_group[0]}
 Case IDs to process: {extracted_case_ids}
+Expected answer type: {answer_type}
 
 [Available Infrastructure]
 - VITAL_DIR: Path to vital files (e.g., VITAL_DIR / "0001.vital")
@@ -949,6 +1046,11 @@ Case IDs to process: {extracted_case_ids}
 2. Follow the query's instructions for sampling rate, NaN handling, rounding
 3. Handle missing files/tracks gracefully (output_result(None))
 4. Call output_result() exactly once at the end
+5. The output value MUST match the expected answer_type:
+   - "number": output_result(float or int)       e.g., output_result(77.2)
+   - "dict":   output_result(dict)                e.g., output_result({"parameter": "Primus/TV", "std": 145.23})
+   - "list":   output_result(list)                e.g., output_result([72.1, 78.3, 81.0])
+   - "null":   output_result(None)
 ```
 
 **Equivalence Values 생성:**
@@ -956,25 +1058,62 @@ Case IDs to process: {extracted_case_ids}
 기준 코드가 검증되면, `equivalence_group` 내 모든 파라미터에 대해 동일 계산을 수행하여 `equivalence_values`를 완성한다:
 
 ```python
+ANSWER_TYPE_MAP = {
+    "number": (int, float),
+    "dict": dict,
+    "list": list,
+    "null": type(None),
+}
+
 def compute_equivalence_values(case: dict, executor: VitalExecutor) -> dict:
     eq_group = case["resolution_target"].get("equivalence_group", [])
     base_code = case["ground_truth_logic"]["code"]
     base_param = eq_group[0] if eq_group else None
+    answer_type = case.get("answer_type", "number")
     eq_values = {}
 
     for param in eq_group:
         if param == base_param:
-            eq_values[param] = case.get("_base_value")
+            value = case.get("_base_value")
         else:
             param_code = base_code.replace(base_param, param)
             result = executor.execute_code(param_code)
             if result["success"]:
-                eq_values[param] = result["result"]
+                value = result["result"]
             else:
                 logger.warning(f"Failed to compute value for {param}: {result['error']}")
-                eq_values[param] = None
+                value = None
+
+        # answer_type 일치 검증
+        if value is not None and not isinstance(value, ANSWER_TYPE_MAP.get(answer_type, object)):
+            logger.warning(
+                f"Type mismatch for {param}: expected {answer_type}, "
+                f"got {type(value).__name__}. Attempting coercion."
+            )
+            value = _coerce_value(value, answer_type)
+
+        eq_values[param] = value
 
     return eq_values
+
+
+def _coerce_value(value: Any, answer_type: str) -> Any:
+    if answer_type == "number":
+        try:
+            return float(value)
+        except (ValueError, TypeError):
+            return None
+    if answer_type == "dict" and isinstance(value, str):
+        try:
+            return json.loads(value)
+        except Exception:
+            return None
+    if answer_type == "list" and isinstance(value, str):
+        try:
+            return json.loads(value)
+        except Exception:
+            return None
+    return value
 ```
 
 > **Ontology 카테고리 예외**: ontology_based의 경우 `equivalence_group`은 탐색 후보 집합이므로, GT 코드가 전체 후보를 순회하여 조건에 맞는 결과를 반환한다. `equivalence_values`에는 최종 정답(e.g., 최대 std를 가진 파라미터)만 기록한다.
@@ -1064,14 +1203,15 @@ def is_duplicate(new_query: str, new_eq_values: dict, existing: list) -> bool:
 
 #### Filter 4: LLM 품질 감사 (비용: 높음)
 
-5개 벡터를 검사하는 LLM-as-a-Judge:
+6개 벡터를 검사하는 LLM-as-a-Judge:
 
 ```
 [Audit Prompt]
-Evaluate the following SVA benchmark query on 5 criteria.
+Evaluate the following SVA benchmark query on 6 criteria.
 
 Query: "{query}"
 Category: {query_category}
+Answer Type: {answer_type}
 Resolution Target: {resolution_target}
 Equivalence Values: {equivalence_values}
 
@@ -1083,12 +1223,15 @@ Criteria (score 1-5 each):
    equivalent for this query? Are distractors correctly excluded? (1=wrong grouping, 5=perfect)
 4. GROUND TRUTH ALIGNMENT: Do the equivalence_values logically follow from the query?
    (1=clearly wrong, 5=correct)
+6. ANSWER FORMAT: Does the query contain appropriate format instructions for its answer_type?
+   For "dict"/"list": explicit JSON structure specified? For "number": rounding specified?
+   Do equivalence_values match the declared answer_type? (1=missing/wrong format, 5=perfect)
 5. CATEGORY FIT: Does the query genuinely test the claimed category's capability?
    (1=wrong category, 5=perfect fit)
 
 Output JSON:
 {
-    "scores": {"clarity": N, "validity": N, "resolution": N, "truth": N, "fit": N},
+    "scores": {"clarity": N, "validity": N, "resolution": N, "truth": N, "fit": N, "format": N},
     "overall_pass": true/false,
     "reason": "..."
 }
@@ -1223,10 +1366,18 @@ def run_vitalagent_sva(cases: list) -> list:
     orch = Orchestrator()
     results = []
 
+    ANSWER_FORMAT_INSTRUCTION = (
+        "Respond with ONLY a JSON object in this exact format: {\"answer\": <value>}\n"
+        "- If the answer is a single number: {\"answer\": 77.2}\n"
+        "- If the answer is an object: {\"answer\": {\"parameter\": \"X\", \"value\": Y}}\n"
+        "- If the answer is a list: {\"answer\": [1.0, 2.0, 3.0]}\n"
+        "- If the data does not exist or cannot be computed: {\"answer\": null}"
+    )
+
     for case in cases:
         prompt = (
             f"{case['query']}\n\n"
-            f"JSON 형식으로만 답변해줘: {{\"answer\": <계산된 값>}}"
+            f"{ANSWER_FORMAT_INSTRUCTION}"
         )
 
         t0 = time.time()
@@ -1265,6 +1416,14 @@ def run_vitalagent_sva(cases: list) -> list:
 def run_claude_code_cli_sva(cases: list) -> list:
     results = []
 
+    ANSWER_FORMAT_INSTRUCTION = (
+        "Respond with ONLY a JSON object in this exact format: {\"answer\": <value>}\n"
+        "- If the answer is a single number: {\"answer\": 77.2}\n"
+        "- If the answer is an object: {\"answer\": {\"parameter\": \"X\", \"value\": Y}}\n"
+        "- If the answer is a list: {\"answer\": [1.0, 2.0, 3.0]}\n"
+        "- If the data does not exist or cannot be computed: {\"answer\": null}"
+    )
+
     for case in cases:
         prompt = (
             f"You are a medical data analyst.\n"
@@ -1275,7 +1434,7 @@ def run_claude_code_cli_sva(cases: list) -> list:
             f"IMPORTANT: You must figure out which track(s) match the clinical concept "
             f"described in the query. Use vf.get_track_names() to explore.\n"
             f"When calling vf.to_numpy(), use interval=1 unless specified otherwise.\n"
-            f"Output ONLY: {{\"answer\": <value>}}\n"
+            f"{ANSWER_FORMAT_INSTRUCTION}\n"
             f"Write your Python code in a ```python block."
         )
 
@@ -1416,31 +1575,112 @@ def score_resolution(case: dict, result: SVAResult) -> tuple:
 
 | 상황 | 점수 | 라벨 |
 | :--- | :---: | :--- |
-| `equivalence_values`의 어떤 값과든 정확 일치 (tolerance 1e-5) | **1.0** | `match` |
+| `equivalence_values`의 어떤 값과든 정확 일치 | **1.0** | `match` |
 | 불일치 | **0.0** | `mismatch` |
 | Adversarial: `equivalence_values = {}` 이고 에이전트가 null 반환 | **1.0** | `null_match` |
 | Adversarial: `equivalence_values = {}` 인데 에이전트가 값 반환 | **0.0** | `mismatch` |
 
 > **기존 방식과의 차이**: 기존에는 `expected_value` 일치 → 1.0, `alternative_values` 일치 → 0.5로 차등을 두었다. 새 방식에서는 `equivalence_values`의 모든 값이 동등하므로, 어느 값과 일치하든 1.0이다.
 
+#### `compare_values` — answer_type별 비교 전략
+
+`answer_type`에 따라 비교 로직이 달라진다. 에이전트 응답은 먼저 `{"answer": <value>}` JSON에서 `<value>` 부분을 파싱한 뒤 비교한다.
+
+| `answer_type` | 비교 전략 | tolerance |
+| :--- | :--- | :--- |
+| `number` | `abs(expected - actual) < 1e-5` | 1e-5 (부동소수점) |
+| `dict` | **Deep dict comparison**: 모든 key가 동일하고, 각 value를 재귀적으로 비교. 숫자 value는 tolerance 적용, 문자열 value는 대소문자 무시 비교 | 숫자: 1e-5 |
+| `list` | **순서 포함 원소별 비교**: 길이가 같고, 각 원소를 인덱스별로 비교. 원소가 dict이면 deep comparison 적용, 숫자면 tolerance 적용 | 숫자: 1e-5 |
+| `null` | `actual is None` 또는 `actual == "None"` 또는 `actual == "null"` 또는 빈 컬렉션 | — |
+
 **구현:**
+
+```python
+def compare_values(expected: Any, actual: Any, answer_type: str = "number") -> bool:
+    if isinstance(actual, str):
+        try:
+            parsed = json.loads(actual.replace("'", '"'))
+            if isinstance(parsed, dict) and "answer" in parsed:
+                actual = parsed["answer"]
+            else:
+                actual = parsed
+        except Exception:
+            pass
+
+    if answer_type == "null":
+        return actual is None or actual == "None" or actual == "null" or \
+               (isinstance(actual, (list, dict)) and len(actual) == 0)
+
+    if answer_type == "number":
+        try:
+            return abs(float(expected) - float(actual)) < 1e-5
+        except (ValueError, TypeError):
+            return False
+
+    if answer_type == "dict":
+        return _deep_compare_dict(expected, actual)
+
+    if answer_type == "list":
+        return _deep_compare_list(expected, actual)
+
+    return str(expected) == str(actual)
+
+
+def _deep_compare_dict(expected: dict, actual: Any) -> bool:
+    if not isinstance(actual, dict):
+        try:
+            actual = json.loads(str(actual).replace("'", '"'))
+        except Exception:
+            return False
+    if set(expected.keys()) != set(actual.keys()):
+        return False
+    for key in expected:
+        if not _compare_element(expected[key], actual.get(key)):
+            return False
+    return True
+
+
+def _deep_compare_list(expected: list, actual: Any) -> bool:
+    if not isinstance(actual, list):
+        try:
+            actual = json.loads(str(actual).replace("'", '"'))
+        except Exception:
+            return False
+    if len(expected) != len(actual):
+        return False
+    return all(_compare_element(e, a) for e, a in zip(expected, actual))
+
+
+def _compare_element(expected_elem, actual_elem) -> bool:
+    if isinstance(expected_elem, (int, float)):
+        try:
+            return abs(float(expected_elem) - float(actual_elem)) < 1e-5
+        except (ValueError, TypeError):
+            return False
+    if isinstance(expected_elem, dict):
+        return _deep_compare_dict(expected_elem, actual_elem)
+    if isinstance(expected_elem, list):
+        return _deep_compare_list(expected_elem, actual_elem)
+    return str(expected_elem).strip().lower() == str(actual_elem).strip().lower()
+```
+
+**score_value 구현:**
 
 ```python
 def score_value(case: dict, result: SVAResult) -> tuple:
     eq_values = case.get("equivalence_values", {})
+    answer_type = case.get("answer_type", "number")
     actual = result.agent_output
 
     # Adversarial / null 매칭 (equivalence_values가 비어있는 경우)
-    if not eq_values:
-        if actual is None or actual == "None" or actual == "null":
-            return 1.0, "null_match"
-        if isinstance(actual, (list, dict)) and len(actual) == 0:
+    if not eq_values or answer_type == "null":
+        if compare_values(None, actual, "null"):
             return 1.0, "null_match"
         return 0.0, "mismatch"
 
     # equivalence_values 내 어떤 값과든 일치하면 정답
     for param_key, expected_val in eq_values.items():
-        if expected_val is not None and compare_values(expected_val, actual):
+        if expected_val is not None and compare_values(expected_val, actual, answer_type):
             return 1.0, f"match ({param_key})"
 
     return 0.0, "mismatch"

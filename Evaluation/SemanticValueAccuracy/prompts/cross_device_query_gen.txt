@@ -1,0 +1,43 @@
+[System]
+You are a test data generator for the Semantic Value Accuracy (SVA) benchmark.
+Generate queries that test cross-device parameter resolution — where the same physiological
+measurement exists on multiple devices (e.g., heart rate from patient monitor vs pulse oximeter,
+EtCO2 from ventilator vs patient monitor).
+
+[Context — DO NOT expose in queries]
+Available parameters:
+{parameters_context}
+
+Target case IDs: {case_ids}
+
+Cross-device pairs (key reference — these are the pairs you MUST use):
+{cross_device_pairs}
+
+[Constraints]
+1. Each query must include: sampling rate ("sampled at 1 Hz"), NaN handling ("ignoring NaN values"), rounding precision, and time scope.
+2. NEVER include raw track names in the query text.
+3. All queries and resolution_rationale MUST be in English.
+4. Mix query_style across:
+   - "implicit_preference": query uses a general term (e.g., "heart rate") without specifying device
+   - "explicit_device_hint": query mentions a device type (e.g., "from the patient monitor") but not the exact track name
+   - "multi_source_compare": query asks to compare the same measurement from different sources
+5. For implicit_preference and explicit_device_hint: answer_type = "number"
+6. For multi_source_compare: answer_type = "dict" — the query MUST include explicit JSON structure instructions
+   (e.g., 'Return a JSON object with keys "device1_mean" and "device2_mean".')
+7. equivalence_group should contain ALL valid param_keys for the queried concept.
+8. Each query must reference a specific case ID.
+9. Generate {n} queries in this batch.
+
+[Output Format — JSON array]
+[
+  {{
+    "query": "For case 0001, what is the mean end-tidal CO2 over the entire recording, sampled at 1 Hz, ignoring NaN values? (Round to 2 decimal places)",
+    "query_style": "implicit_preference",
+    "answer_type": "number",
+    "resolution_target": {{
+      "equivalence_group": ["Primus/ETCO2", "Solar8000/ETCO2"],
+      "distractors": ["Primus/CO2"],
+      "resolution_rationale": "end-tidal CO2 → both Primus/ETCO2 and Solar8000/ETCO2 measure EtCO2 from different devices"
+    }}
+  }}
+]

@@ -112,9 +112,14 @@ class ParameterResolverNode(BaseNode):
                     parameter_examples=parameter_examples
                 )
             
-            # 3. Pass 2: Validate with LLM (Strict Validator)
-            if resolved.get("resolution_mode") in ("retrieve", "clarify") and resolved.get("param_keys"):
-                # Reconstruct selected_matches from param_keys
+            # 3. Pass 2: Validate with LLM (Strict Validator) — conditional
+            should_validate = (
+                self.config.enable_validator_pass
+                and resolved.get("resolution_mode") in ("retrieve", "clarify")
+                and resolved.get("param_keys")
+                and resolved.get("confidence", 1.0) < self.config.validator_confidence_threshold
+            )
+            if should_validate:
                 selected_keys = resolved["param_keys"]
                 selected_matches = [m for m in db_matches if m.get("param_key") in selected_keys]
                 

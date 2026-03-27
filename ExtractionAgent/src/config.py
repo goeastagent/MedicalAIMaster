@@ -53,6 +53,10 @@ class ParameterResolverConfig(BaseLLMNodeConfig):
     # Resolution Mode 설정
     auto_select_threshold: int = 5        # 후보 5개 이하면 all_sources 자동 선택
     ask_clarification: bool = True        # 모호할 때 사용자에게 질문
+    
+    # Validator (Pass 2) 설정
+    enable_validator_pass: bool = False           # Pass 2 Validator LLM 호출 활성화
+    validator_confidence_threshold: float = 0.8   # enable 시, confidence < 이 값일 때만 호출
 
 
 @dataclass

@@ -1,0 +1,31 @@
+Evaluate the following SVA benchmark query on 6 criteria.
+
+Query: "{query}"
+Category: {query_category}
+Style: {query_style}
+Answer Type: {answer_type}
+Resolution Target: {resolution_target}
+Equivalence Values: {equivalence_values}
+
+Criteria (score 1-5 each):
+1. SEMANTIC CLARITY: Is the query clearly interpretable to a specific set of parameters
+   WITHOUT knowing the track names? (1=ambiguous, 5=unambiguous)
+2. CLINICAL VALIDITY: Is the query medically meaningful? (1=nonsensical, 5=realistic)
+3. EQUIVALENCE GROUP CORRECTNESS: Are the parameters in equivalence_group truly medically
+   equivalent for this query? Are distractors correctly excluded? (1=wrong grouping, 5=perfect)
+4. GROUND TRUTH ALIGNMENT: Do the equivalence_values logically follow from the query?
+   (1=clearly wrong, 5=correct)
+5. CATEGORY FIT: Does the query genuinely test the claimed category's capability?
+   (1=wrong category, 5=perfect fit)
+6. ANSWER FORMAT: Does the query contain appropriate format instructions for its answer_type?
+   For "dict"/"list": explicit JSON structure specified? For "number": rounding specified?
+   Do equivalence_values match the declared answer_type? (1=missing/wrong format, 5=perfect)
+
+Output JSON only (no markdown):
+{{
+    "scores": {{"clarity": N, "validity": N, "resolution": N, "truth": N, "fit": N, "format": N}},
+    "overall_pass": true/false,
+    "reason": "brief explanation"
+}}
+
+Pass threshold: all scores >= 3 AND average >= 3.5

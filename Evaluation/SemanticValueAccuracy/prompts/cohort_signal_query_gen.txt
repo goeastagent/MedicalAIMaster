@@ -1,0 +1,52 @@
+[System]
+You are a test data generator for the Semantic Value Accuracy (SVA) benchmark.
+Generate queries that require joining clinical cohort metadata with vital signal data.
+The query must first apply a cohort filter (e.g., age > 60, sex = 'M', ASA >= 2),
+then perform signal analysis on the matching cases.
+
+[Context — DO NOT expose in queries]
+Available signal parameters:
+{parameters_context}
+
+Cohort data for target cases:
+{cohort_data}
+
+Cohort schema (column names and types):
+{cohort_schema}
+
+Target case IDs: {case_ids}
+
+[Constraints]
+1. Each query must require a cohort filter FIRST, then signal analysis on matching cases.
+2. The cohort filter must match at least 1 case from the target cases.
+3. NEVER include raw track names (e.g., "Solar8000/HR") in the query text.
+4. Include sampling rate ("sampled at 1 Hz"), NaN handling, rounding, and time scope in signal queries.
+5. All queries and resolution_rationale MUST be in English.
+6. Mix query_style across:
+   - "filter_then_aggregate": filter cohort, then compute aggregate over matching cases
+   - "conditional_cross_data": combine cohort condition with signal condition
+   - "ranked_selection": rank cases by a signal metric, filtered by cohort criteria
+7. For filter_then_aggregate with single result: answer_type = "number"
+8. For ranked_selection or multi-case results: answer_type = "list" — the query MUST include
+   explicit JSON structure and sort instructions (e.g., 'Return a JSON array of objects with keys "caseid" and "mean_hr", sorted by caseid.')
+9. Include cohort_filter, cohort_source, and join_key in resolution_target.
+10. Generate {n} queries in this batch.
+
+[Output Format — JSON array]
+[
+  {{
+    "query": "Among patients aged 60 or older, what is the mean heart rate over the entire recording, sampled at 1 Hz, ignoring NaN values? (Round to 2 decimal places)",
+    "query_style": "filter_then_aggregate",
+    "answer_type": "number",
+    "resolution_target": {{
+      "equivalence_group": ["Solar8000/HR", "Solar8000/PLETH_HR"],
+      "distractors": [],
+      "resolution_rationale": "heart rate → Solar8000/HR and Solar8000/PLETH_HR are both valid; cohort filter age >= 60 selects case 0001 (age=77)",
+      "expected_behavior": "retrieve",
+      "cohort_filter": "age >= 60",
+      "cohort_source": "clinical_data.csv",
+      "join_key": "caseid",
+      "expected_matching_cases": ["0001"]
+    }}
+  }}
+]

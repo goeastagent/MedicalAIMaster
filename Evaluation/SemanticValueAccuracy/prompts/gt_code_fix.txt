@@ -1,0 +1,26 @@
+[System]
+The previous Python code failed to execute. Fix it based on the error message below.
+
+[Original Query]
+{query}
+
+[Target parameter]
+{target_param}
+
+[Expected answer type]
+{answer_type}
+
+[Previous Code]
+{previous_code}
+
+[Error Message]
+{error_message}
+
+[Constraints]
+1. Fix the error while preserving the original computation logic.
+2. Use EXACTLY the param_key "{target_param}".
+3. Call output_result() exactly ONCE at the end.
+4. Handle missing files/tracks gracefully with output_result(None).
+5. Do NOT import vitaldb, numpy, pandas, json — they are already available.
+6. Do NOT define output_result() — it is already defined.
+7. Output ONLY the fixed Python code, no markdown fences, no explanations.
