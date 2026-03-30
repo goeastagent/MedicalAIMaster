@@ -42,13 +42,20 @@ if str(_PROJECT_ROOT) not in sys.path:
 from Evaluation.Level1.config import Paths, ValidationCriteria
 from Evaluation.Level1.models import (
     Category,
+    ExpectedBehavior,
     GroundTruth,
     Level1Case,
     QueryCandidate,
     QueryType,
+    SynonymEntry,
     ValidationReport,
 )
 from Evaluation.Level1.utils import infer_category, load_synonym_map
+from Evaluation.Level1.stages.stage5_adversarial import (
+    _verify_truly_impossible,
+    _find_confusing_pks_for_query,
+    build_confusing_groups,
+)
 
 logging.basicConfig(
     level=logging.INFO,
@@ -123,6 +130,7 @@ def promote_to_level1(
                 num_required_params=len(gt.required_parameters),
                 query=cand.query,
                 ground_truth=gt,
+                adversarial_subtype=getattr(cand, "adversarial_subtype", None),
             )
             cases.append(case)
         except Exception as e:
@@ -208,6 +216,70 @@ def _check_db_existence(
     return True, None
 
 
+def _check_adversarial_quality(
+    cases: List[Level1Case],
+    synonym_map: Dict[str, SynonymEntry],
+) -> List[str]:
+    """Validate adversarial-specific correctness.
+
+    Checks:
+    1. impossible  — query must not word-boundary match any DB synonym
+    2. confusing   — acceptable_behaviors and confusing_valid_params must be populated
+    3. ambiguous   — no param_key hint should appear in the query
+    """
+    issues: List[str] = []
+    confusing_groups = build_confusing_groups(synonym_map)
+
+    for c in cases:
+        if c.query_type != QueryType.ADVERSARIAL:
+            continue
+
+        gt = c.ground_truth
+        subtype = getattr(c, "adversarial_subtype", None)
+
+        # 1. impossible: must be absent from DB
+        if (
+            subtype == "impossible"
+            or gt.expected_behavior == ExpectedBehavior.NOT_FOUND
+        ):
+            if not _verify_truly_impossible(c.query, synonym_map):
+                issues.append(
+                    f"{c.id} [impossible]: query overlaps with existing DB param "
+                    f"— '{c.query[:70]}'"
+                )
+
+        # 2. confusing: metadata completeness
+        if subtype == "confusing" or (
+            gt.expected_behavior == ExpectedBehavior.CLARIFY
+            and _find_confusing_pks_for_query(c.query, confusing_groups)
+        ):
+            if ExpectedBehavior.RETRIEVE not in gt.acceptable_behaviors:
+                issues.append(
+                    f"{c.id} [confusing]: missing 'retrieve' in acceptable_behaviors "
+                    f"— '{c.query[:70]}'"
+                )
+            if not gt.confusing_valid_params:
+                issues.append(
+                    f"{c.id} [confusing]: confusing_valid_params is empty "
+                    f"— '{c.query[:70]}'"
+                )
+
+        # 3. ambiguous: must not contain an exact param_key
+        if subtype == "ambiguous" or (
+            gt.expected_behavior == ExpectedBehavior.CLARIFY
+            and not _find_confusing_pks_for_query(c.query, confusing_groups)
+        ):
+            for pk in synonym_map:
+                if pk.lower() in c.query.lower():
+                    issues.append(
+                        f"{c.id} [ambiguous]: contains param_key hint '{pk}' "
+                        f"— '{c.query[:70]}'"
+                    )
+                    break
+
+    return issues
+
+
 def _check_dedup(
     cases: List[Level1Case],
 ) -> tuple[bool, Optional[str]]:
@@ -278,6 +350,13 @@ def run(dry_run: bool = False) -> ValidationReport:
     if issue:
         issues.append(issue)
 
+    adv_issues = _check_adversarial_quality(cases, synonym_map)
+    if adv_issues:
+        log.warning("Adversarial quality issues found: %d", len(adv_issues))
+        for ai in adv_issues:
+            log.warning("  ✗ %s", ai)
+        issues.extend(adv_issues)
+
     dedup_ok, issue = _check_dedup(cases)
     if issue:
         issues.append(issue)
@@ -291,6 +370,7 @@ def run(dry_run: bool = False) -> ValidationReport:
         style_distribution=style_dist,
         db_existence_check=db_ok,
         dedup_check=dedup_ok,
+        adversarial_quality_check=len(adv_issues) == 0,
         issues=issues,
     )
 

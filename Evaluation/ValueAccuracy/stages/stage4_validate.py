@@ -3,6 +3,7 @@ import json
 import logging
 from pathlib import Path
 from dotenv import load_dotenv
+from typing import List, Optional
 import sys
 
 # Add project root to sys.path
@@ -53,18 +54,29 @@ def process_file(file_path: Path, executor: VitalExecutor) -> list:
 
     return validated_queries
 
-def validate_and_merge_datasets(output_filename: str = "value_accuracy_dataset.jsonl"):
+def validate_and_merge_datasets(
+    output_filename: str = "value_accuracy_dataset.jsonl",
+    input_filenames: Optional[List[str]] = None,
+):
     """
     Reads all generated query files, executes their Python code to get the ground truth,
     and merges valid ones into a final benchmark dataset.
+
+    Args:
+        output_filename:  Output filename (relative to output/).
+        input_filenames:  List of input filenames (relative to output/).  When None,
+                          falls back to the default three files from a single run.
     """
     output_dir = Path(__file__).parent.parent / "output"
-    
-    input_files = [
-        output_dir / "base_queries.jsonl",
-        output_dir / "conditional_queries.jsonl",
-        output_dir / "adversarial_queries.jsonl"
-    ]
+
+    if input_filenames is None:
+        input_files = [
+            output_dir / "base_queries.jsonl",
+            output_dir / "conditional_queries.jsonl",
+            output_dir / "adversarial_queries.jsonl",
+        ]
+    else:
+        input_files = [output_dir / fname for fname in input_filenames]
 
     executor = VitalExecutor()
 

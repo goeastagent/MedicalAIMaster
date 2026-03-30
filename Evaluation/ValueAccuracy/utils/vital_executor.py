@@ -44,6 +44,7 @@ import vitaldb
 from pathlib import Path
 
 VITAL_DIR = Path(r"{self.vital_dir}")
+COHORT_PATH = VITAL_DIR.parent / "clinical_data.csv"
 
 # Patch json.JSONEncoder so numpy types are auto-converted to native Python types.
 # This prevents "Object of type float32 is not JSON serializable" errors
@@ -92,12 +93,14 @@ def output_result(val):
             temp_file_path = temp_file.name
 
         try:
-            # Execute the temporary file
+            # Execute the temporary file from Open_VitalDB_1.0.0 so that
+            # relative paths like 'vital_files/XXXX.vital' resolve correctly
             result = subprocess.run(
                 [sys.executable, temp_file_path],
                 capture_output=True,
                 text=True,
-                timeout=60  # 60 seconds timeout for reading vital files
+                timeout=60,  # 60 seconds timeout for reading vital files
+                cwd=str(self.vital_dir.parent)
             )
 
             if result.returncode != 0:

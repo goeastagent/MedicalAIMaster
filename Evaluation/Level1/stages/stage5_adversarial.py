@@ -1,5 +1,5 @@
 """
-Evaluation/Level1/stages/stage5_adversarial.py
+Evaluation/Level1/stages/stage5_adversarial.py  (updated)
 
 Stage 5: Adversarial Case Generation
 
@@ -34,7 +34,7 @@ import sys
 import time
 from collections import defaultdict
 from pathlib import Path
-from typing import Dict, List, Optional, Set
+from typing import Dict, List, Optional, Set, Tuple
 
 # ---------------------------------------------------------------------------
 # Path bootstrap
@@ -165,20 +165,39 @@ def _format_confusing_groups(groups: List[Dict]) -> str:
 # LLM call
 # ---------------------------------------------------------------------------
 
+_DRY_RUN_PLACEHOLDERS: Dict[str, dict] = {
+    "ambiguous": {
+        "query": "[DRY-RUN] How was the patient doing during the procedure?",
+        "adversarial_type": "ambiguous",
+        "expected_behavior": "clarify",
+        "generation_notes": "dry-run: ambiguous placeholder",
+    },
+    "impossible": {
+        "query": "[DRY-RUN] What was the intraoperative intracranial pressure?",
+        "adversarial_type": "impossible",
+        "expected_behavior": "not_found",
+        "generation_notes": "dry-run: impossible placeholder",
+    },
+    "confusing": {
+        "query": "[DRY-RUN] What is the cardiac output during the operation?",
+        "adversarial_type": "confusing",
+        "expected_behavior": "clarify",
+        "generation_notes": "dry-run: confusing placeholder",
+    },
+}
+
+
 def _call_adversarial_llm(
     prompt: str,
     dry_run: bool = False,
+    adversarial_type: str = "ambiguous",
 ) -> List[dict]:
     """Call LLM for adversarial generation. Returns list of raw dicts."""
     if dry_run:
-        return [
-            {
-                "query": "[DRY-RUN] adversarial placeholder",
-                "adversarial_type": "ambiguous",
-                "expected_behavior": "clarify",
-                "generation_notes": "dry-run",
-            }
-        ]
+        placeholder = _DRY_RUN_PLACEHOLDERS.get(
+            adversarial_type, _DRY_RUN_PLACEHOLDERS["ambiguous"]
+        )
+        return [placeholder]
 
     try:
         import os
@@ -243,7 +262,7 @@ def _generate_ambiguous(
             confusing_groups="(not applicable for ambiguous type)",
             query_style=style.value,
         )
-        raw_items = _call_adversarial_llm(prompt, dry_run=dry_run)
+        raw_items = _call_adversarial_llm(prompt, dry_run=dry_run, adversarial_type="ambiguous")
         for item in raw_items:
             cand = _to_adversarial_candidate(item, "ambiguous", style=style)
             if cand:
@@ -258,8 +277,14 @@ def _generate_impossible(
     prompt_template: str,
     target: int,
     dry_run: bool,
+    synonym_map: Optional[Dict] = None,
 ) -> List[QueryCandidate]:
-    """Generate impossible adversarial cases for signals not in DB."""
+    """Generate impossible adversarial cases for signals not in DB.
+
+    When synonym_map is provided, generated cases are filtered with
+    _verify_truly_impossible() to discard queries that accidentally overlap
+    with existing DB parameters (e.g. 'cerebral oxygenation' ≈ Invos/SCO2).
+    """
     n_generate = target * AdversarialConfig.GENERATION_MULTIPLIER
     unavail_str = ", ".join(UNAVAILABLE_SIGNALS)
     styles = list(QueryStyle)
@@ -275,11 +300,18 @@ def _generate_impossible(
             confusing_groups="(not applicable for impossible type)",
             query_style=style.value,
         )
-        raw_items = _call_adversarial_llm(prompt, dry_run=dry_run)
+        raw_items = _call_adversarial_llm(prompt, dry_run=dry_run, adversarial_type="impossible")
         for item in raw_items:
             cand = _to_adversarial_candidate(item, "impossible", style=style)
-            if cand:
-                results.append(cand)
+            if not cand:
+                continue
+            if synonym_map and not _verify_truly_impossible(cand.query, synonym_map):
+                log.warning(
+                    "Discarded impossible case — matches existing DB param: '%s'",
+                    cand.query[:80],
+                )
+                continue
+            results.append(cand)
         if not dry_run:
             time.sleep(0.5)
 
@@ -316,11 +348,17 @@ def _generate_confusing(
             confusing_groups=groups_str,
             query_style=style.value,
         )
-        raw_items = _call_adversarial_llm(prompt, dry_run=dry_run)
+        raw_items = _call_adversarial_llm(prompt, dry_run=dry_run, adversarial_type="confusing")
         for item in raw_items:
+            # Find query-specific valid params instead of all confusing params
+            query_specific_pks = _find_confusing_pks_for_query(
+                item.get("query", ""), confusing_groups
+            )
+            # Fall back to all confusing pks if query-specific filtering finds nothing
+            valid_pks = query_specific_pks if query_specific_pks else all_confusing_pks
             cand = _to_adversarial_candidate(
                 item, "confusing", style=style,
-                confusing_param_keys=all_confusing_pks,
+                confusing_param_keys=valid_pks,
             )
             if cand:
                 results.append(cand)
@@ -333,6 +371,65 @@ def _generate_confusing(
 # ---------------------------------------------------------------------------
 # Helpers
 # ---------------------------------------------------------------------------
+
+def _verify_truly_impossible(
+    query: str,
+    synonym_map: Dict,
+) -> bool:
+    """Return True if the query genuinely refers to a parameter absent from VitalDB.
+
+    Uses word-boundary regex matching against all synonym expressions so that
+    common substrings (e.g. 'oxygen' inside 'oxygenation') do not cause false
+    positives.  Terms shorter than 5 characters are skipped to avoid spurious
+    matches on abbreviations like 'CO', 'HR', etc.
+
+    Note: semantic near-misses (e.g. 'cerebral oxygenation' ≈ 'Cerebral Oxygen
+    Saturation') may still slip through; a downstream LLM-based check in Stage 6
+    is recommended for edge cases.
+    """
+    query_lower = query.lower()
+    for pk, entry in synonym_map.items():
+        all_expressions = list(entry.all_expressions())
+        if entry.semantic_name:
+            all_expressions.append(entry.semantic_name)
+        for expr in all_expressions:
+            if not expr or len(expr) < 5:
+                continue
+            pattern = r"(?<![a-zA-Z])" + re.escape(expr.lower()) + r"(?![a-zA-Z])"
+            if re.search(pattern, query_lower):
+                log.debug(
+                    "impossible-check: '%s' matches param '%s' via expr '%s'",
+                    query[:60], pk, expr,
+                )
+                return False
+    return True
+
+
+def _find_confusing_pks_for_query(
+    query: str,
+    confusing_groups: List[Dict],
+) -> List[str]:
+    """Return param_keys from confusing groups that are relevant to the query.
+
+    Matches each group's semantic_name against the query using word-boundary
+    regex.  Returns an empty list when no group matches (caller should fall
+    back to all_confusing_pks).
+    """
+    query_lower = query.lower()
+    matched_pks: Set[str] = set()
+
+    for group in confusing_groups:
+        semantic = group.get("semantic_name", "")
+        # Strip 'signal:' prefix used for suffix-based groups
+        label = semantic.replace("signal:", "").replace("_", " ").strip()
+        if not label or len(label) < 4:
+            continue
+        pattern = r"(?<![a-zA-Z])" + re.escape(label.lower()) + r"(?![a-zA-Z])"
+        if re.search(pattern, query_lower):
+            matched_pks.update(group["param_keys"])
+
+    return sorted(matched_pks)
+
 
 def _to_adversarial_candidate(
     raw: dict,
@@ -375,6 +472,7 @@ def _to_adversarial_candidate(
             query_style=style,
             generation_notes=raw.get("generation_notes"),
             ground_truth=gt,
+            adversarial_subtype=adv_type,
         )
     except Exception as e:
         log.warning("Invalid adversarial candidate: %s — %s", e, raw)
@@ -460,6 +558,7 @@ def run(dry_run: bool = False) -> dict:
              AdversarialConfig.TARGET_IMPOSSIBLE)
     impossible_raw = _generate_impossible(
         prompt_template, AdversarialConfig.TARGET_IMPOSSIBLE, dry_run,
+        synonym_map=synonym_map,
     )
     impossible = _select_best(impossible_raw, AdversarialConfig.TARGET_IMPOSSIBLE)
     log.info("  generated %d → selected %d", len(impossible_raw), len(impossible))

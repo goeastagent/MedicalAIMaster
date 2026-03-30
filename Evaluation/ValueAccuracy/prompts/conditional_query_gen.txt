@@ -4,14 +4,7 @@ Your task is to generate a set of benchmark questions and their corresponding Py
 The target data are `.vital` files located in a directory. Each file is named `{caseid}.vital`.
 
 **CRITICAL - AVAILABLE DATA INVENTORY:**
-Only the following 3 case files exist. You MUST ONLY use these caseids and tracks:
-
-- **caseid 0001**: `SNUADC/ART`, `SNUADC/ECG_II`, `SNUADC/ECG_V5`, `SNUADC/PLETH`, `Primus/CO2`, `Primus/ETCO2`, `Primus/MV`, `Primus/TV`, `Primus/FIO2`, `Primus/FEO2`, `Primus/MAC`, `Primus/RR_CO2`, `Primus/AWP`, `Primus/COMPLIANCE`, `Primus/PIP_MBAR`, `Primus/PEEP_MBAR`, `BIS/BIS`, `BIS/EMG`, `BIS/SQI`, `BIS/SEF`, `BIS/SR`, `Solar8000/HR`, `Solar8000/PLETH_SPO2`, `Solar8000/PLETH_HR`, `Solar8000/BT`, `Solar8000/ART_SBP`, `Solar8000/ART_DBP`, `Solar8000/ART_MBP`, `Solar8000/ETCO2`, `Solar8000/RR_CO2`, `Solar8000/FIO2`, `Solar8000/FEO2`
-- **caseid 0002**: `SNUADC/ECG_II`, `SNUADC/ECG_V5`, `SNUADC/PLETH`, `Primus/CO2`, `Primus/ETCO2`, `Primus/MV`, `Primus/TV`, `Primus/FIO2`, `Primus/FEO2`, `Primus/MAC`, `Primus/RR_CO2`, `Primus/AWP`, `Primus/COMPLIANCE`, `Primus/PIP_MBAR`, `Primus/PEEP_MBAR`, `BIS/BIS`, `BIS/EMG`, `BIS/SQI`, `BIS/SEF`, `BIS/SR`, `Orchestra/RFTN20_CE`, `Orchestra/RFTN20_CP`, `Orchestra/RFTN20_RATE`, `Solar8000/HR`, `Solar8000/PLETH_SPO2`, `Solar8000/PLETH_HR`, `Solar8000/BT`, `Solar8000/ETCO2`, `Solar8000/RR_CO2`, `Solar8000/FIO2`, `Solar8000/FEO2`
-- **caseid 0009**: `SNUADC/ECG_II`, `SNUADC/ECG_V5`, `SNUADC/PLETH`, `Primus/CO2`, `Primus/ETCO2`, `Primus/MV`, `Primus/TV`, `Primus/FIO2`, `Primus/FEO2`, `Primus/MAC`, `Primus/RR_CO2`, `Primus/AWP`, `Primus/COMPLIANCE`, `Primus/PIP_MBAR`, `Primus/PEEP_MBAR`, `BIS/BIS`, `BIS/EMG`, `BIS/SQI`, `BIS/SEF`, `BIS/SR`, `Orchestra/PPF20_CE`, `Orchestra/PPF20_CP`, `Orchestra/PPF20_RATE`, `Orchestra/RFTN20_CE`, `Orchestra/RFTN20_CP`, `Orchestra/RFTN20_RATE`, `Solar8000/HR`, `Solar8000/PLETH_SPO2`, `Solar8000/PLETH_HR`, `Solar8000/BT`, `Solar8000/ETCO2`, `Solar8000/RR_CO2`, `Solar8000/FIO2`, `Solar8000/FEO2`
-
-Note: `SNUADC/ART` and `Solar8000/ART_SBP/DBP/MBP` ONLY exist in caseid 0001.
-Tracks common to ALL cases: `SNUADC/ECG_II`, `SNUADC/PLETH`, `Primus/CO2`, `Solar8000/HR`, `Solar8000/PLETH_SPO2`, `BIS/BIS`, etc.
+{cases_inventory}
 
 ### Instructions:
 Generate exactly {num_queries} distinct JSON objects.
@@ -19,7 +12,7 @@ The queries MUST be of type `conditional_multi_hop`.
 All queries operate over the ENTIRE recording duration of the specified case(s).
 
 **CRITICAL REQUIREMENT - SCOPE LIMITATION:**
-You MUST ONLY reference caseids 0001, 0002, and 0009. Do NOT use any other caseids.
+You MUST ONLY reference the caseids listed in the inventory above. Do NOT use any other caseids.
 You MUST ONLY use track names listed above for the specific caseid.
 
 **CRITICAL REQUIREMENT - QUERY STYLES:**

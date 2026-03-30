@@ -153,14 +153,30 @@ def _triage_none_values(queries: list) -> list:
     return none_ids[-excess:]
 
 
+def _extract_caseids_from_query(query_text: str) -> frozenset:
+    """Return the set of caseids mentioned in a query string."""
+    return frozenset(re.findall(r'caseid\s+(\d+)', query_text, re.IGNORECASE))
+
+
 def _deduplicate(queries: list) -> list:
-    """Remove near-duplicate queries based on text similarity + same expected_value."""
+    """
+    Remove near-duplicate queries based on text similarity + same expected_value.
+
+    Multi-run awareness: two queries that reference *different* caseids are never
+    considered duplicates, even if their text is otherwise very similar and both
+    have the same expected_value (e.g. adversarial-fake queries with None).
+    """
     logger.info("--- Deduplication ---")
     flagged = []
     seen = []
     for q in queries:
+        q_caseids = _extract_caseids_from_query(q.get("query", ""))
         is_dup = False
         for s in seen:
+            # If both queries reference explicit caseids and they differ → never a dup
+            s_caseids = _extract_caseids_from_query(s.get("query", ""))
+            if q_caseids and s_caseids and q_caseids != s_caseids:
+                continue
             if str(q.get("expected_value")) == str(s.get("expected_value")):
                 sim = SequenceMatcher(None, q["query"], s["query"]).ratio()
                 if sim >= SIMILARITY_THRESHOLD:

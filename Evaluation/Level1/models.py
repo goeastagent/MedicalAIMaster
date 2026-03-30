@@ -228,6 +228,15 @@ class Level1Case(BaseModel):
     )
     ground_truth: GroundTruth
 
+    # populated by Stage 5 for adversarial cases
+    adversarial_subtype: Optional[str] = Field(
+        default=None,
+        description=(
+            "Adversarial case sub-type: 'ambiguous' | 'impossible' | 'confusing'. "
+            "None for non-adversarial cases."
+        ),
+    )
+
     # ---- derived / read-only properties ----
 
     @property
@@ -288,6 +297,15 @@ class QueryCandidate(BaseModel):
 
     # populated by Stage 3
     ground_truth: Optional[GroundTruth] = None
+
+    # populated by Stage 5 for adversarial cases
+    adversarial_subtype: Optional[str] = Field(
+        default=None,
+        description=(
+            "Adversarial case sub-type: 'ambiguous' | 'impossible' | 'confusing'. "
+            "None for non-adversarial cases."
+        ),
+    )
 
 
 class SynonymEntry(BaseModel):
@@ -358,6 +376,15 @@ class ValidationReport(BaseModel):
     dedup_check: bool = Field(
         description="True if no two queries have cosine similarity > dedup threshold.",
     )
+    adversarial_quality_check: bool = Field(
+        default=True,
+        description=(
+            "True if all adversarial cases pass quality checks: "
+            "impossible cases are truly absent from DB, confusing cases have "
+            "acceptable_behaviors and confusing_valid_params populated, "
+            "ambiguous cases contain no param_key hints."
+        ),
+    )
 
     issues: List[str] = Field(
         default_factory=list,
@@ -378,6 +405,7 @@ class ValidationReport(BaseModel):
         print(f"  Param coverage   : {self.param_coverage} unique param_keys")
         print(f"  DB existence     : {'OK' if self.db_existence_check else 'FAIL'}")
         print(f"  Dedup check      : {'OK' if self.dedup_check else 'FAIL'}")
+        print(f"  Adversarial QA   : {'OK' if self.adversarial_quality_check else 'FAIL'}")
         print(f"\n  Category distribution:")
         for k, v in sorted(self.category_distribution.items()):
             print(f"    {k:<20} {v:>4}")

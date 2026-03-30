@@ -37,7 +37,6 @@ from Evaluation.SemanticValueAccuracy.config import (
     FilterConfig,
     LLMConfig,
     Paths,
-    TARGET_CASE_IDS,
 )
 
 logging.basicConfig(
@@ -66,9 +65,18 @@ def _call_gt_llm(prompt: str) -> str:
     """Call LLM and return raw code string."""
     from openai import OpenAI
 
+    _REASONING_PREFIXES = ("o1", "o3", "gpt-5")
+    _model = LLMConfig.GT_CODE_MODEL
+    _is_reasoning = any(_model.lower().startswith(p) for p in _REASONING_PREFIXES)
+    _token_param = (
+        {"max_completion_tokens": LLMConfig.GT_CODE_MAX_TOKENS}
+        if _is_reasoning
+        else {"max_tokens": LLMConfig.GT_CODE_MAX_TOKENS}
+    )
+
     client = OpenAI(api_key=os.getenv("OPENAI_API_KEY"))
     response = client.chat.completions.create(
-        model=LLMConfig.GT_CODE_MODEL,
+        model=_model,
         messages=[
             {
                 "role": "system",
@@ -80,7 +88,7 @@ def _call_gt_llm(prompt: str) -> str:
             {"role": "user", "content": prompt},
         ],
         temperature=LLMConfig.GT_CODE_TEMPERATURE,
-        max_tokens=LLMConfig.GT_CODE_MAX_TOKENS,
+        **_token_param,
     )
     raw = response.choices[0].message.content.strip()
 
@@ -162,13 +170,21 @@ def _coerce_value(value: Any, answer_type: str) -> Any:
 # Case ID extraction from query
 # ---------------------------------------------------------------------------
 
-def _extract_case_ids(query: str) -> List[str]:
-    """Extract case IDs referenced in the query."""
-    found = []
-    for cid in TARGET_CASE_IDS:
-        if cid in query:
-            found.append(cid)
-    return found if found else TARGET_CASE_IDS
+def _extract_case_ids(query: str, candidate: Optional[Dict] = None) -> List[str]:
+    """Extract case IDs referenced in the query using regex."""
+    found = re.findall(r'\b(\d{4})\b', query)
+    if found:
+        return list(dict.fromkeys(found))
+    # Fallback: check resolution_target in candidate metadata
+    if candidate:
+        rt = candidate.get("resolution_target", {})
+        eq_group = rt.get("equivalence_group", [])
+        for item in eq_group:
+            if isinstance(item, dict):
+                caseid = item.get("caseid") or item.get("case_id")
+                if caseid:
+                    return [str(caseid)]
+    return []
 
 
 # ---------------------------------------------------------------------------
@@ -189,7 +205,7 @@ def process_candidate(
     answer_type = candidate.get("answer_type", "number")
     rt = candidate.get("resolution_target", {})
     eq_group = rt.get("equivalence_group", [])
-    case_ids = _extract_case_ids(query)
+    case_ids = _extract_case_ids(query, candidate)
 
     # --- Pass 1 + 2: Generate and verify base GT code ---
     if not eq_group:

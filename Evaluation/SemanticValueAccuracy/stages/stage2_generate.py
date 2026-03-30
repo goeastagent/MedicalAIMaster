@@ -36,7 +36,6 @@ from Evaluation.SemanticValueAccuracy.config import (
     CategoryTargets,
     LLMConfig,
     Paths,
-    TARGET_CASE_IDS,
 )
 from Evaluation.SemanticValueAccuracy.models import QueryCategory
 
@@ -129,7 +128,11 @@ def build_prompt(
     dev_groups = _format_device_groups(metadata)
     cohort = _format_cohort_data(metadata)
     cohort_schema = _format_cohort_schema(metadata)
-    case_ids = ", ".join(TARGET_CASE_IDS)
+
+    # Prefer case IDs stored by Stage 1 in metadata_context.json; fall back to
+    # an empty string so that the prompt can still be rendered if the key is absent.
+    stored_ids: List[str] = metadata.get("target_case_ids", [])
+    case_ids = ", ".join(stored_ids) if stored_ids else "(unknown — re-run stage 1)"
 
     prompt = template.format(
         parameters_context=params_ctx,
@@ -164,9 +167,18 @@ def _call_llm(prompt: str, dry_run: bool = False) -> List[Dict]:
     try:
         from openai import OpenAI
 
+        _REASONING_PREFIXES = ("o1", "o3", "gpt-5")
+        _model = LLMConfig.GENERATION_MODEL
+        _is_reasoning = any(_model.lower().startswith(p) for p in _REASONING_PREFIXES)
+        _token_param = (
+            {"max_completion_tokens": LLMConfig.GENERATION_MAX_TOKENS}
+            if _is_reasoning
+            else {"max_tokens": LLMConfig.GENERATION_MAX_TOKENS}
+        )
+
         client = OpenAI(api_key=os.getenv("OPENAI_API_KEY"))
         response = client.chat.completions.create(
-            model=LLMConfig.GENERATION_MODEL,
+            model=_model,
             messages=[
                 {
                     "role": "system",
@@ -178,7 +190,7 @@ def _call_llm(prompt: str, dry_run: bool = False) -> List[Dict]:
                 {"role": "user", "content": prompt},
             ],
             temperature=LLMConfig.GENERATION_TEMPERATURE,
-            max_tokens=LLMConfig.GENERATION_MAX_TOKENS,
+            **_token_param,
         )
         raw = response.choices[0].message.content
 
@@ -248,6 +260,8 @@ def _generate_category(
     total_gen = target * CategoryTargets.OVERSAMPLING_MULTIPLIER
     generated = 0
     batch_idx = 0
+    consecutive_failures = 0
+    MAX_CONSECUTIVE_FAILURES = 5
 
     while generated < total_gen:
         n = min(batch_size, total_gen - generated)
@@ -273,6 +287,17 @@ def _generate_category(
         generated += batch_generated
         batch_idx += 1
 
+        if batch_generated == 0:
+            consecutive_failures += 1
+            if consecutive_failures >= MAX_CONSECUTIVE_FAILURES:
+                log.error(
+                    "  [%s] %d consecutive empty batches — aborting category to avoid infinite loop.",
+                    category, consecutive_failures,
+                )
+                break
+        else:
+            consecutive_failures = 0
+
         log.info(
             "  [%s] batch %d → %d candidates (total: %d / %d)",
             category, batch_idx, batch_generated, generated, total_gen,
@@ -291,18 +316,32 @@ def _generate_category(
 def run(
     dry_run: bool = False,
     category_filter: Optional[str] = None,
+    output_file: Optional[Path] = None,
+    metadata_context_path: Optional[Path] = None,
 ) -> int:
-    """Execute Stage 2."""
+    """Execute Stage 2.
+
+    Args:
+        dry_run:               Skip LLM calls.
+        category_filter:       Only process this category.
+        output_file:           Custom path for the candidates JSONL file.
+                               Defaults to Paths.CANDIDATES (sva_candidates.jsonl).
+        metadata_context_path: Custom path for the Stage 1 metadata JSON.
+                               Defaults to Paths.METADATA_CONTEXT.
+    """
     Paths.ensure_output_dir()
-    output_file = Paths.CANDIDATES
+    if output_file is None:
+        output_file = Paths.CANDIDATES
+    if metadata_context_path is None:
+        metadata_context_path = Paths.METADATA_CONTEXT
 
     # Load metadata context from Stage 1
-    if not Paths.METADATA_CONTEXT.exists():
+    if not metadata_context_path.exists():
         raise FileNotFoundError(
-            f"Stage 1 output not found: {Paths.METADATA_CONTEXT}. "
+            f"Stage 1 output not found: {metadata_context_path}. "
             "Run Stage 1 first."
         )
-    metadata = json.loads(Paths.METADATA_CONTEXT.read_text(encoding="utf-8"))
+    metadata = json.loads(metadata_context_path.read_text(encoding="utf-8"))
     log.info(
         "Loaded metadata: %d params, %d xdev pairs, %d cohort rows",
         len(metadata.get("track_names_ref", {})),
@@ -310,8 +349,8 @@ def run(
         len(metadata.get("cohort_data", [])),
     )
 
-    # Resume support
-    progress = _load_progress()
+    # Resume support (only applies to the default output file; per-run files always start fresh)
+    progress = _load_progress() if output_file == Paths.CANDIDATES else {"completed_categories": {}, "total_candidates": 0}
     completed = progress["completed_categories"]
 
     # Reset output if progress is empty but file exists

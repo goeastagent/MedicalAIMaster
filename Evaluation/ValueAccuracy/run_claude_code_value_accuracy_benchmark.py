@@ -95,6 +95,8 @@ def run_claude_code_value_accuracy(datasets_to_run=None, limit=None, output_file
             start_time = time.time()
             
             try:
+                OPENVITALDB_DIR = str(project_root / "IndexingAgent" / "data" / "raw" / "Open_VitalDB_1.0.0")
+
                 # Call Claude Code CLI
                 # --dangerously-skip-permissions is REQUIRED so it can write/execute python without asking
                 process = subprocess.run(
@@ -105,7 +107,8 @@ def run_claude_code_value_accuracy(datasets_to_run=None, limit=None, output_file
                     ],
                     capture_output=True,
                     text=True,
-                    timeout=120 # 2 minutes timeout for code execution
+                    timeout=120, # 2 minutes timeout for code execution
+                    cwd=OPENVITALDB_DIR
                 )
                 
                 elapsed_ms = (time.time() - start_time) * 1000

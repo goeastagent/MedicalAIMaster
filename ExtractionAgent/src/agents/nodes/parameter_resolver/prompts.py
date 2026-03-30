@@ -31,6 +31,11 @@ You must decide which parameters to include in the data extraction.
 3. Determine the resolution mode:
    - "retrieve": Found a valid semantic match. The candidate represents the same clinical concept the user asked for. (Select the specific param_keys).
    - "clarify": Candidates match the general concept, but it's too ambiguous to choose without user input.
+   - "not_found": NONE of the DB candidates actually represent what the user asked for. Use this when the match is superficial (keyword overlap only) but semantically wrong. Criteria:
+     • User asked for signal X, but DB only has signal Y from a different body location (e.g., "intracranial pressure" ≠ "arterial blood pressure")
+     • User asked for a physiological process that has no corresponding measurement in the DB (e.g., "gut motility", "sweat gland activity")
+     • The closest DB match would be clinically misleading to substitute for the requested signal
+     In "not_found" mode, set selected_param_keys to [].
 
 4. Domain Specific Rules:
    - Cross-Device Resolution (Hierarchy of Sources): If the exact same physiological parameter exists across multiple devices and the user didn't specify one, DO NOT ask for clarification and DO NOT return all of them. Instead, select ONLY ONE parameter based on the following clinical hierarchy:
@@ -48,10 +53,10 @@ Respond ONLY with the following JSON format:
 
 ```json
 {{
-    "resolution_mode": "retrieve | clarify",
+    "resolution_mode": "retrieve | clarify | not_found",
     "selected_param_keys": ["param_key1", "param_key2"],
     "confidence": 0.95,
-    "reasoning": "Detailed explanation of why these parameters were selected or why it was deemed clarify."
+    "reasoning": "Detailed explanation of why these parameters were selected or why it was deemed clarify/not_found."
 }}
 ```
 
@@ -59,7 +64,7 @@ Respond ONLY with the following JSON format:
 
 1. Real-time signals typically use "Device/Parameter" format (e.g., device parameters shown above)
 2. Lab values and clinical data use single-key format (e.g., clinical_lab parameters shown above)
-3. Never return an empty selected_param_keys unless resolution_mode is "clarify"
+3. Never return an empty selected_param_keys unless resolution_mode is "clarify" or "not_found"
 """
 
 

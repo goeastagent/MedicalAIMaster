@@ -37,8 +37,8 @@ if str(_PROJECT_ROOT) not in sys.path:
 from Evaluation.SemanticValueAccuracy.config import (
     CROSS_DEVICE_EQUIVALENCES,
     Paths,
-    TARGET_CASE_IDS,
 )
+from Evaluation.utils.case_sampler import sample_case_ids, get_vital_dir
 
 logging.basicConfig(
     level=logging.INFO,
@@ -204,9 +204,35 @@ def enrich_with_manual_equivalences(
 # Main
 # ---------------------------------------------------------------------------
 
-def run(dry_run: bool = False) -> Dict[str, Any]:
-    """Execute Stage 1 and write metadata_context.json."""
+def run(
+    dry_run: bool = False,
+    n_cases: int = 3,
+    seed: int | None = None,
+    target_case_ids: List[str] | None = None,
+    output_path: Path | None = None,
+) -> Dict[str, Any]:
+    """Execute Stage 1 and write metadata_context.json.
+
+    Args:
+        dry_run:         Skip writing the output file.
+        n_cases:         Number of .vital files to sample (ignored when
+                         target_case_ids is provided).
+        seed:            Random seed for sampling.
+        target_case_ids: Explicit list of caseid strings. When provided,
+                         n_cases and seed are ignored.
+        output_path:     Custom path for the metadata JSON file.  Defaults to
+                         Paths.METADATA_CONTEXT.
+    """
     Paths.ensure_output_dir()
+
+    # Resolve which cases to use
+    if target_case_ids is None:
+        target_case_ids = sample_case_ids(
+            vital_dir=get_vital_dir(), n=n_cases, seed=seed
+        )
+        log.info("Sampled %d cases (seed=%s): %s", len(target_case_ids), seed, target_case_ids)
+    else:
+        log.info("Using provided cases: %s", target_case_ids)
 
     # 1. track_names.csv
     log.info("Loading track_names.csv: %s", Paths.TRACK_NAMES_CSV)
@@ -215,7 +241,7 @@ def run(dry_run: bool = False) -> Dict[str, Any]:
 
     # 2. Case track inventory
     log.info("Extracting case track inventories ...")
-    case_inventory = extract_case_inventory(Paths.VITAL_DIR, TARGET_CASE_IDS)
+    case_inventory = extract_case_inventory(Paths.VITAL_DIR, target_case_ids)
 
     # 3. Device groups
     log.info("Building device groups ...")
@@ -231,11 +257,11 @@ def run(dry_run: bool = False) -> Dict[str, Any]:
     # 5. Cohort data
     log.info("Loading cohort data: %s", Paths.CLINICAL_DATA_CSV)
     cohort_rows, cohort_schema = extract_cohort_data(
-        Paths.CLINICAL_DATA_CSV, TARGET_CASE_IDS,
+        Paths.CLINICAL_DATA_CSV, target_case_ids,
     )
     log.info("  %d target cases extracted", len(cohort_rows))
 
-    # 6. Assemble context
+    # 6. Assemble context — store case IDs so downstream stages can read them
     context: Dict[str, Any] = {
         "track_names_ref": param_lookup,
         "device_groups": device_groups,
@@ -243,11 +269,11 @@ def run(dry_run: bool = False) -> Dict[str, Any]:
         "cohort_data": cohort_rows,
         "cohort_schema": cohort_schema,
         "case_track_inventory": case_inventory,
-        "target_case_ids": TARGET_CASE_IDS,
+        "target_case_ids": sorted(target_case_ids),
     }
 
     # 7. Save
-    out_path = Paths.METADATA_CONTEXT
+    out_path = output_path if output_path is not None else Paths.METADATA_CONTEXT
     if dry_run:
         log.info("[DRY-RUN] Would write %s (skipped)", out_path)
     else:
@@ -284,5 +310,11 @@ if __name__ == "__main__":
     )
     parser.add_argument("--dry-run", action="store_true",
                         help="Skip writing output file.")
+    parser.add_argument("--n-cases", type=int, default=3,
+                        help="Number of .vital files to randomly sample (default: 3).")
+    parser.add_argument("--seed", type=int, default=None,
+                        help="Random seed for case sampling.")
+    parser.add_argument("--cases", nargs="+", default=None,
+                        help="Explicit caseid list (e.g. --cases 0001 0042). Overrides --n-cases/--seed.")
     args = parser.parse_args()
-    run(dry_run=args.dry_run)
+    run(dry_run=args.dry_run, n_cases=args.n_cases, seed=args.seed, target_case_ids=args.cases)

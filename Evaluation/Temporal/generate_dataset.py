@@ -7,6 +7,7 @@ from collections import Counter
 from pathlib import Path
 from difflib import SequenceMatcher
 from dotenv import load_dotenv
+from typing import Optional
 
 import numpy as np
 
@@ -16,11 +17,14 @@ from shared.llm.client import get_llm_client
 from Evaluation.ValueAccuracy.utils.vital_executor import VitalExecutor
 from Evaluation.Temporal.extract_metadata import CLINICAL_RANGES
 
+_DEFAULT_METADATA_PATH = Path(__file__).parent / "vital_metadata.json"
+_OUTPUT_DIR = Path(__file__).parent / "output"
+
 logging.basicConfig(level=logging.INFO, format='%(asctime)s - %(levelname)s - %(message)s')
 logger = logging.getLogger(__name__)
 
 BATCH_SIZE = 20
-MAX_TOKENS_PER_BATCH = 32768
+MAX_TOKENS_PER_BATCH = 65536
 SIMILARITY_THRESHOLD = 0.80
 MAX_NONE_RATIO = 0.15
 MAX_NAN_RATIO_PER_WINDOW = 0.50
@@ -33,18 +37,36 @@ MAX_WARNINGS_IN_PROMPT = 40
 # Quality warnings loader
 # ═══════════════════════════════════════════════════════════════════════════
 
-def _load_quality_warnings() -> str:
-    """Load condensed warnings from vital_metadata.json for prompt injection."""
-    metadata_path = Path(__file__).parent / "vital_metadata.json"
+def _load_vital_metadata(metadata_path: Optional[Path] = None) -> dict:
+    """Load vital_metadata.json, returning an empty dict if not found."""
+    if metadata_path is None:
+        metadata_path = _DEFAULT_METADATA_PATH
     if not metadata_path.exists():
-        logger.warning("vital_metadata.json not found — run extract_metadata.py first")
+        logger.warning(f"vital_metadata.json not found at {metadata_path} — run extract_metadata.py first")
+        return {}
+    with open(metadata_path, "r", encoding="utf-8") as f:
+        return json.load(f)
+
+
+def _get_sampled_case_ids(metadata: dict) -> list[str]:
+    """Return the case IDs recorded in vital_metadata.json by extract_metadata.py."""
+    stored = metadata.get("_sampled_case_ids")
+    if stored:
+        return stored
+    # Fallback: infer from top-level keys (excluding the meta key itself)
+    return sorted(k for k in metadata if not k.startswith("_"))
+
+
+def _load_quality_warnings(metadata_path: Optional[Path] = None) -> str:
+    """Load condensed warnings from vital_metadata.json for prompt injection."""
+    metadata = _load_vital_metadata(metadata_path)
+    if not metadata:
         return "(No quality warnings available — metadata not yet extracted.)"
 
-    with open(metadata_path, "r", encoding="utf-8") as f:
-        metadata = json.load(f)
-
     warnings = []
-    for caseid, case_data in sorted(metadata.items()):
+    for caseid, case_data in sorted(
+        (k, v) for k, v in metadata.items() if not k.startswith("_")
+    ):
         for track, profile in case_data.get("track_profiles", {}).items():
             if "error" in profile:
                 continue
@@ -250,6 +272,11 @@ def _check_dataset_balance(validated: list) -> list:
         warnings.append("No temporal queries in dataset")
         return warnings
 
+    # Determine which case IDs were sampled for this run (from vital_metadata.json)
+    metadata = _load_vital_metadata()
+    sampled_case_ids = _get_sampled_case_ids(metadata)
+    n_sampled = len(sampled_case_ids) if sampled_case_ids else 1
+
     # caseid balance
     caseid_counts = Counter()
     for q in temporal:
@@ -257,8 +284,8 @@ def _check_dataset_balance(validated: list) -> list:
         for cid in ids:
             caseid_counts[cid] += 1
 
-    expected_per_case = len(temporal) / 3
-    for cid in ["0001", "0002", "0009"]:
+    expected_per_case = len(temporal) / n_sampled
+    for cid in sampled_case_ids:
         count = caseid_counts.get(cid, 0)
         if count < expected_per_case * 0.6:
             warnings.append(f"caseid {cid} underrepresented: {count}/{len(temporal)} queries")
@@ -292,12 +319,23 @@ def _check_dataset_balance(validated: list) -> list:
 # Main pipeline
 # ═══════════════════════════════════════════════════════════════════════════
 
-def generate_temporal_queries(num_queries: int = 20, output_file: str = "temporal_queries.jsonl"):
+def generate_temporal_queries(
+    num_queries: int = 20,
+    output_file: str = "temporal_queries.jsonl",
+    metadata_path: Optional[Path] = None,
+):
+    """
+    Args:
+        num_queries:   Total queries to generate.
+        output_file:   Output filename (relative to output/).
+        metadata_path: Path to vital_metadata.json used for quality warnings.
+                       Defaults to the standard location.
+    """
     prompt_path = Path(__file__).parent / "prompts" / "temporal_query_gen.txt"
     with open(prompt_path, "r", encoding="utf-8") as f:
         prompt_template = f.read()
 
-    quality_warnings_text = _load_quality_warnings()
+    quality_warnings_text = _load_quality_warnings(metadata_path)
     prompt_template = prompt_template.replace("{quality_warnings}", quality_warnings_text)
 
     llm_client = get_llm_client()
@@ -342,7 +380,7 @@ def generate_temporal_queries(num_queries: int = 20, output_file: str = "tempora
     for i, q in enumerate(all_queries):
         q["id"] = f"temp_{i+1:03d}"
 
-    output_dir = Path(__file__).parent / "output"
+    output_dir = _OUTPUT_DIR
     output_dir.mkdir(parents=True, exist_ok=True)
     output_path = output_dir / output_file
 
@@ -357,22 +395,30 @@ def generate_temporal_queries(num_queries: int = 20, output_file: str = "tempora
 def validate_temporal_queries(
     input_file: str = "temporal_queries.jsonl",
     output_file: str = "temporal_dataset_validated.jsonl",
+    metadata_path: Optional[Path] = None,
 ):
-    input_path = Path(__file__).parent / "output" / input_file
-    output_path = Path(__file__).parent / "output" / output_file
+    """
+    Args:
+        input_file:    Input filename (relative to output/).
+        output_file:   Output filename (relative to output/).
+        metadata_path: Path to vital_metadata.json for quality gates.
+    """
+    input_path = _OUTPUT_DIR / input_file
+    output_path = _OUTPUT_DIR / output_file
 
     if not input_path.exists():
         logger.error(f"Input file not found: {input_path}")
         return
 
     # Load metadata for quality gates
-    metadata_path = Path(__file__).parent / "vital_metadata.json"
+    if metadata_path is None:
+        metadata_path = _DEFAULT_METADATA_PATH
     metadata = {}
     if metadata_path.exists():
         with open(metadata_path, "r", encoding="utf-8") as f:
             metadata = json.load(f)
     else:
-        logger.warning("vital_metadata.json not found — quality gates will be limited")
+        logger.warning(f"vital_metadata.json not found at {metadata_path} — quality gates will be limited")
 
     queries = []
     with open(input_path, "r", encoding="utf-8") as f:
@@ -454,7 +500,120 @@ def validate_temporal_queries(
     logger.info(f"\n  Saved {len(validated)} validated queries → {output_path}")
 
 
+def run_temporal_pipeline(
+    n_cases: int = 10,
+    num_runs: int = 10,
+    seed: Optional[int] = None,
+    num_queries_per_run: int = 20,
+):
+    """
+    Multi-run Temporal dataset generation orchestrator.
+
+    Each run samples a fresh set of cases, extracts their metadata, generates
+    temporal queries, validates them, then accumulates into a master dataset.
+
+    Args:
+        n_cases:           Cases per run.
+        num_runs:          Number of independent runs.
+        seed:              Base random seed (run i uses seed+i).
+        num_queries_per_run: Temporal queries to generate per run.
+    """
+    from Evaluation.Temporal.extract_metadata import extract_metadata
+    from Evaluation.utils.case_sampler import sample_cases_excluding, get_vital_dir
+
+    _OUTPUT_DIR.mkdir(parents=True, exist_ok=True)
+    vital_dir = get_vital_dir()
+    used_cases: set[str] = set()
+    all_validated_files: list[str] = []
+
+    for run_idx in range(num_runs):
+        run_seed = (seed + run_idx) if seed is not None else None
+        logger.info(f"\n{'='*60}")
+        logger.info(f"  Temporal Run {run_idx + 1}/{num_runs}  (seed={run_seed})")
+        logger.info(f"{'='*60}")
+
+        cases = sample_cases_excluding(
+            exclude=used_cases, vital_dir=vital_dir, n=n_cases, seed=run_seed
+        )
+        if not cases:
+            logger.warning(f"  Run {run_idx}: no fresh cases available — stopping early")
+            break
+        used_cases.update(cases.keys())
+        logger.info(f"  Sampled: {sorted(cases.keys())}")
+
+        tag = f"run_{run_idx:03d}"
+        meta_path = _OUTPUT_DIR / f"{tag}_vital_metadata.json"
+        queries_file = f"{tag}_temporal_queries.jsonl"
+        validated_file = f"{tag}_temporal_validated.jsonl"
+
+        # 1. Extract metadata for this run's cases
+        extract_metadata(
+            target_cases=sorted(cases.keys()),
+            output_path=meta_path,
+        )
+
+        # 2. Generate temporal queries using this run's metadata
+        generate_temporal_queries(
+            num_queries=num_queries_per_run,
+            output_file=queries_file,
+            metadata_path=meta_path,
+        )
+
+        # 3. Validate
+        validate_temporal_queries(
+            input_file=queries_file,
+            output_file=validated_file,
+            metadata_path=meta_path,
+        )
+        all_validated_files.append(validated_file)
+
+    # Merge all runs into a single master dataset
+    logger.info(f"\n--- Merging {len(all_validated_files)} Temporal run file(s) ---")
+    master_path = _OUTPUT_DIR / "temporal_dataset_validated.jsonl"
+    all_records = []
+    for fname in all_validated_files:
+        fpath = _OUTPUT_DIR / fname
+        if fpath.exists():
+            with open(fpath, "r", encoding="utf-8") as f:
+                for line in f:
+                    if line.strip():
+                        try:
+                            all_records.append(json.loads(line))
+                        except json.JSONDecodeError:
+                            pass
+
+    # Reassign IDs
+    for i, rec in enumerate(all_records):
+        rec["id"] = f"temp_{i+1:04d}"
+
+    with open(master_path, "w", encoding="utf-8") as f:
+        for rec in all_records:
+            f.write(json.dumps(rec, ensure_ascii=False) + "\n")
+
+    logger.info(f"Merged {len(all_records)} temporal records → {master_path}")
+    logger.info(f"Cases covered: {len(used_cases)}")
+    return master_path
+
+
 if __name__ == "__main__":
+    import argparse
     load_dotenv()
-    generate_temporal_queries(num_queries=20)
-    validate_temporal_queries()
+    parser = argparse.ArgumentParser(description="Generate Temporal benchmark dataset.")
+    parser.add_argument("--num-queries", type=int, default=20)
+    parser.add_argument("--n-cases", type=int, default=10,
+                        help="Number of .vital files to randomly sample per run (default: 10)")
+    parser.add_argument("--num-runs", type=int, default=10,
+                        help="Number of independent runs with fresh case sets (default: 10)")
+    parser.add_argument("--seed", type=int, default=None)
+    args = parser.parse_args()
+
+    if args.num_runs > 1:
+        run_temporal_pipeline(
+            n_cases=args.n_cases,
+            num_runs=args.num_runs,
+            seed=args.seed,
+            num_queries_per_run=args.num_queries,
+        )
+    else:
+        generate_temporal_queries(num_queries=args.num_queries)
+        validate_temporal_queries()

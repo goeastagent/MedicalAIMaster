@@ -373,7 +373,20 @@ class ParameterResolverNode(BaseNode):
             selected_keys = response.get("selected_param_keys", [])
             confidence = response.get("confidence", 0.5)
             reasoning = response.get("reasoning", "")
-            
+
+            if resolution_mode == "not_found":
+                self.log(f"   ✗ Resolver: parameter does not exist in DB — {reasoning[:80]}", indent=2)
+                return {
+                    "term": term,
+                    "param_keys": [],
+                    "semantic_name": normalized,
+                    "unit": None,
+                    "concept_category": None,
+                    "resolution_mode": "not_found",
+                    "confidence": 0.0,
+                    "reasoning": reasoning,
+                }
+
             if resolution_mode == "clarify":
                 return {
                     "term": term,

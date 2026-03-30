@@ -37,7 +37,6 @@ if str(_PROJECT_ROOT) not in sys.path:
 from Evaluation.SemanticValueAccuracy.config import (
     CategoryTargets,
     Paths,
-    TARGET_CASE_IDS,
     ValidationCriteria,
 )
 from Evaluation.SemanticValueAccuracy.models import ValidationReport
@@ -196,22 +195,16 @@ def validate_dataset(final: List[Dict]) -> ValidationReport:
     if not null_ok:
         issues.append(f"Null ratio {null_ratio:.1%} exceeds {ValidationCriteria.NULL_RATIO_MAX:.0%}")
 
-    # Check 5: case diversity
-    case_refs: Dict[str, int] = {cid: 0 for cid in TARGET_CASE_IDS}
+    # Check 5: case diversity — dynamically extract case IDs from queries
+    case_refs: Dict[str, int] = Counter()
     for c in final:
         q = c.get("query", "")
-        for cid in TARGET_CASE_IDS:
-            if cid in q:
-                case_refs[cid] += 1
-    diversity_ok = True
-    for cid, count in case_refs.items():
-        pct = count / len(final) if final else 0
-        if pct < ValidationCriteria.MIN_CASE_DIVERSITY_PCT:
-            diversity_ok = False
-            issues.append(
-                f"Case {cid} referenced in {count}/{len(final)} "
-                f"({pct:.0%} < {ValidationCriteria.MIN_CASE_DIVERSITY_PCT:.0%})"
-            )
+        for cid in re.findall(r'\b(\d{4})\b', q):
+            case_refs[cid] += 1
+    unique_cases = len(case_refs)
+    diversity_ok = unique_cases >= 2
+    if not diversity_ok:
+        issues.append(f"Only {unique_cases} unique case(s) referenced across all queries")
     checks["case_diversity"] = "PASS" if diversity_ok else "FAIL"
 
     report = ValidationReport(

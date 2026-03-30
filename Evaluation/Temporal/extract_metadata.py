@@ -1,13 +1,24 @@
+import argparse
 import json
 import logging
+import sys
 import vitaldb
 import numpy as np
 from pathlib import Path
+from typing import Optional
 
 logging.basicConfig(level=logging.INFO, format="%(asctime)s - %(levelname)s - %(message)s")
 logger = logging.getLogger(__name__)
 
-TARGET_CASES = ["0001", "0002", "0009"]
+# ---------------------------------------------------------------------------
+# Project root (needed for case_sampler import)
+# ---------------------------------------------------------------------------
+_PROJECT_ROOT = Path(__file__).resolve().parents[2]
+if str(_PROJECT_ROOT) not in sys.path:
+    sys.path.insert(0, str(_PROJECT_ROOT))
+
+from Evaluation.utils.case_sampler import sample_case_ids, get_vital_dir
+
 WINDOW_SIZE_SEC = 300  # 5-minute sliding window for quality scanning
 
 CLINICAL_RANGES = {
@@ -194,18 +205,40 @@ def _generate_quality_warnings(caseid: str, track: str, profile: dict) -> list[s
     return warnings
 
 
-def extract_metadata():
-    project_root = Path(__file__).resolve().parent.parent.parent
-    vital_dir = project_root / "IndexingAgent" / "data" / "raw" / "Open_VitalDB_1.0.0" / "vital_files"
+def extract_metadata(
+    n_cases: int = 3,
+    seed: Optional[int] = None,
+    target_cases: Optional[list[str]] = None,
+    output_path: Optional[Path] = None,
+):
+    """
+    Scan .vital files and produce vital_metadata.json + quality_warnings.txt.
+
+    Args:
+        n_cases:      Number of .vital files to randomly sample (ignored when
+                      target_cases is provided).
+        seed:         Random seed for case sampling.
+        target_cases: Explicit list of caseid strings (e.g. ["0001", "0042"]).
+                      When provided, n_cases and seed are ignored.
+        output_path:  Custom Path for the metadata JSON file.  Defaults to
+                      Evaluation/Temporal/vital_metadata.json.
+    """
+    vital_dir = get_vital_dir()
 
     if not vital_dir.exists():
         logger.error(f"Vital directory not found at {vital_dir}")
         return
 
+    if target_cases is None:
+        target_cases = sample_case_ids(vital_dir=vital_dir, n=n_cases, seed=seed)
+        logger.info(f"Sampled {len(target_cases)} cases (seed={seed}): {target_cases}")
+    else:
+        logger.info(f"Using provided cases: {target_cases}")
+
     metadata = {}
     all_warnings: list[str] = []
 
-    for caseid in TARGET_CASES:
+    for caseid in target_cases:
         file_path = vital_dir / f"{caseid}.vital"
         if not file_path.exists():
             logger.warning(f"{caseid}.vital not found, skipping.")
@@ -238,13 +271,18 @@ def extract_metadata():
             "track_profiles": track_profiles,
         }
 
-    output_dir = Path(__file__).resolve().parent
-    metadata_path = output_dir / "vital_metadata.json"
+    # Store sampled case list inside the JSON so downstream stages can read it
+    default_output_dir = Path(__file__).resolve().parent
+    metadata_path = output_path if output_path is not None else (default_output_dir / "vital_metadata.json")
+    output_payload = {
+        "_sampled_case_ids": sorted(metadata.keys()),
+        **metadata,
+    }
     with open(metadata_path, "w", encoding="utf-8") as f:
-        json.dump(metadata, f, indent=2, ensure_ascii=False)
+        json.dump(output_payload, f, indent=2, ensure_ascii=False)
     logger.info(f"Metadata saved to {metadata_path}")
 
-    warnings_path = output_dir / "quality_warnings.txt"
+    warnings_path = metadata_path.parent / "quality_warnings.txt"
     with open(warnings_path, "w", encoding="utf-8") as f:
         for w in all_warnings:
             f.write(f"- {w}\n")
@@ -254,4 +292,18 @@ def extract_metadata():
 
 
 if __name__ == "__main__":
-    extract_metadata()
+    parser = argparse.ArgumentParser(description="Extract metadata and quality warnings from .vital files.")
+    parser.add_argument(
+        "--n-cases", type=int, default=3,
+        help="Number of .vital files to randomly sample (default: 3)",
+    )
+    parser.add_argument(
+        "--seed", type=int, default=None,
+        help="Random seed for case sampling (default: non-deterministic)",
+    )
+    parser.add_argument(
+        "--cases", nargs="+", default=None,
+        help="Explicit caseid list (e.g. --cases 0001 0042 0100). Overrides --n-cases/--seed.",
+    )
+    args = parser.parse_args()
+    extract_metadata(n_cases=args.n_cases, seed=args.seed, target_cases=args.cases)

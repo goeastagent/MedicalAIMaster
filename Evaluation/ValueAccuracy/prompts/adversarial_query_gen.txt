@@ -4,12 +4,9 @@ Your task is to generate a set of benchmark questions and their corresponding Py
 The target data are `.vital` files located in a directory. Each file is named `{caseid}.vital`.
 
 **CRITICAL - AVAILABLE DATA INVENTORY:**
-Only the following 3 case files exist:
-- **caseid 0001**: `SNUADC/ART`, `SNUADC/ECG_II`, `SNUADC/PLETH`, `Primus/CO2`, `Solar8000/HR`, `Solar8000/PLETH_SPO2`, `Solar8000/ART_SBP`, `Solar8000/ART_MBP`, `BIS/BIS`, and many more.
-- **caseid 0002**: `SNUADC/ECG_II`, `SNUADC/PLETH`, `Primus/CO2`, `Solar8000/HR`, `Solar8000/PLETH_SPO2`, `BIS/BIS`, `Orchestra/RFTN20_CE`, and more. (NO `SNUADC/ART`, NO `Solar8000/ART_*`)
-- **caseid 0009**: `SNUADC/ECG_II`, `SNUADC/PLETH`, `Primus/CO2`, `Solar8000/HR`, `Solar8000/PLETH_SPO2`, `BIS/BIS`, `Orchestra/RFTN20_CE`, `Orchestra/PPF20_CE`, and more. (NO `SNUADC/ART`, NO `Solar8000/ART_*`)
+{cases_inventory}
 
-Caseids 0003–0008, 0010, and beyond do NOT exist.
+Any caseids NOT listed above do NOT exist.
 
 ### Instructions:
 Generate exactly {num_queries} distinct JSON objects.
@@ -17,7 +14,7 @@ The queries MUST be of type `adversarial`.
 All queries operate over the ENTIRE recording duration.
 
 **CRITICAL REQUIREMENT - SCOPE LIMITATION:**
-You MUST ONLY reference caseids 0001, 0002, and 0009 for valid parts. You may reference non-existent caseids (e.g., 0003) ONLY for Adversarial-Fake or Adversarial-Impossible queries where the EXPECTED answer is None/0.
+You MUST ONLY reference the caseids listed in the inventory above for valid parts. You may reference non-existent caseids (i.e., any caseid NOT in the inventory) ONLY for Adversarial-Fake or Adversarial-Impossible queries where the EXPECTED answer is None/0.
 
 **CRITICAL REQUIREMENT - QUERY STYLES:**
 You must evenly distribute the generated queries among the following 3 `query_style`s:

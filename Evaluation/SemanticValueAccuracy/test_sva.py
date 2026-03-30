@@ -229,12 +229,15 @@ def run_claude_code_cli(cases: List[Dict]) -> List[SVAResult]:
         code: Optional[str] = None
         code_executed = False
 
+        OPENVITALDB_DIR = str(PROJECT_ROOT / "IndexingAgent" / "data" / "raw" / "Open_VitalDB_1.0.0")
+
         try:
             process = subprocess.run(
                 ["claude", "-p", prompt, "--no-session-persistence"],
                 capture_output=True,
                 text=True,
                 timeout=180,
+                cwd=OPENVITALDB_DIR
             )
             elapsed = (time.time() - t0) * 1000
             raw_output = process.stdout.strip()

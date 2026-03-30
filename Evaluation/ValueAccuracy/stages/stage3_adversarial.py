@@ -4,33 +4,54 @@ import logging
 from pathlib import Path
 from dotenv import load_dotenv
 import sys
+from typing import Optional
 
 # Add project root to sys.path
 sys.path.append(os.path.abspath(os.path.join(os.path.dirname(__file__), '../../..')))
 
 from shared.llm.client import get_llm_client
+from Evaluation.utils.case_sampler import sample_cases, build_inventory_text, get_vital_dir
 
 logging.basicConfig(level=logging.INFO, format='%(asctime)s - %(levelname)s - %(message)s')
 logger = logging.getLogger(__name__)
 
-def generate_adversarial_queries(num_queries: int = 5, output_file: str = "adversarial_queries.jsonl"):
+def generate_adversarial_queries(
+    num_queries: int = 5,
+    output_file: str = "adversarial_queries.jsonl",
+    n_cases: int = 3,
+    seed: Optional[int] = None,
+    cases: Optional[dict] = None,
+):
     """
     Generates adversarial queries (fake categories, impossible conditions, distractors) using LLM.
+
+    Args:
+        num_queries: Total number of queries to generate.
+        output_file: Output filename inside the output/ directory.
+        n_cases:     Number of .vital files to randomly sample (used when cases=None).
+        seed:        Random seed for case sampling reproducibility.
+        cases:       Pre-sampled dict {caseid: [tracks]}. If provided, n_cases/seed
+                     are ignored and no file I/O sampling occurs.
     """
     # Load prompt template
     prompt_path = Path(__file__).parent.parent / "prompts" / "adversarial_query_gen.txt"
     with open(prompt_path, "r", encoding="utf-8") as f:
         prompt_template = f.read()
 
+    if cases is None:
+        cases = sample_cases(vital_dir=get_vital_dir(), n=n_cases, seed=seed)
+    inventory_text = build_inventory_text(cases)
+    prompt_template = prompt_template.replace("{cases_inventory}", inventory_text)
+
     # Format prompt
     prompt = prompt_template.replace("{num_queries}", str(num_queries))
 
     # Initialize LLM client
     llm_client = get_llm_client()
-    logger.info(f"Generating {num_queries} adversarial queries using LLM...")
+    logger.info(f"Generating {num_queries} adversarial queries using LLM (caseids: {sorted(cases.keys())})...")
 
     # Call LLM
-    response = llm_client.ask_json(prompt)
+    response = llm_client.ask_json(prompt, max_tokens=65536)
     
     # Handle response
     if "error" in response:
@@ -73,5 +94,11 @@ def generate_adversarial_queries(num_queries: int = 5, output_file: str = "adver
     return queries
 
 if __name__ == "__main__":
+    import argparse
     load_dotenv()
-    generate_adversarial_queries(num_queries=5)
+    parser = argparse.ArgumentParser()
+    parser.add_argument("--num-queries", type=int, default=5)
+    parser.add_argument("--n-cases", type=int, default=3)
+    parser.add_argument("--seed", type=int, default=None)
+    args = parser.parse_args()
+    generate_adversarial_queries(num_queries=args.num_queries, n_cases=args.n_cases, seed=args.seed)

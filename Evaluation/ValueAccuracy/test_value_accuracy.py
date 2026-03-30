@@ -282,13 +282,16 @@ def run_claude_code_cli(cases: List[Dict], progress_cb=None) -> List[CaseResult]
         error_msg = None
         agent_answer = None
 
+        OPENVITALDB_DIR = str(PROJECT_ROOT / "IndexingAgent" / "data" / "raw" / "Open_VitalDB_1.0.0")
+
         try:
             # Using the same command structure as Level1
             process = subprocess.run(
                 ["claude", "-p", prompt, "--no-session-persistence"],
                 capture_output=True,
                 text=True,
-                timeout=120 # Give it more time since it might need to run SQL
+                timeout=120, # Give it more time since it might need to run SQL
+                cwd=OPENVITALDB_DIR
             )
             elapsed = (time.time() - t0) * 1000
             raw_output = process.stdout.strip()

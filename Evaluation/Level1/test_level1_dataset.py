@@ -342,15 +342,20 @@ def run_vitalagent_extraction(cases: List[Dict], progress_cb=None) -> List[CaseR
 def run_claude_code_cli(cases: List[Dict], progress_cb=None) -> List[CaseResult]:
     results: List[CaseResult] = []
 
+    OPENVITALDB_DIR = "/Users/goeastagent/products/ClaudeCodeTest/Open_VitalDB_1.0.0"
+
     for idx, case in enumerate(cases):
         _log_progress("Claude-Code-CLI", idx, len(cases), case["id"])
         query = case["query"]
         prompt = (
-            f"You are a medical data parameter retrieval system. "
-            f"Given the query, extract the exact parameter names. "
+            f"You are a medical data parameter retrieval system for VitalDB intraoperative biosignal data. "
+            f"Read the file 'track_names.csv' in the current directory to look up the exact parameter keys. "
+            f"Given the query, identify which parameter key(s) from track_names.csv are needed. "
             f"Return ONLY a JSON object in this format: "
             f"{{\"param_keys\": [\"Device/Param1\"], \"behavior\": \"retrieve\"}} "
-            f"If not found, set behavior to \"not_found\". If ambiguous, set to \"clarify\".\n\n"
+            f"If the required parameter does not exist in track_names.csv, set behavior to \"not_found\" and param_keys to []. "
+            f"If the query is ambiguous (multiple devices could apply), set behavior to \"clarify\" and param_keys to []. "
+            f"Do not invent parameter keys — only use keys from track_names.csv.\n\n"
             f"Query: {query}"
         )
 
@@ -362,10 +367,11 @@ def run_claude_code_cli(cases: List[Dict], progress_cb=None) -> List[CaseResult]
 
         try:
             process = subprocess.run(
-                ["claude", "-p", prompt, "--no-session-persistence", "--tools", '""'],
+                ["claude", "-p", prompt, "--no-session-persistence"],
                 capture_output=True,
                 text=True,
-                timeout=60
+                timeout=60,
+                cwd=OPENVITALDB_DIR
             )
             elapsed = (time.time() - t0) * 1000
             raw_output = process.stdout.strip()

@@ -64,13 +64,6 @@ class Paths:
 
 
 # ---------------------------------------------------------------------------
-# Target Case IDs
-# ---------------------------------------------------------------------------
-
-TARGET_CASE_IDS: list[str] = ["0001", "0002", "0009"]
-
-
-# ---------------------------------------------------------------------------
 # Category Targets & Oversampling
 # ---------------------------------------------------------------------------
 
@@ -119,19 +112,19 @@ class CategoryTargets:
 class LLMConfig:
     """LLM model and parameter settings for each stage."""
 
-    # Stage 2: query generation (high temperature for diversity)
-    GENERATION_MODEL: str = os.getenv("SVA_GEN_MODEL", "gpt-4o")
+    # Stage 2: query generation — gpt-5 for higher quality + supports 65K output tokens
+    GENERATION_MODEL: str = os.getenv("SVA_GEN_MODEL", "gpt-5.2-2025-12-11")
     GENERATION_TEMPERATURE: float = float(os.getenv("SVA_GEN_TEMPERATURE", "0.8"))
-    GENERATION_MAX_TOKENS: int = 2048
+    GENERATION_MAX_TOKENS: int = 65536
     BATCH_SIZE: int = 5
 
-    # Stage 3: GT code generation (low temperature for correctness)
-    GT_CODE_MODEL: str = os.getenv("SVA_GT_MODEL", "gpt-4o")
+    # Stage 3: GT code generation — gpt-5 for more accurate Python code
+    GT_CODE_MODEL: str = os.getenv("SVA_GT_MODEL", "gpt-5.2-2025-12-11")
     GT_CODE_TEMPERATURE: float = 0.2
-    GT_CODE_MAX_TOKENS: int = 2048
+    GT_CODE_MAX_TOKENS: int = 32768
     GT_MAX_RETRIES: int = 3
 
-    # Stage 4: LLM quality audit (zero temperature for reproducibility)
+    # Stage 4: LLM quality audit — gpt-4o: temperature=0 reproducibility, cost-efficient
     AUDIT_MODEL: str = os.getenv("SVA_AUDIT_MODEL", "gpt-4o")
     AUDIT_TEMPERATURE: float = 0.0
     AUDIT_MAX_TOKENS: int = 512
