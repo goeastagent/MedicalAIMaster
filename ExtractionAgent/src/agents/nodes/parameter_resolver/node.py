@@ -139,7 +139,7 @@ class ParameterResolverNode(BaseNode):
                     self.log(f"   ✅ Validator approved mapping", indent=2)
             
             resolution_mode = resolved.get("resolution_mode")
-            
+
             if resolution_mode == "clarify":
                 ambiguities.append({
                     "term": term,
@@ -370,7 +370,10 @@ class ParameterResolverNode(BaseNode):
             )
             
             resolution_mode = response.get("resolution_mode", "clarify")
-            selected_keys = response.get("selected_param_keys", [])
+            # T-06: LLM occasionally appends a trailing backslash to param keys
+            selected_keys = [
+                k.strip().rstrip("\\") for k in response.get("selected_param_keys", [])
+            ]
             confidence = response.get("confidence", 0.5)
             reasoning = response.get("reasoning", "")
 
@@ -461,7 +464,8 @@ class ParameterResolverNode(BaseNode):
             
             return {
                 "term": term,
-                "param_keys": [m.get("param_key") for m in selected_matches],
+                # T-06: strip trailing backslash from DB values as well (belt-and-suspenders)
+                "param_keys": [m.get("param_key", "").rstrip("\\") for m in selected_matches],
                 "semantic_name": semantic_name,
                 "unit": unit,
                 "concept_category": category,

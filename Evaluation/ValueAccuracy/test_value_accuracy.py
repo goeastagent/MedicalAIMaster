@@ -31,6 +31,8 @@ from datetime import datetime
 from pathlib import Path
 from typing import Any, Dict, List, Optional, Tuple, Union
 
+import math
+
 import pandas as pd
 
 # ---------------------------------------------------------------------------
@@ -113,10 +115,24 @@ def load_dataset(path: str) -> List[Dict[str, Any]]:
 # 2. Metric computation
 # ═══════════════════════════════════════════════════════════════════════════
 
+# Tolerances for numeric comparison:
+#   STRICT  – float representation noise (numpy float32/64 → Python float)
+#   APPROX  – last-decimal rounding differences (ddof, round-half-even, etc.)
+FLOAT_STRICT_REL_TOL = 1e-4   # 0.01%  relative
+FLOAT_STRICT_ABS_TOL = 1e-3   # absolute fallback for near-zero
+FLOAT_APPROX_REL_TOL = 1e-2   # 1%     relative
+FLOAT_APPROX_ABS_TOL = 1e-2   # absolute fallback for near-zero
+
+
 def compare_values(expected: Any, actual: Any) -> bool:
     """
     Compares the expected value with the actual value returned by the agent.
     Handles None, scalars (int, float, str), and lists of dicts.
+
+    Float comparison uses a two-tier tolerance (same convention as Temporal eval):
+      - strict (rel 1e-4): passes for pure float-representation noise
+      - approx (rel 1e-2): passes for last-decimal rounding differences
+    Both tiers count as a match (value_match = True).
     """
     # If actual is a string that looks like a dict, try to parse it
     if isinstance(actual, str):
@@ -136,16 +152,24 @@ def compare_values(expected: Any, actual: Any) -> bool:
             return True
         # Sometimes agents return 0 when nothing is found
         if actual == 0 or actual == "0":
-             return True
+            return True
         return False
-        
+
     if isinstance(expected, (int, float)):
         try:
             actual_float = float(actual)
-            # Use a small tolerance for floating point comparisons
-            return abs(float(expected) - actual_float) < 1e-5
+            expected_float = float(expected)
         except (ValueError, TypeError):
             return False
+        # strict: float representation noise (e.g. 8237.7197 vs 8237.7197265625)
+        if math.isclose(expected_float, actual_float,
+                        rel_tol=FLOAT_STRICT_REL_TOL, abs_tol=FLOAT_STRICT_ABS_TOL):
+            return True
+        # approx: last-decimal rounding difference (e.g. 44.1 vs 44.2, 10.77 vs 10.78)
+        if math.isclose(expected_float, actual_float,
+                        rel_tol=FLOAT_APPROX_REL_TOL, abs_tol=FLOAT_APPROX_ABS_TOL):
+            return True
+        return False
             
     if isinstance(expected, str):
         return str(expected).strip().lower() == str(actual).strip().lower()

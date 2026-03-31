@@ -608,6 +608,25 @@ case_list = cohort[cohort['filter'] == 'value']['{entity_col}'].astype(str).toli
             return runtime_data["_plan_metadata"].get("entity_id_column") or "id"
         return "id"
     
+    @staticmethod
+    def _col_dtype(df: Any, col: str) -> str:
+        """Safely get dtype string for a single column.
+
+        When a DataFrame has duplicate column names, ``df[col]`` returns a
+        DataFrame instead of a Series.  A DataFrame has no ``.dtype`` attribute
+        (only ``.dtypes``), which causes an AttributeError that escapes the
+        sandbox and surfaces as "Unexpected error: 'DataFrame' object has no
+        attribute 'dtype'".  This helper handles that edge-case gracefully.
+        """
+        import pandas as pd
+        col_data = df[col]
+        if isinstance(col_data, pd.Series):
+            return str(col_data.dtype)
+        # Duplicate column name → df[col] is a DataFrame; use first occurrence
+        if isinstance(col_data, pd.DataFrame) and not col_data.empty:
+            return str(col_data.iloc[:, 0].dtype)
+        return "unknown"
+
     def _build_execution_context(
         self, 
         runtime_data: Dict[str, Any],
@@ -646,7 +665,7 @@ case_list = cohort[cohort['filter'] == 'value']['{entity_col}'].astype(str).toli
                     cd = column_descriptions[col]
                     schema_col_descs[col] = ColumnDescription(
                         name=cd.get("name", col),
-                        dtype=cd.get("dtype") or str(sample_df[col].dtype),
+                        dtype=cd.get("dtype") or self._col_dtype(sample_df, col),
                         semantic_name=cd.get("semantic_name"),
                         unit=cd.get("unit"),
                         description=cd.get("description"),
@@ -655,7 +674,7 @@ case_list = cohort[cohort['filter'] == 'value']['{entity_col}'].astype(str).toli
                     # DB에 없는 컬럼은 기본 정보
                     schema_col_descs[col] = ColumnDescription(
                         name=col,
-                        dtype=str(sample_df[col].dtype)
+                        dtype=self._col_dtype(sample_df, col)
                     )
             
             # ParameterRegistry에 실제 데이터 정보 보강
@@ -666,7 +685,7 @@ case_list = cohort[cohort['filter'] == 'value']['{entity_col}'].astype(str).toli
                 name=f"signals[{entity_col}]",
                 description="케이스별 시계열 DataFrame",
                 columns=cols,
-                dtypes={col: str(sample_df[col].dtype) for col in cols},
+                dtypes={col: self._col_dtype(sample_df, col) for col in cols},
                 shape=sample_df.shape,
                 sample_rows=sample_df.head(2).to_dict(orient="records"),
                 column_descriptions=schema_col_descs
@@ -684,14 +703,14 @@ case_list = cohort[cohort['filter'] == 'value']['{entity_col}'].astype(str).toli
             for col in cols[:20]:  # cohort는 컬럼이 많을 수 있어 제한
                 cohort_col_descs[col] = ColumnDescription(
                     name=col,
-                    dtype=str(cohort[col].dtype)
+                    dtype=self._col_dtype(cohort, col)
                 )
             
             data_schemas["cohort"] = DataSchema(
                 name="cohort",
                 description="Cohort 메타데이터 DataFrame",
                 columns=cols[:20],  # 처음 20개만
-                dtypes={col: str(cohort[col].dtype) for col in cols[:20]},
+                dtypes={col: self._col_dtype(cohort, col) for col in cols[:20]},
                 shape=cohort.shape,
                 sample_rows=cohort.head(2).to_dict(orient="records"),
                 column_descriptions=cohort_col_descs
