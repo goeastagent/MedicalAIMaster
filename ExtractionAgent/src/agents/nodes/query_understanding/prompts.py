@@ -28,6 +28,9 @@ Analyze the user's query and extract the following information:
    - normalized: Standardized name (refer to parameter list above)
    - candidates: List of keywords for searching
    - expected_categories: List of category names from the "Available Parameter Categories" above
+   - query_intent_type: "specific_param" | "category_query"  (see rules below)
+   - category_terms: List of medical category/group keywords (only when query_intent_type is "category_query")
+   - measurement_type_hint: "rate" | "cumulative" | "waveform" | "concentration" | "scalar" | null
 
 2. **cohort_filters**: Patient/case filtering conditions
    - column: Column name to filter (ONLY from Cohort data source's filterable columns)
@@ -54,7 +57,10 @@ Respond ONLY in the following JSON format:
             "term": "user's original expression",
             "normalized": "standardized name",
             "candidates": ["keyword1", "keyword2"],
-            "expected_categories": ["Vital Signs"]
+            "expected_categories": ["Vital Signs"],
+            "query_intent_type": "specific_param",
+            "category_terms": [],
+            "measurement_type_hint": null
         }}
     ],
     "cohort_filters": [
@@ -71,6 +77,28 @@ Respond ONLY in the following JSON format:
     "reasoning": "explanation of the analysis"
 }}
 ```
+
+# query_intent_type Rules
+
+Set **"category_query"** when the user requests a **group or class** of parameters rather than a specific measurement:
+- "all vasopressor drugs" → category_query, category_terms: ["vasopressor"]
+- "all hemodynamic parameters from EV1000" → category_query, category_terms: ["hemodynamic", "EV1000"]
+- "every infusion drug" → category_query, category_terms: ["infusion", "drug"]
+- "all respiratory measurements" → category_query, category_terms: ["respiratory"]
+
+Set **"specific_param"** (default) when the user asks for a named/known measurement:
+- "heart rate" → specific_param
+- "ETCO2 during surgery" → specific_param
+- "norepinephrine infusion rate" → specific_param
+
+# measurement_type_hint Rules
+
+Provide a hint when the query clearly implies a measurement sub-type:
+- "how much ... administered" / "total dose" / "infused volume" → "cumulative"
+- "infusion rate" / "flow rate" / "rate of administration" → "rate"
+- "waveform" / "wave" / "activity pattern" / "signal" / "tracing" → "waveform"
+- "plasma concentration" / "effect-site concentration" → "concentration"
+- Leave null when the measurement sub-type is unclear
 
 # Important Notes
 

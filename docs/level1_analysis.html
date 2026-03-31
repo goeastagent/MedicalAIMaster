@@ -1,0 +1,669 @@
+<!DOCTYPE html>
+<html lang="ko">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>VitalAgent Level1 평가 분석</title>
+<script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.0/dist/chart.umd.min.js"></script>
+<style>
+  @import url('https://fonts.googleapis.com/css2?family=IBM+Plex+Mono:wght@400;600&family=IBM+Plex+Sans+KR:wght@300;400;600;700&display=swap');
+
+  :root {
+    --bg: #0a0c10;
+    --bg2: #111418;
+    --bg3: #181d24;
+    --border: #1e2530;
+    --accent: #00e5a0;
+    --accent2: #ff5f5f;
+    --accent3: #ffa940;
+    --accent4: #4d9bff;
+    --text: #c9d1d9;
+    --text-dim: #6b7280;
+    --text-bright: #f0f6fc;
+  }
+
+  * { box-sizing: border-box; margin: 0; padding: 0; }
+
+  body {
+    font-family: 'IBM Plex Sans KR', sans-serif;
+    background: var(--bg);
+    color: var(--text);
+    min-height: 100vh;
+    padding: 2rem;
+  }
+
+  /* Header */
+  .header {
+    border-left: 4px solid var(--accent);
+    padding-left: 1.5rem;
+    margin-bottom: 2.5rem;
+  }
+  .header .tag {
+    font-family: 'IBM Plex Mono', monospace;
+    font-size: 0.7rem;
+    color: var(--accent);
+    letter-spacing: 0.15em;
+    text-transform: uppercase;
+    margin-bottom: 0.4rem;
+  }
+  .header h1 {
+    font-size: 1.8rem;
+    font-weight: 700;
+    color: var(--text-bright);
+    line-height: 1.2;
+  }
+  .header .sub {
+    color: var(--text-dim);
+    font-size: 0.85rem;
+    margin-top: 0.4rem;
+    font-family: 'IBM Plex Mono', monospace;
+  }
+
+  /* Metrics row */
+  .metrics-row {
+    display: grid;
+    grid-template-columns: repeat(5, 1fr);
+    gap: 1rem;
+    margin-bottom: 2rem;
+  }
+  .metric-card {
+    background: var(--bg2);
+    border: 1px solid var(--border);
+    border-radius: 8px;
+    padding: 1.2rem 1rem;
+    position: relative;
+    overflow: hidden;
+  }
+  .metric-card::before {
+    content: '';
+    position: absolute;
+    top: 0; left: 0; right: 0;
+    height: 2px;
+  }
+  .metric-card.green::before { background: var(--accent); }
+  .metric-card.red::before { background: var(--accent2); }
+  .metric-card.orange::before { background: var(--accent3); }
+  .metric-card.blue::before { background: var(--accent4); }
+  .metric-card.purple::before { background: #a78bfa; }
+
+  .metric-label {
+    font-size: 0.7rem;
+    color: var(--text-dim);
+    text-transform: uppercase;
+    letter-spacing: 0.1em;
+    margin-bottom: 0.5rem;
+  }
+  .metric-value {
+    font-family: 'IBM Plex Mono', monospace;
+    font-size: 1.8rem;
+    font-weight: 600;
+    color: var(--text-bright);
+    line-height: 1;
+  }
+  .metric-value.green { color: var(--accent); }
+  .metric-value.red { color: var(--accent2); }
+  .metric-value.orange { color: var(--accent3); }
+  .metric-value.blue { color: var(--accent4); }
+  .metric-sub {
+    font-size: 0.72rem;
+    color: var(--text-dim);
+    margin-top: 0.4rem;
+  }
+
+  /* Grid layout */
+  .grid-2 { display: grid; grid-template-columns: 1fr 1fr; gap: 1.5rem; margin-bottom: 1.5rem; }
+  .grid-3 { display: grid; grid-template-columns: 1fr 1fr 1fr; gap: 1.5rem; margin-bottom: 1.5rem; }
+
+  .card {
+    background: var(--bg2);
+    border: 1px solid var(--border);
+    border-radius: 8px;
+    padding: 1.5rem;
+  }
+  .card-title {
+    font-size: 0.75rem;
+    font-weight: 600;
+    color: var(--text-dim);
+    text-transform: uppercase;
+    letter-spacing: 0.12em;
+    margin-bottom: 1.2rem;
+    display: flex;
+    align-items: center;
+    gap: 0.5rem;
+  }
+  .card-title .dot {
+    width: 6px; height: 6px;
+    border-radius: 50%;
+    background: var(--accent);
+  }
+
+  /* Horizontal bar for query type */
+  .hbar-row {
+    margin-bottom: 0.8rem;
+  }
+  .hbar-label {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    margin-bottom: 0.3rem;
+  }
+  .hbar-name {
+    font-size: 0.8rem;
+    color: var(--text);
+  }
+  .hbar-values {
+    font-family: 'IBM Plex Mono', monospace;
+    font-size: 0.75rem;
+    color: var(--text-dim);
+  }
+  .hbar-track {
+    background: var(--border);
+    border-radius: 2px;
+    height: 6px;
+    position: relative;
+    overflow: hidden;
+  }
+  .hbar-fill {
+    height: 100%;
+    border-radius: 2px;
+    transition: width 0.8s ease;
+  }
+
+  /* Failure table */
+  .fail-table {
+    width: 100%;
+    border-collapse: collapse;
+  }
+  .fail-table th {
+    font-size: 0.65rem;
+    color: var(--text-dim);
+    text-transform: uppercase;
+    letter-spacing: 0.1em;
+    text-align: left;
+    padding: 0.5rem 0.8rem;
+    border-bottom: 1px solid var(--border);
+    background: var(--bg3);
+  }
+  .fail-table td {
+    font-size: 0.78rem;
+    padding: 0.6rem 0.8rem;
+    border-bottom: 1px solid #1a1f28;
+    vertical-align: top;
+  }
+  .fail-table tr:hover td { background: #13181f; }
+  .badge {
+    display: inline-block;
+    font-size: 0.62rem;
+    font-family: 'IBM Plex Mono', monospace;
+    padding: 0.15rem 0.4rem;
+    border-radius: 3px;
+    font-weight: 600;
+  }
+  .badge-type {
+    background: #1a2535;
+    color: var(--accent4);
+    border: 1px solid #1e3555;
+  }
+  .badge-f1-bad { background: #2a1010; color: var(--accent2); border: 1px solid #3d1515; }
+  .badge-f1-mid { background: #2a1f05; color: var(--accent3); border: 1px solid #3d2f08; }
+  .badge-f1-ok { background: #082a1a; color: var(--accent); border: 1px solid #0d3d26; }
+
+  .param-missing { color: var(--accent2); font-family: 'IBM Plex Mono', monospace; font-size: 0.72rem; }
+  .param-extra { color: var(--accent3); font-family: 'IBM Plex Mono', monospace; font-size: 0.72rem; }
+
+  /* Pattern pills */
+  .pattern-list { display: flex; flex-direction: column; gap: 0.8rem; }
+  .pattern-item {
+    display: flex;
+    align-items: flex-start;
+    gap: 1rem;
+    padding: 0.9rem 1rem;
+    background: var(--bg3);
+    border-radius: 6px;
+    border-left: 3px solid;
+  }
+  .pattern-item.p1 { border-color: var(--accent2); }
+  .pattern-item.p2 { border-color: var(--accent3); }
+  .pattern-item.p3 { border-color: var(--accent4); }
+  .pattern-item.p4 { border-color: #a78bfa; }
+  .pattern-num {
+    font-family: 'IBM Plex Mono', monospace;
+    font-size: 0.7rem;
+    font-weight: 600;
+    min-width: 28px;
+    padding-top: 1px;
+  }
+  .p1 .pattern-num { color: var(--accent2); }
+  .p2 .pattern-num { color: var(--accent3); }
+  .p3 .pattern-num { color: var(--accent4); }
+  .p4 .pattern-num { color: #a78bfa; }
+  .pattern-content h4 { font-size: 0.82rem; color: var(--text-bright); margin-bottom: 0.3rem; }
+  .pattern-content p { font-size: 0.75rem; color: var(--text-dim); line-height: 1.5; }
+  .pattern-content code {
+    font-family: 'IBM Plex Mono', monospace;
+    font-size: 0.7rem;
+    background: #0d1117;
+    padding: 0.1rem 0.3rem;
+    border-radius: 3px;
+    color: var(--accent);
+  }
+
+  /* Missed param freq bars */
+  .param-bar-row {
+    display: flex;
+    align-items: center;
+    gap: 0.8rem;
+    margin-bottom: 0.55rem;
+  }
+  .param-bar-name {
+    font-family: 'IBM Plex Mono', monospace;
+    font-size: 0.7rem;
+    color: var(--text);
+    min-width: 200px;
+  }
+  .param-bar-track {
+    flex: 1;
+    background: var(--border);
+    border-radius: 2px;
+    height: 6px;
+    overflow: hidden;
+  }
+  .param-bar-fill { height: 100%; border-radius: 2px; }
+  .param-bar-count {
+    font-family: 'IBM Plex Mono', monospace;
+    font-size: 0.7rem;
+    color: var(--text-dim);
+    min-width: 24px;
+    text-align: right;
+  }
+
+  canvas { display: block; }
+
+  .section-divider {
+    border: none;
+    border-top: 1px solid var(--border);
+    margin: 2rem 0;
+  }
+
+  .full-width { grid-column: 1 / -1; }
+
+  .query-text {
+    color: var(--text);
+    font-size: 0.78rem;
+    line-height: 1.5;
+  }
+  .query-id {
+    font-family: 'IBM Plex Mono', monospace;
+    font-size: 0.65rem;
+    color: var(--text-dim);
+  }
+
+  /* scrollable table */
+  .table-scroll {
+    max-height: 420px;
+    overflow-y: auto;
+  }
+  .table-scroll::-webkit-scrollbar { width: 4px; }
+  .table-scroll::-webkit-scrollbar-track { background: var(--bg2); }
+  .table-scroll::-webkit-scrollbar-thumb { background: var(--border); border-radius: 2px; }
+
+  .scenario-row {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    padding: 0.4rem 0;
+    border-bottom: 1px solid var(--border);
+  }
+  .scenario-name { font-size: 0.78rem; }
+  .scenario-bar-wrap { flex: 1; margin: 0 1rem; }
+</style>
+</head>
+<body>
+
+<div class="header">
+  <div class="tag">Evaluation · Level1 · 2026-03-31</div>
+  <h1>VitalAgent Level1 평가 분석 리포트</h1>
+  <div class="sub">level1_eval_20260331_152045.xlsx · 총 114 케이스</div>
+</div>
+
+<!-- Top Metrics -->
+<div class="metrics-row">
+  <div class="metric-card green">
+    <div class="metric-label">Overall F1</div>
+    <div class="metric-value green">84.4%</div>
+    <div class="metric-sub">Recall 83.8% / Precision 86.4%</div>
+  </div>
+  <div class="metric-card blue">
+    <div class="metric-label">Perfect Recall</div>
+    <div class="metric-value blue">77.2%</div>
+    <div class="metric-sub">88케이스 완전 정답</div>
+  </div>
+  <div class="metric-card red">
+    <div class="metric-label">실패 케이스</div>
+    <div class="metric-value red">28</div>
+    <div class="metric-sub">F1 < 1.0인 케이스 수</div>
+  </div>
+  <div class="metric-card orange">
+    <div class="metric-label">완전 실패 (F1=0)</div>
+    <div class="metric-value orange">12</div>
+    <div class="metric-sub">파라미터 전혀 못 찾은 케이스</div>
+  </div>
+  <div class="metric-card purple">
+    <div class="metric-label">평균 응답시간</div>
+    <div class="metric-value" style="color:#a78bfa">8.2s</div>
+    <div class="metric-sub">중앙값 8.4s / p95 10.8s</div>
+  </div>
+</div>
+
+<div class="grid-2">
+  <!-- Query Type 성능 -->
+  <div class="card">
+    <div class="card-title"><div class="dot"></div> Query Type별 F1 점수</div>
+    <div style="height:220px;">
+      <canvas id="queryTypeChart"></canvas>
+    </div>
+  </div>
+
+  <!-- 시나리오 비교 -->
+  <div class="card">
+    <div class="card-title"><div class="dot" style="background:var(--accent4)"></div> 시나리오별 전체 성능 비교</div>
+    <div style="padding-top: 0.3rem;">
+      <div class="scenario-row">
+        <span class="scenario-name" style="color:var(--text-dim);font-size:0.7rem">시나리오</span>
+        <div class="scenario-bar-wrap"></div>
+        <span style="font-size:0.7rem;color:var(--text-dim);min-width:80px;text-align:right">F1 / Perfect%</span>
+      </div>
+      <div id="scenarioList"></div>
+    </div>
+  </div>
+</div>
+
+<div class="grid-2">
+  <!-- 누락 파라미터 Top -->
+  <div class="card">
+    <div class="card-title"><div class="dot" style="background:var(--accent2)"></div> 가장 많이 누락된 파라미터</div>
+    <div id="missingParams"></div>
+  </div>
+
+  <!-- 잘못 추가된 파라미터 -->
+  <div class="card">
+    <div class="card-title"><div class="dot" style="background:var(--accent3)"></div> 잘못 추가된 파라미터 (False Positive)</div>
+    <div id="extraParams"></div>
+  </div>
+</div>
+
+<!-- Failure Patterns -->
+<div class="card" style="margin-bottom:1.5rem">
+  <div class="card-title"><div class="dot" style="background:#a78bfa"></div> 주요 실패 패턴 분석</div>
+  <div class="pattern-list">
+    <div class="pattern-item p1">
+      <div class="pattern-num">P1</div>
+      <div class="pattern-content">
+        <h4>Semantic 매핑 실패 — 의미론적 동의어 인식 불가 (11케이스)</h4>
+        <p>
+          "dexmedetomidine 투여량" → <code>Orchestra/DEX2_VOL</code> 매핑 실패 (3케이스 완전 실패)<br>
+          "propofol effect-site concentration" → <code>Orchestra/PPF20_CE</code> 매핑 실패 (3케이스)<br>
+          "airway pressure" 쿼리 시 <code>Primus/AWP</code> 정확히 찾지만 <code>Primus/PIP_MBAR</code> 추가 오검출<br>
+          "heart rate" → <code>Solar8000/PLETH_HR</code> 대신 <code>Solar8000/HR</code> 반환 (pleth vs 일반 HR 구분 실패)<br>
+          "brain activity patterns" → <code>BIS/EEG2_WAV</code> 정답이지만 <code>BIS/EEG1_WAV</code>도 추가 반환
+        </p>
+      </div>
+    </div>
+    <div class="pattern-item p2">
+      <div class="pattern-num">P2</div>
+      <div class="pattern-content">
+        <h4>Tidal Volume 디바이스 혼동 — Solar8000 vs Primus (6케이스)</h4>
+        <p>
+          "tidal volume" 쿼리에 대해 정답은 <code>Primus/TV</code>이지만,<br>
+          VitalAgent가 일관되게 <code>Solar8000/VENT_TV</code>를 반환 (Multi-Conditional 쿼리에서 반복 실패)<br>
+          같은 측정값의 다른 디바이스 채널을 구분하지 못함 → 컨텍스트 기반 디바이스 선택 로직 부재
+        </p>
+      </div>
+    </div>
+    <div class="pattern-item p3">
+      <div class="pattern-num">P3</div>
+      <div class="pattern-content">
+        <h4>Multi-Independent 쿼리에서 파라미터 일부 누락 (4케이스)</h4>
+        <p>
+          "end-tidal CO2 <b>and</b> FiO2" 쿼리에서 두 파라미터를 함께 요청할 때,<br>
+          <code>Primus/ETCO2</code>만 반환하거나 <code>Primus/FIO2</code>만 반환하는 케이스 발생<br>
+          Multi-param AND 쿼리에서 하나를 놓치는 불완전 추출 패턴
+        </p>
+      </div>
+    </div>
+    <div class="pattern-item p4">
+      <div class="pattern-num">P4</div>
+      <div class="pattern-content">
+        <h4>Adversarial 쿼리 False Positive — 없는 데이터 반환 (1케이스)</h4>
+        <p>
+          "detailed respiratory mechanics waveform" → 정답은 None(해당 데이터 없음)이지만,<br>
+          VitalAgent가 <code>Primus/AWP</code>를 반환 (hallucination)<br>
+          Adversarial 케이스에서 전반적으로는 95% 정확도이나, 이 케이스는 completely wrong
+        </p>
+      </div>
+    </div>
+  </div>
+</div>
+
+<!-- Detail Failures Table -->
+<div class="card">
+  <div class="card-title"><div class="dot" style="background:var(--accent2)"></div> 실패 케이스 상세 목록 (28건, F1 < 1.0)</div>
+  <div class="table-scroll">
+    <table class="fail-table">
+      <thead>
+        <tr>
+          <th style="width:90px">Case ID</th>
+          <th style="width:130px">Query Type</th>
+          <th style="width:50px">F1</th>
+          <th>Query</th>
+          <th style="width:170px">Expected → Retrieved</th>
+        </tr>
+      </thead>
+      <tbody id="failTable"></tbody>
+    </table>
+  </div>
+</div>
+
+<script>
+// ===== DATA =====
+const queryTypeData = [
+  { type: 'Single-Direct', count: 7, f1: 1.000, perfect: 100 },
+  { type: 'Single-Abbrev', count: 15, f1: 0.9333, perfect: 93.33 },
+  { type: 'Adversarial', count: 20, f1: 0.9500, perfect: 95 },
+  { type: 'Multi-Indep', count: 20, f1: 0.9333, perfect: 80 },
+  { type: 'Multi-Cond', count: 28, f1: 0.8274, perfect: 60.71 },
+  { type: 'Single-Sem', count: 24, f1: 0.5972, perfect: 62.5 },
+];
+
+const scenarios = [
+  { name: 'VitalAgent-Extraction', f1: 0.844, perfect: 77.19, color: '#00e5a0' },
+  { name: 'Claude-Code-CLI', f1: 0.670, perfect: 69.3, color: '#4d9bff' },
+  { name: 'GPT4o-ParamList', f1: 0.061, perfect: 6.14, color: '#6b7280' },
+  { name: 'Claude-ParamList', f1: 0.061, perfect: 6.14, color: '#6b7280' },
+  { name: 'GPT4o-Synonym', f1: 0.061, perfect: 6.14, color: '#6b7280' },
+  { name: 'Claude-Synonym', f1: 0.061, perfect: 6.14, color: '#6b7280' },
+];
+
+const missingParams = [
+  { param: 'Primus/TV', count: 8 },
+  { param: 'Solar8000/ETCO2', count: 8 },
+  { param: 'Orchestra/DEX2_VOL', count: 4 },
+  { param: 'Orchestra/PPF20_CE', count: 3 },
+  { param: 'Solar8000/ST_III', count: 2 },
+  { param: 'Primus/FIO2', count: 2 },
+  { param: 'Primus/ETCO2', count: 2 },
+  { param: 'FMS/FLOW_RATE', count: 1 },
+  { param: 'Solar8000/PLETH_HR', count: 1 },
+  { param: 'Primus/AWP', count: 1 },
+  { param: 'Solar8000/ART_SBP', count: 1 },
+];
+
+const extraParams = [
+  { param: 'Solar8000/VENT_TV', count: 6 },
+  { param: 'Primus/ETCO2', count: 6 },
+  { param: 'Primus/PIP_MBAR', count: 1 },
+  { param: 'BIS/EEG1_WAV', count: 1 },
+  { param: 'Solar8000/HR', count: 1 },
+  { param: 'Orchestra/PPF20_RATE', count: 1 },
+  { param: 'Primus/AWP', count: 1 },
+];
+
+const failCases = [
+  { id: 'L1-008', type: 'Single-Sem', f1: 0, query: 'How much dexmedetomidine was administered from the start to the end of the operation?', expected: 'Orchestra/DEX2_VOL', retrieved: 'None' },
+  { id: 'L1-012', type: 'Single-Sem', f1: 0.67, query: 'Assess the airway pressure waveform data for potential respiratory complications.', expected: 'Primus/AWP', retrieved: 'Primus/AWP, Primus/PIP_MBAR' },
+  { id: 'L1-013', type: 'Single-Sem', f1: 0, query: 'Examine the propofol effect-site concentration during anesthesia maintenance.', expected: 'Orchestra/PPF20_CE', retrieved: 'None' },
+  { id: 'L1-016', type: 'Single-Sem', f1: 0, query: 'Report the flow rate values monitored throughout the surgical case.', expected: 'FMS/FLOW_RATE', retrieved: 'None' },
+  { id: 'L1-017', type: 'Single-Sem', f1: 0, query: 'Was there any significant ST segment deviation in lead III during the surgery?', expected: 'Solar8000/ST_III', retrieved: 'None' },
+  { id: 'L1-019', type: 'Single-Sem', f1: 0, query: 'Determine the cumulative dexmedetomidine volume administered throughout the surgical case.', expected: 'Orchestra/DEX2_VOL', retrieved: 'None' },
+  { id: 'L1-026', type: 'Single-Sem', f1: 0, query: 'Analyze the mean ST segment deviation in lead III for cardiac assessment.', expected: 'Solar8000/ST_III', retrieved: 'None' },
+  { id: 'L1-028', type: 'Single-Sem', f1: 0, query: 'How much of the sedative dexmedetomidine was used during the procedure?', expected: 'Orchestra/DEX2_VOL', retrieved: 'None' },
+  { id: 'L1-029', type: 'Single-Sem', f1: 0.67, query: "What did the brain activity patterns look like during the surgery?", expected: 'BIS/EEG2_WAV', retrieved: 'BIS/EEG1_WAV, BIS/EEG2_WAV' },
+  { id: 'L1-030', type: 'Single-Sem', f1: 0, query: "How fast was the patient's heart beating during the operation?", expected: 'Solar8000/PLETH_HR', retrieved: 'Solar8000/HR' },
+  { id: 'L1-031', type: 'Single-Sem', f1: 0, query: 'What was the pressure inside the airways while the patient was being operated on?', expected: 'Primus/AWP', retrieved: 'None' },
+  { id: 'L1-043', type: 'Single-Abbrev', f1: 0, query: 'How much Dex was administered during the operation?', expected: 'Orchestra/DEX2_VOL', retrieved: 'None' },
+  { id: 'L1-050', type: 'Multi-Indep', f1: 0.67, query: 'Assess the variability in end-tidal CO2 and FiO2 percentages during the surgical procedure.', expected: 'Primus/ETCO2, Primus/FIO2', retrieved: 'Primus/ETCO2' },
+  { id: 'L1-051', type: 'Multi-Indep', f1: 0.67, query: 'Report the recorded values of end-tidal CO2 and the inspired oxygen fraction throughout the operation.', expected: 'Primus/ETCO2, Primus/FIO2', retrieved: 'Primus/FIO2' },
+  { id: 'L1-058', type: 'Multi-Indep', f1: 0.67, query: 'Examine the relationship between end-tidal CO2 and fraction of inspired oxygen during the procedure.', expected: 'Primus/ETCO2, Primus/FIO2', retrieved: 'Primus/ETCO2' },
+  { id: 'L1-059', type: 'Multi-Indep', f1: 0.67, query: 'Analyze both the end-tidal CO2 trend and FiO2 variation simultaneously.', expected: 'Primus/ETCO2, Primus/FIO2', retrieved: 'Primus/ETCO2' },
+  { id: 'L1-067', type: 'Multi-Cond', f1: 0.67, query: 'During episodes of elevated end-tidal CO2 levels, how does the tidal volume adjust?', expected: 'Solar8000/ETCO2, Primus/TV', retrieved: 'Primus/ETCO2' },
+  { id: 'L1-068', type: 'Multi-Cond', f1: 0.50, query: 'Examine changes in tidal volume when end-tidal CO2 exceeds 45 mmHg.', expected: 'Solar8000/ETCO2, Primus/TV', retrieved: 'Primus/ETCO2, Solar8000/VENT_TV' },
+  { id: 'L1-069', type: 'Multi-Cond', f1: 0.50, query: 'Assess the relationship between tidal volume and end-tidal CO2 levels during significant CO2 retention episodes.', expected: 'Solar8000/ETCO2, Primus/TV', retrieved: 'Primus/ETCO2, Solar8000/VENT_TV' },
+  { id: 'L1-080', type: 'Multi-Cond', f1: 0.50, query: 'Calculate the mean and standard deviation of tidal volume when end-tidal CO2 exceeds 45 mmHg.', expected: 'Solar8000/ETCO2, Primus/TV', retrieved: 'Primus/ETCO2, Solar8000/VENT_TV' },
+  { id: 'L1-081', type: 'Multi-Cond', f1: 0.50, query: 'Determine the Pearson correlation between tidal volume and end-tidal CO2 for readings where CO2 is below 30 mmHg.', expected: 'Solar8000/ETCO2, Primus/TV', retrieved: 'Primus/ETCO2, Solar8000/VENT_TV' },
+  { id: 'L1-082', type: 'Multi-Cond', f1: 0.50, query: 'Conduct a time-series analysis of tidal volume, conditional on end-tidal CO2 values rising above 40 mmHg.', expected: 'Solar8000/ETCO2, Primus/TV', retrieved: 'Primus/ETCO2, Solar8000/VENT_TV' },
+  { id: 'L1-089', type: 'Multi-Cond', f1: 0.67, query: 'Calculate the variance of Propofol effect-site concentration during intervals when the Bispectral Index is below 30.', expected: 'BIS/BIS, Orchestra/PPF20_CE', retrieved: 'BIS/BIS' },
+  { id: 'L1-090', type: 'Multi-Cond', f1: 0.50, query: "What was the pattern of breath volume when the carbon dioxide level at the end of exhalation was over 45 mmHg?", expected: 'Solar8000/ETCO2, Primus/TV', retrieved: 'Primus/ETCO2, Solar8000/VENT_TV' },
+  { id: 'L1-091', type: 'Multi-Cond', f1: 0.67, query: "During times when CO2 levels in the breath were consistent at 40 mmHg, how much air did the patient breathe in and out?", expected: 'Solar8000/ETCO2, Primus/TV', retrieved: 'Primus/ETCO2' },
+  { id: 'L1-093', type: 'Multi-Cond', f1: 0.67, query: "During times when the patient's top blood pressure number dropped, how much dopamine was being given?", expected: 'Solar8000/ART_SBP, Orchestra/DOPA_RATE', retrieved: 'Orchestra/DOPA_RATE' },
+  { id: 'L1-094', type: 'Multi-Cond', f1: 0.50, query: "When the patient's awareness levels drop too low, how is the amount of propofol they're getting affected?", expected: 'BIS/BIS, Orchestra/PPF20_CE', retrieved: 'BIS/BIS, Orchestra/PPF20_RATE' },
+  { id: 'L1-ADV-013', type: 'Adversarial', f1: 0, query: 'I need to see the detailed respiratory mechanics waveform for this procedure.', expected: 'None', retrieved: 'Primus/AWP' },
+];
+
+// ===== CHART =====
+const ctx = document.getElementById('queryTypeChart').getContext('2d');
+const sortedTypes = [...queryTypeData].sort((a, b) => a.f1 - b.f1);
+new Chart(ctx, {
+  type: 'bar',
+  data: {
+    labels: sortedTypes.map(d => d.type + ` (n=${d.count})`),
+    datasets: [
+      {
+        label: 'F1 Score',
+        data: sortedTypes.map(d => (d.f1 * 100).toFixed(1)),
+        backgroundColor: sortedTypes.map(d =>
+          d.f1 < 0.65 ? '#ff5f5f40' : d.f1 < 0.85 ? '#ffa94040' : '#00e5a040'
+        ),
+        borderColor: sortedTypes.map(d =>
+          d.f1 < 0.65 ? '#ff5f5f' : d.f1 < 0.85 ? '#ffa940' : '#00e5a0'
+        ),
+        borderWidth: 1.5,
+        borderRadius: 3,
+      },
+      {
+        label: 'Perfect Recall%',
+        data: sortedTypes.map(d => d.perfect.toFixed(1)),
+        backgroundColor: '#4d9bff20',
+        borderColor: '#4d9bff',
+        borderWidth: 1.5,
+        borderRadius: 3,
+      }
+    ]
+  },
+  options: {
+    responsive: true,
+    maintainAspectRatio: false,
+    plugins: {
+      legend: {
+        labels: { color: '#6b7280', font: { size: 10, family: 'IBM Plex Mono' } }
+      }
+    },
+    scales: {
+      y: {
+        max: 105,
+        grid: { color: '#1e2530' },
+        ticks: { color: '#6b7280', font: { size: 10 }, callback: v => v + '%' }
+      },
+      x: {
+        grid: { color: '#1e2530' },
+        ticks: { color: '#9ca3af', font: { size: 9 } }
+      }
+    }
+  }
+});
+
+// ===== SCENARIO LIST =====
+const scenarioEl = document.getElementById('scenarioList');
+scenarios.forEach(s => {
+  scenarioEl.innerHTML += `
+    <div class="scenario-row">
+      <span class="scenario-name" style="min-width:160px;color:${s.color}">${s.name}</span>
+      <div class="scenario-bar-wrap">
+        <div class="hbar-track">
+          <div class="hbar-fill" style="width:${s.f1 * 100}%;background:${s.color}60;border-right:2px solid ${s.color}"></div>
+        </div>
+      </div>
+      <span style="font-family:'IBM Plex Mono',monospace;font-size:0.72rem;color:${s.color};min-width:80px;text-align:right">
+        ${(s.f1*100).toFixed(1)}% / ${s.perfect}%
+      </span>
+    </div>`;
+});
+
+// ===== MISSING PARAMS =====
+const missingEl = document.getElementById('missingParams');
+const maxM = missingParams[0].count;
+missingParams.forEach(p => {
+  const pct = (p.count / maxM * 100).toFixed(0);
+  missingEl.innerHTML += `
+    <div class="param-bar-row">
+      <span class="param-bar-name param-missing">${p.param}</span>
+      <div class="param-bar-track">
+        <div class="param-bar-fill" style="width:${pct}%;background:#ff5f5f80;border-right:2px solid #ff5f5f"></div>
+      </div>
+      <span class="param-bar-count">${p.count}x</span>
+    </div>`;
+});
+
+// ===== EXTRA PARAMS =====
+const extraEl = document.getElementById('extraParams');
+const maxE = extraParams[0].count;
+extraParams.forEach(p => {
+  const pct = (p.count / maxE * 100).toFixed(0);
+  extraEl.innerHTML += `
+    <div class="param-bar-row">
+      <span class="param-bar-name param-extra">${p.param}</span>
+      <div class="param-bar-track">
+        <div class="param-bar-fill" style="width:${pct}%;background:#ffa94080;border-right:2px solid #ffa940"></div>
+      </div>
+      <span class="param-bar-count">${p.count}x</span>
+    </div>`;
+});
+
+// ===== FAIL TABLE =====
+const tbody = document.getElementById('failTable');
+failCases.forEach(r => {
+  const f1str = (r.f1 * 100).toFixed(0) + '%';
+  const f1cls = r.f1 === 0 ? 'badge-f1-bad' : r.f1 < 0.75 ? 'badge-f1-mid' : 'badge-f1-ok';
+
+  // compute diff
+  const exp = new Set(r.expected !== 'None' ? r.expected.split(', ') : []);
+  const ret = new Set(r.retrieved !== 'None' ? r.retrieved.split(', ') : []);
+  const missing = [...exp].filter(x => !ret.has(x));
+  const extra = [...ret].filter(x => !exp.has(x));
+
+  let diffHtml = '';
+  if (missing.length) diffHtml += `<div style="color:#ff5f5f;font-size:0.68rem;font-family:'IBM Plex Mono',monospace">−${missing.join(', ')}</div>`;
+  if (extra.length) diffHtml += `<div style="color:#ffa940;font-size:0.68rem;font-family:'IBM Plex Mono',monospace">+${extra.join(', ')}</div>`;
+  if (!diffHtml) diffHtml = '<span style="color:#00e5a0;font-size:0.68rem">✓</span>';
+
+  tbody.innerHTML += `
+    <tr>
+      <td><span class="query-id">${r.id}</span></td>
+      <td><span class="badge badge-type">${r.type}</span></td>
+      <td><span class="badge ${f1cls}">${f1str}</span></td>
+      <td><span class="query-text">${r.query}</span></td>
+      <td>${diffHtml}</td>
+    </tr>`;
+});
+</script>
+</body>
+</html>

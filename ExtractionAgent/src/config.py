@@ -60,6 +60,24 @@ class ParameterResolverConfig(BaseLLMNodeConfig):
 
 
 @dataclass
+class OntologyResolverConfig:
+    """
+    온톨로지 기반 파라미터 해석 설정.
+
+    Neo4j ConceptCategory 그래프를 활용해 두 가지 문제를 해결합니다:
+    - category_query (T-02): 카테고리/그룹 쿼리에서 후보 확장
+    - measurement_type_hint (T-08/09): LLM 선택 후 unit 기반 타입 필터링
+    """
+    enabled: bool = True
+    # category_query 파라미터에 대해 OntologyCache로 DB 후보를 확장할지 여부
+    expand_category_candidates: bool = True
+    # LLM 결과에 measurement_type_hint 필터를 적용할지 여부
+    apply_measurement_type_filter: bool = True
+    # 필터 후 결과가 비어 있으면 원본 LLM 결과를 그대로 사용 (True = 안전 폴백)
+    fallback_on_empty_filter: bool = True
+
+
+@dataclass
 class PlanBuilderConfig:
     """
     [300] PlanBuilder 노드 설정
@@ -93,6 +111,9 @@ class ExtractionConfig:
     )
     parameter_resolver: ParameterResolverConfig = field(
         default_factory=ParameterResolverConfig
+    )
+    ontology_resolver: OntologyResolverConfig = field(
+        default_factory=OntologyResolverConfig
     )
     plan_builder: PlanBuilderConfig = field(
         default_factory=PlanBuilderConfig
@@ -131,7 +152,8 @@ VitalExtractionConfig = ExtractionConfig
 __all__ = [
     # 노드별 설정
     "QueryUnderstandingConfig",
-    "ParameterResolverConfig", 
+    "ParameterResolverConfig",
+    "OntologyResolverConfig",
     "PlanBuilderConfig",
     "ExtractionConfig",
     "VitalExtractionConfig",  # backward compatibility

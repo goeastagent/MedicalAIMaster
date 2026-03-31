@@ -1,0 +1,564 @@
+<!DOCTYPE html>
+<html lang='ko'>
+<head>
+<meta charset='UTF-8'>
+<meta name='viewport' content='width=device-width, initial-scale=1.0'>
+<title>VitalAgent Universal Architecture</title>
+<link href='https://fonts.googleapis.com/css2?family=IBM+Plex+Mono:wght@400;600&family=IBM+Plex+Sans+KR:wght@300;400;600;700&display=swap' rel='stylesheet'>
+<style>
+  :root {
+    --bg: #0a0e17;
+    --surface: #111827;
+    --surface2: #1a2235;
+    --border: #1e3a5f;
+    --accent-blue: #3b82f6;
+    --accent-cyan: #06b6d4;
+    --accent-green: #10b981;
+    --accent-amber: #f59e0b;
+    --accent-red: #ef4444;
+    --accent-purple: #8b5cf6;
+    --text-primary: #e2e8f0;
+    --text-secondary: #94a3b8;
+    --text-dim: #475569;
+  }
+  * { box-sizing: border-box; margin: 0; padding: 0; }
+  body {
+    background: var(--bg);
+    color: var(--text-primary);
+    font-family: 'IBM Plex Sans KR', sans-serif;
+    font-size: 14px;
+    line-height: 1.6;
+  }
+  .page { max-width: 1400px; margin: 0 auto; padding: 40px 32px; }
+
+  .header { border-bottom: 2px solid var(--accent-blue); padding-bottom: 24px; margin-bottom: 48px; }
+  .header-label { font-family: 'IBM Plex Mono', monospace; font-size: 11px; color: var(--accent-cyan); letter-spacing: 4px; text-transform: uppercase; margin-bottom: 12px; }
+  .header h1 { font-size: 32px; font-weight: 700; color: #fff; line-height: 1.2; }
+  .header h1 span { color: var(--accent-cyan); }
+  .header-sub { color: var(--text-secondary); margin-top: 10px; font-size: 15px; }
+
+  .section { margin-bottom: 56px; }
+  .section-title { font-family: 'IBM Plex Mono', monospace; font-size: 12px; color: var(--accent-cyan); letter-spacing: 3px; text-transform: uppercase; margin-bottom: 20px; display: flex; align-items: center; gap: 10px; }
+  .section-title::after { content: ''; flex: 1; height: 1px; background: var(--border); }
+
+  .stats-bar { display: grid; grid-template-columns: repeat(5, 1fr); gap: 12px; margin-bottom: 40px; }
+  .stat-card { background: var(--surface); border: 1px solid var(--border); border-radius: 8px; padding: 16px; text-align: center; }
+  .stat-val { font-family: 'IBM Plex Mono', monospace; font-size: 24px; font-weight: 700; line-height: 1; margin-bottom: 6px; }
+  .stat-label { font-size: 11px; color: var(--text-secondary); }
+
+  .cause-grid { display: grid; grid-template-columns: 1fr 1fr 1fr; gap: 16px; margin-bottom: 24px; }
+  .cause-card { background: var(--surface); border: 1px solid var(--border); border-radius: 8px; padding: 20px; position: relative; overflow: hidden; }
+  .cause-card::before { content: ''; position: absolute; top: 0; left: 0; right: 0; height: 3px; }
+  .cause-card.red::before { background: var(--accent-red); }
+  .cause-card.amber::before { background: var(--accent-amber); }
+  .cause-card.purple::before { background: var(--accent-purple); }
+  .cause-card h3 { font-size: 13px; font-weight: 600; margin-bottom: 10px; color: #fff; }
+  .cause-card p { font-size: 12px; color: var(--text-secondary); line-height: 1.7; }
+  .example-item { font-family: 'IBM Plex Mono', monospace; font-size: 10px; color: var(--text-dim); background: var(--surface2); border-radius: 4px; padding: 4px 8px; margin-top: 4px; }
+  .unify-arrow { text-align: center; color: var(--accent-cyan); font-size: 24px; margin: 8px 0; }
+  .root-cause-box { background: linear-gradient(135deg, rgba(59,130,246,0.1), rgba(139,92,246,0.1)); border: 1px solid var(--accent-blue); border-radius: 10px; padding: 24px; text-align: center; }
+  .root-cause-box h3 { font-size: 16px; font-weight: 700; color: var(--accent-cyan); margin-bottom: 8px; }
+  .root-cause-box p { color: var(--text-secondary); font-size: 13px; }
+
+  .pipeline-compare { display: grid; grid-template-columns: 1fr 60px 1fr; gap: 0; align-items: start; }
+  .pipeline-col { background: var(--surface); border: 1px solid var(--border); border-radius: 10px; overflow: hidden; }
+  .pipeline-col-header { padding: 14px 20px; font-size: 12px; font-weight: 600; letter-spacing: 1px; text-transform: uppercase; }
+  .pipeline-col-header.current { background: rgba(239,68,68,0.15); color: var(--accent-red); }
+  .pipeline-col-header.new { background: rgba(16,185,129,0.15); color: var(--accent-green); }
+  .pipeline-step { display: flex; align-items: flex-start; gap: 12px; padding: 14px 20px; border-top: 1px solid var(--border); }
+  .pipeline-step:hover { background: var(--surface2); }
+  .step-num { font-family: 'IBM Plex Mono', monospace; font-size: 10px; font-weight: 600; width: 36px; flex-shrink: 0; padding-top: 2px; color: var(--text-dim); }
+  .step-content h4 { font-size: 13px; font-weight: 600; color: #fff; margin-bottom: 3px; }
+  .step-content p { font-size: 11px; color: var(--text-secondary); line-height: 1.5; }
+  .step-tag { display: inline-block; font-size: 9px; font-family: 'IBM Plex Mono', monospace; padding: 2px 6px; border-radius: 3px; margin-top: 5px; font-weight: 600; margin-right: 4px; }
+  .tag-red { background: rgba(239,68,68,0.15); color: var(--accent-red); border: 1px solid rgba(239,68,68,0.3); }
+  .tag-green { background: rgba(16,185,129,0.15); color: var(--accent-green); border: 1px solid rgba(16,185,129,0.3); }
+  .tag-blue { background: rgba(59,130,246,0.15); color: var(--accent-blue); border: 1px solid rgba(59,130,246,0.3); }
+  .tag-amber { background: rgba(245,158,11,0.15); color: var(--accent-amber); border: 1px solid rgba(245,158,11,0.3); }
+  .tag-new { background: rgba(6,182,212,0.15); color: var(--accent-cyan); border: 1px solid rgba(6,182,212,0.3); }
+  .vs-col { display: flex; align-items: center; justify-content: center; padding-top: 60px; }
+  .vs-badge { width: 40px; height: 40px; border-radius: 50%; background: var(--surface2); border: 2px solid var(--border); display: flex; align-items: center; justify-content: center; font-size: 11px; font-weight: 700; color: var(--text-dim); }
+
+  .semantic-index { background: var(--surface); border: 1px solid var(--border); border-radius: 10px; overflow: hidden; }
+  .si-header { background: linear-gradient(90deg, rgba(6,182,212,0.15), transparent); padding: 18px 24px; border-bottom: 1px solid var(--border); }
+  .si-header h3 { font-size: 16px; font-weight: 700; color: var(--accent-cyan); }
+  .si-header p { color: var(--text-secondary); font-size: 12px; margin-top: 4px; }
+  .si-fields { display: grid; grid-template-columns: repeat(3, 1fr); }
+  .si-field { padding: 18px 24px; border-right: 1px solid var(--border); border-bottom: 1px solid var(--border); }
+  .si-field:nth-child(3n) { border-right: none; }
+  .si-field-name { font-family: 'IBM Plex Mono', monospace; font-size: 11px; color: var(--accent-cyan); margin-bottom: 6px; font-weight: 600; }
+  .si-field-desc { font-size: 12px; color: var(--text-secondary); line-height: 1.6; }
+  .si-field-example { font-family: 'IBM Plex Mono', monospace; font-size: 10px; color: var(--text-dim); margin-top: 8px; background: var(--surface2); padding: 6px 8px; border-radius: 4px; }
+
+  .issue-table { width: 100%; border-collapse: collapse; background: var(--surface); border-radius: 10px; overflow: hidden; border: 1px solid var(--border); }
+  .issue-table th { background: var(--surface2); padding: 12px 16px; text-align: left; font-size: 11px; font-family: 'IBM Plex Mono', monospace; color: var(--text-secondary); letter-spacing: 1px; text-transform: uppercase; border-bottom: 1px solid var(--border); }
+  .issue-table td { padding: 12px 16px; border-bottom: 1px solid var(--border); font-size: 12px; vertical-align: top; }
+  .issue-table tr:last-child td { border-bottom: none; }
+  .issue-table tr:hover td { background: var(--surface2); }
+  .issue-id { font-family: 'IBM Plex Mono', monospace; font-size: 12px; font-weight: 600; color: var(--accent-amber); }
+  .issue-cause { color: var(--accent-red); font-size: 11px; }
+  .issue-fix { color: var(--accent-green); font-size: 11px; }
+
+  .roadmap-phases { display: grid; grid-template-columns: repeat(3, 1fr); gap: 16px; }
+  .phase-card { background: var(--surface); border: 1px solid var(--border); border-radius: 10px; overflow: hidden; }
+  .phase-header { padding: 14px 20px; display: flex; align-items: center; gap: 10px; border-bottom: 1px solid var(--border); }
+  .phase-num { width: 32px; height: 32px; border-radius: 50%; display: flex; align-items: center; justify-content: center; font-family: 'IBM Plex Mono', monospace; font-weight: 700; font-size: 13px; flex-shrink: 0; }
+  .phase-num.p1 { background: rgba(16,185,129,0.15); color: var(--accent-green); border: 2px solid var(--accent-green); }
+  .phase-num.p2 { background: rgba(59,130,246,0.15); color: var(--accent-blue); border: 2px solid var(--accent-blue); }
+  .phase-num.p3 { background: rgba(139,92,246,0.15); color: var(--accent-purple); border: 2px solid var(--accent-purple); }
+  .phase-title { font-size: 13px; font-weight: 700; color: #fff; }
+  .phase-subtitle { font-size: 11px; color: var(--text-secondary); }
+  .phase-body { padding: 16px 20px; }
+  .phase-item { display: flex; gap: 10px; margin-bottom: 14px; }
+  .phase-item:last-child { margin-bottom: 0; }
+  .phase-dot { width: 6px; height: 6px; border-radius: 50%; flex-shrink: 0; margin-top: 6px; }
+  .phase-item-text h4 { font-size: 12px; font-weight: 600; color: #fff; margin-bottom: 2px; }
+  .phase-item-text p { font-size: 11px; color: var(--text-secondary); line-height: 1.5; }
+  .impact-badges { display: flex; flex-wrap: wrap; gap: 4px; margin-top: 16px; padding-top: 14px; border-top: 1px solid var(--border); }
+  .impact-badge { font-family: 'IBM Plex Mono', monospace; font-size: 9px; padding: 2px 7px; border-radius: 3px; font-weight: 600; }
+
+  .proof-grid { display: grid; grid-template-columns: repeat(4, 1fr); gap: 12px; }
+  .proof-card { background: var(--surface); border: 1px solid var(--border); border-radius: 8px; padding: 16px; text-align: center; }
+  .proof-icon { font-size: 28px; margin-bottom: 8px; }
+  .proof-card h4 { font-size: 12px; font-weight: 600; color: #fff; margin-bottom: 6px; }
+  .proof-card p { font-size: 11px; color: var(--text-secondary); line-height: 1.5; }
+
+  .footer-note { margin-top: 48px; padding-top: 24px; border-top: 1px solid var(--border); color: var(--text-dim); font-size: 11px; font-family: 'IBM Plex Mono', monospace; display: flex; justify-content: space-between; }
+</style>
+</head>
+<body>
+<div class='page'>
+
+  <div class='header'>
+    <div class='header-label'>Architecture Evolution Document · 2026-03-31</div>
+    <h1>VitalAgent → <span>Universal Data Agent</span></h1>
+    <div class='header-sub'>현재 TODO의 모든 문제를 관통하는 단일 근본 원인과, 데이터셋 무관하게 작동하는 통합 해결 아키텍처</div>
+  </div>
+
+  <div class='stats-bar'>
+    <div class='stat-card'><div class='stat-val' style='color:#ef4444'>7</div><div class='stat-label'>미해결 TODO 항목</div></div>
+    <div class='stat-card'><div class='stat-val' style='color:#f59e0b'>1</div><div class='stat-label'>공통 근본 원인</div></div>
+    <div class='stat-card'><div class='stat-val' style='color:#06b6d4'>3</div><div class='stat-label'>구현 Phase</div></div>
+    <div class='stat-card'><div class='stat-val' style='color:#10b981'>∞</div><div class='stat-label'>지원 데이터셋</div></div>
+    <div class='stat-card'><div class='stat-val' style='color:#8b5cf6'>0</div><div class='stat-label'>VitalDB 전용 규칙 (목표)</div></div>
+  </div>
+
+  <!-- Root Cause -->
+  <div class='section'>
+    <div class='section-title'>Root Cause Analysis — 왜 지금 문제들이 모두 같은 원인인가</div>
+    <div class='cause-grid'>
+      <div class='cause-card red'>
+        <h3>🔴 구조 결함 1: 지식이 프롬프트에만 존재</h3>
+        <p>Cross-device 우선순위, CE/CT 구분, 카테고리 별칭이 자연어 프롬프트 안에만 있다. LLM은 확률적이어서 같은 쿼리에서도 결과가 달라진다.</p>
+        <div class='example-item'>"Primus > Solar8000 for ventilator" (프롬프트)</div>
+        <div class='example-item'>_CE = effect-site (하드코딩 가정)</div>
+        <div class='example-item'>vasopressor → Medication (수동 매핑)</div>
+      </div>
+      <div class='cause-card amber'>
+        <h3>🟡 구조 결함 2: 문자열 키워드 매칭</h3>
+        <p>ILIKE '%keyword%' 검색은 동의어, 하이픈, 약어에서 실패한다. 정보 손실이 3단계(키워드→DB→LLM)에 걸쳐 누적된다.</p>
+        <div class='example-item'>"effect site" ≠ "Effect-site" → 0건</div>
+        <div class='example-item'>"amount" ≠ "Volume" → 0건</div>
+        <div class='example-item'>"consciousness" ≠ "BIS" → 0건</div>
+      </div>
+      <div class='cause-card purple'>
+        <h3>🟣 구조 결함 3: 파이프라인이 항상 끝까지 실행</h3>
+        <p>Ambiguity를 감지해도 멈추지 않는다. auto_resolve_ambiguity는 설정만 있고 소비 코드가 없다. caseid 없이도 숫자를 반환한다.</p>
+        <div class='example-item'>"first 10 min HR?" → 76.01 반환 (FAIL)</div>
+        <div class='example-item'>ambiguities[] 있어도 다음 단계 진행</div>
+        <div class='example-item'>AnalysisAgent가 첫 케이스를 임의 선택</div>
+      </div>
+    </div>
+    <div class='unify-arrow'>↓ 세 가지 결함의 공통 원인 ↓</div>
+    <div class='root-cause-box'>
+      <h3>"파라미터에 대한 의미 지식이 인덱싱 시점에 계산되지 않고, 런타임에 LLM 규칙으로 추론된다"</h3>
+      <p style='margin-top:8px'>IndexingAgent가 param_key, semantic_name, unit만 저장하고, 나머지 의미 정보(측정 타입, 장비 간 관계, 개념 동일성)를 저장하지 않는다.<br>
+      그 결과 ExtractionAgent가 런타임마다 규칙+LLM으로 이를 추론하려 하고, 이 추론이 VitalDB-specific 하드코딩에 의존하게 된다.</p>
+    </div>
+  </div>
+
+  <!-- Pipeline Comparison -->
+  <div class='section'>
+    <div class='section-title'>Pipeline Architecture — 현재 vs 새 구조</div>
+    <div class='pipeline-compare'>
+      <div class='pipeline-col'>
+        <div class='pipeline-col-header current'>현재 파이프라인 (VitalDB 전용)</div>
+        <div class='pipeline-step'>
+          <div class='step-num'>[100]</div>
+          <div class='step-content'>
+            <h4>QueryUnderstanding</h4>
+            <p>LLM이 쿼리 분석 → requested_parameters + candidates 생성</p>
+            <span class='step-tag tag-red'>scope_intent 없음 — ambiguity 탐지 불가</span>
+          </div>
+        </div>
+        <div class='pipeline-step'>
+          <div class='step-num'>❌</div>
+          <div class='step-content'>
+            <h4>CompletenessGate 없음</h4>
+            <p>caseid 누락, 시간 범위 불명확해도 바로 다음 단계로 진행</p>
+            <span class='step-tag tag-red'>Temporal 0% 실패 근본 원인</span>
+          </div>
+        </div>
+        <div class='pipeline-step'>
+          <div class='step-num'>[200]</div>
+          <div class='step-content'>
+            <h4>ParameterResolver</h4>
+            <p>ILIKE 검색 → 하이픈/동의어 실패 → LLM이 Primus/Solar8000 규칙으로 선택</p>
+            <span class='step-tag tag-red'>VitalDB 규칙 하드코딩</span>
+          </div>
+        </div>
+        <div class='pipeline-step'>
+          <div class='step-num'>[300]</div>
+          <div class='step-content'>
+            <h4>PlanBuilder</h4>
+            <p>Execution Plan JSON 조립</p>
+          </div>
+        </div>
+        <div class='pipeline-step'>
+          <div class='step-num'>Orch</div>
+          <div class='step-content'>
+            <h4>Orchestrator (항상 통과)</h4>
+            <p>ambiguities[] 확인 없이 바로 DataLoad → Analysis 진행</p>
+            <span class='step-tag tag-red'>dead config: auto_resolve_ambiguity</span>
+          </div>
+        </div>
+        <div class='pipeline-step'>
+          <div class='step-num'>Ana</div>
+          <div class='step-content'>
+            <h4>AnalysisAgent</h4>
+            <p>단일 코드 생성 → 실행 → 재시도 최대 2회. One-shot 방식</p>
+            <span class='step-tag tag-red'>데이터를 직접 보지 못함 (Blind Coding)</span>
+          </div>
+        </div>
+      </div>
+      <div class='vs-col'><div class='vs-badge'>VS</div></div>
+      <div class='pipeline-col'>
+        <div class='pipeline-col-header new'>새 파이프라인 (Dataset-Agnostic)</div>
+        <div class='pipeline-step'>
+          <div class='step-num'>idx</div>
+          <div class='step-content'>
+            <h4>IndexingAgent (강화)</h4>
+            <p>param 인덱싱 시 자동으로 embedding, measurement_type, concept_id 계산 및 저장</p>
+            <span class='step-tag tag-new'>Semantic Index — 런타임 규칙 불필요</span>
+          </div>
+        </div>
+        <div class='pipeline-step'>
+          <div class='step-num'>[100]</div>
+          <div class='step-content'>
+            <h4>QueryUnderstanding (확장)</h4>
+            <p>기존 + scope_intent (single_case/population/ambiguous), is_caseid_required 필드 추가</p>
+            <span class='step-tag tag-green'>T-01 T-05 해결</span>
+          </div>
+        </div>
+        <div class='pipeline-step'>
+          <div class='step-num'>[150]</div>
+          <div class='step-content'>
+            <h4>CompletenessGate (신규 노드)</h4>
+            <p>LLM 기반(규칙 아님) 필수 슬롯 검증. 불완전하면 파이프라인 중단 → clarification 반환</p>
+            <span class='step-tag tag-new'>NEW NODE</span>
+            <span class='step-tag tag-green'>T-01 Layer2 완전 해결</span>
+          </div>
+        </div>
+        <div class='pipeline-step'>
+          <div class='step-num'>[200]</div>
+          <div class='step-content'>
+            <h4>ParameterResolver (Hybrid Search)</h4>
+            <p>ILIKE + Embedding 병렬 검색 → Merge. Semantic Index의 measurement_type/concept_id로 결정적 disambiguation</p>
+            <span class='step-tag tag-green'>T-02 T-03 T-08 T-09 해결</span>
+          </div>
+        </div>
+        <div class='pipeline-step'>
+          <div class='step-num'>Orch</div>
+          <div class='step-content'>
+            <h4>Orchestrator (Confidence Gate 활성화)</h4>
+            <p>ambiguities[] 비어 있지 않으면 Analysis 진행 안 함. clarification_needed 반환</p>
+            <span class='step-tag tag-green'>T-01 Layer3 해결</span>
+          </div>
+        </div>
+        <div class='pipeline-step'>
+          <div class='step-num'>Ana</div>
+          <div class='step-content'>
+            <h4>AnalysisAgent (REPL 루프, 장기)</h4>
+            <p>실행 결과 관찰 → 코드 수정 → 재실행 반복. 데이터를 직접 보며 적응</p>
+            <span class='step-tag tag-blue'>Part B Phase1</span>
+          </div>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <!-- Semantic Index -->
+  <div class='section'>
+    <div class='section-title'>Semantic Index — IndexingAgent가 저장해야 할 것</div>
+    <div class='semantic-index'>
+      <div class='si-header'>
+        <h3>parameter 테이블 확장 스키마</h3>
+        <p>이 6개 필드가 추가되면 ExtractionAgent의 모든 VitalDB-specific 규칙을 데이터 기반으로 대체 가능</p>
+      </div>
+      <div class='si-fields'>
+        <div class='si-field'>
+          <div class='si-field-name'>embedding vector(1536)</div>
+          <div class='si-field-desc'>semantic_name + unit + description의 텍스트 임베딩. 의미 검색의 기반. 인덱싱 시 1회 계산.</div>
+          <div class='si-field-example'>text-embedding-3-small, 259개 = $0.001 1회성</div>
+        </div>
+        <div class='si-field'>
+          <div class='si-field-name'>measurement_type varchar</div>
+          <div class='si-field-desc'>unit 패턴으로 자동 추론. 어떤 데이터셋이든 단위는 국제표준(SI)이므로 범용 적용 가능.</div>
+          <div class='si-field-example'>mL/hr→rate | mL→cumulative | Hz→waveform | mcg/mL→concentration</div>
+        </div>
+        <div class='si-field'>
+          <div class='si-field-name'>concept_id varchar</div>
+          <div class='si-field-desc'>동일 개념의 파라미터를 하나로 묶는 ID. 임베딩 클러스터링으로 자동 생성. VitalDB 이름 불필요.</div>
+          <div class='si-field-example'>"TIDAL_VOLUME": [Solar8000/VENT_TV, Primus/TV]</div>
+        </div>
+        <div class='si-field'>
+          <div class='si-field-name'>concept_priority int</div>
+          <div class='si-field-desc'>같은 concept_id 내에서의 우선순위. 프롬프트 규칙이 아닌 DB 필드로 결정론적 선택.</div>
+          <div class='si-field-example'>Solar8000/VENT_TV:1 > Primus/TV:2 > Primus/SET_TV:3</div>
+        </div>
+        <div class='si-field'>
+          <div class='si-field-name'>device_group varchar</div>
+          <div class='si-field-desc'>file_group 메타데이터에서 추론. VitalDB 이름 아닌 역할 기반 (patient_monitor, ventilator).</div>
+          <div class='si-field-example'>patient_monitor | anesthesia_machine | infusion_pump</div>
+        </div>
+        <div class='si-field'>
+          <div class='si-field-name'>variant_type varchar</div>
+          <div class='si-field-desc'>같은 개념의 변형 구분. SET_/VENT_ 같은 prefix 패턴이 아닌 의미 기반.</div>
+          <div class='si-field-example'>measured | target_setting | derived | waveform</div>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <!-- Issue Mapping Table -->
+  <div class='section'>
+    <div class='section-title'>TODO → 해결 매핑 — 어떤 항목이 어떻게 해결되는가</div>
+    <table class='issue-table'>
+      <thead>
+        <tr>
+          <th>TODO</th>
+          <th>현재 실패 원인</th>
+          <th>새 해결책</th>
+          <th>핵심 도구</th>
+          <th>VitalDB 전용성</th>
+        </tr>
+      </thead>
+      <tbody>
+        <tr>
+          <td><span class='issue-id'>T-01</span><br><span style='font-size:10px;color:#94a3b8'>Ambiguity Detection</span></td>
+          <td class='issue-cause'>scope_intent 없음. 파이프라인 중단 메커니즘 없음. "output ONLY JSON" 제약</td>
+          <td class='issue-fix'>[100] scope_intent 필드 추가 → [150] CompletenessGate → Orchestrator Gate 활성화</td>
+          <td style='font-size:11px;color:#94a3b8'>LangGraph conditional edge, LLM 판단</td>
+          <td><span class='step-tag tag-green'>범용</span></td>
+        </tr>
+        <tr>
+          <td><span class='issue-id'>T-02</span><br><span style='font-size:10px;color:#94a3b8'>Ontology/Category</span></td>
+          <td class='issue-cause'>"vasopressor" → keyword 검색 0건. Neo4j 수동 매핑 필요</td>
+          <td class='issue-fix'>Embedding 검색: "vasopressor" → cosine similarity → NEPI_RATE, DOPA_RATE 등 자동 매칭</td>
+          <td style='font-size:11px;color:#94a3b8'>ParameterEmbeddingCache, concept_id 클러스터</td>
+          <td><span class='step-tag tag-green'>범용</span></td>
+        </tr>
+        <tr>
+          <td><span class='issue-id'>T-03</span><br><span style='font-size:10px;color:#94a3b8'>Cross-Device</span></td>
+          <td class='issue-cause'>"Primus 우선" 규칙이 프롬프트에 하드코딩. LLM이 확률적으로 적용</td>
+          <td class='issue-fix'>concept_id 그룹 내 concept_priority 필드로 결정론적 선택. 프롬프트 규칙 불필요</td>
+          <td style='font-size:11px;color:#94a3b8'>concept_priority DB 필드, Semantic Index</td>
+          <td><span class='step-tag tag-green'>범용</span></td>
+        </tr>
+        <tr>
+          <td><span class='issue-id'>T-05</span><br><span style='font-size:10px;color:#94a3b8'>clarify↔retrieve 역전</span></td>
+          <td class='issue-cause'>후보 없음 = Unknown 카테고리 → clarify. 복합 조건 쿼리도 clarify로 오분류</td>
+          <td class='issue-fix'>Embedding으로 항상 의미적 후보 확보 → LLM이 더 좋은 후보로 정확히 판단. not_found vs clarify 기준 명확화</td>
+          <td style='font-size:11px;color:#94a3b8'>Hybrid search, scope_intent</td>
+          <td><span class='step-tag tag-green'>범용</span></td>
+        </tr>
+        <tr>
+          <td><span class='issue-id'>T-08</span><br><span style='font-size:10px;color:#94a3b8'>Waveform vs Scalar</span></td>
+          <td class='issue-cause'>_WAV suffix 의존 → VitalDB 전용. 타 데이터셋 불가</td>
+          <td class='issue-fix'>measurement_type='waveform' DB 필드로 결정론적 필터. unit(Hz, µV) 패턴으로 자동 추론</td>
+          <td style='font-size:11px;color:#94a3b8'>measurement_type Semantic Index 필드</td>
+          <td><span class='step-tag tag-green'>범용</span></td>
+        </tr>
+        <tr>
+          <td><span class='issue-id'>T-09</span><br><span style='font-size:10px;color:#94a3b8'>Volume vs Rate</span></td>
+          <td class='issue-cause'>_VOL/_RATE suffix 의존 → VitalDB/Orchestra 전용</td>
+          <td class='issue-fix'>measurement_type='cumulative' vs 'rate' DB 필드. unit: mL→cumulative, mL/hr→rate (SI 표준)</td>
+          <td style='font-size:11px;color:#94a3b8'>measurement_type Semantic Index 필드</td>
+          <td><span class='step-tag tag-green'>범용</span></td>
+        </tr>
+        <tr>
+          <td><span class='issue-id'>T-10</span><br><span style='font-size:10px;color:#94a3b8'>응답 속도</span></td>
+          <td class='issue-cause'>N개 파라미터 × LLM 직렬 호출. SchemaContext 캐시 없음</td>
+          <td class='issue-fix'>✅ ParameterResolver 병렬화 완료. + Embedding in-memory cache(1ms) → DB round-trip 감소</td>
+          <td style='font-size:11px;color:#94a3b8'>ThreadPoolExecutor (완료), EmbeddingCache</td>
+          <td><span class='step-tag tag-green'>범용</span></td>
+        </tr>
+      </tbody>
+    </table>
+  </div>
+
+  <!-- Dataset Agnostic Proof -->
+  <div class='section'>
+    <div class='section-title'>Dataset Agnosticism — 왜 이 방식이 어떤 데이터셋에도 작동하는가</div>
+    <div class='proof-grid'>
+      <div class='proof-card'>
+        <div class='proof-icon'>🗄️</div>
+        <h4>VitalDB</h4>
+        <p>Solar8000/HR, Primus/TV<br>259개 파라미터</p>
+        <div style='margin-top:8px'><span class='step-tag tag-green'>embedding으로 검색</span></div>
+      </div>
+      <div class='proof-card'>
+        <div class='proof-icon'>🏥</div>
+        <h4>MIMIC-IV</h4>
+        <p>220045 Heart Rate, 220210 Respiratory Rate<br>수천 개 itemid</p>
+        <div style='margin-top:8px'><span class='step-tag tag-green'>동일 파이프라인</span></div>
+      </div>
+      <div class='proof-card'>
+        <div class='proof-icon'>📊</div>
+        <h4>eICU CRD</h4>
+        <p>heartRate, systemicSystolic<br>다른 naming convention</p>
+        <div style='margin-top:8px'><span class='step-tag tag-green'>embedding이 의미로 매칭</span></div>
+      </div>
+      <div class='proof-card'>
+        <div class='proof-icon'>📁</div>
+        <h4>임의의 새 데이터셋</h4>
+        <p>폴더 지정 → IndexingAgent가 Semantic Index 자동 생성 → 즉시 사용 가능</p>
+        <div style='margin-top:8px'><span class='step-tag tag-blue'>Part B 목표</span></div>
+      </div>
+    </div>
+    <div style='margin-top:16px;padding:16px 20px;background:var(--surface);border:1px solid var(--border);border-radius:8px;'>
+      <p style='font-size:12px;color:var(--text-secondary);line-height:1.8'>
+        <strong style='color:#fff'>핵심 원리:</strong> unit은 국제 표준(SI)이라 어느 데이터셋이든 mL/hr은 rate, mL은 cumulative다. semantic_name의 의미는 의학 도메인에서 공통이라 embedding 유사도가 데이터셋 무관하게 작동한다. concept_id 클러스터링은 비지도 학습이라 레이블이 필요 없다. 결국 IndexingAgent가 새 데이터셋에 Semantic Index를 구축하면, ExtractionAgent는 아무 코드 변경 없이 작동한다.
+      </p>
+    </div>
+  </div>
+
+  <!-- Roadmap -->
+  <div class='section'>
+    <div class='section-title'>Implementation Roadmap — 3 Phases</div>
+    <div class='roadmap-phases'>
+      <div class='phase-card'>
+        <div class='phase-header'>
+          <div class='phase-num p1'>P1</div>
+          <div>
+            <div class='phase-title'>Semantic Search 기반 구축</div>
+            <div class='phase-subtitle'>2~3일 | 즉각적 효과</div>
+          </div>
+        </div>
+        <div class='phase-body'>
+          <div class='phase-item'>
+            <div class='phase-dot' style='background:var(--accent-green)'></div>
+            <div class='phase-item-text'>
+              <h4>ParameterEmbeddingCache</h4>
+              <p>259개 파라미터 임베딩 계산 → npz 캐시 저장. ParameterResolver에 Hybrid search 추가 (ILIKE + embedding merge). 이미 pgvector 설치됨.</p>
+            </div>
+          </div>
+          <div class='phase-item'>
+            <div class='phase-dot' style='background:var(--accent-green)'></div>
+            <div class='phase-item-text'>
+              <h4>measurement_type 자동 추론</h4>
+              <p>IndexingAgent parameter_semantic 단계에서 unit 패턴으로 자동 분류. parameter 테이블에 컬럼 추가 (DDL 1줄). OntologyCache의 unit 기반 로직을 DB 필드로 격상.</p>
+            </div>
+          </div>
+          <div class='phase-item'>
+            <div class='phase-dot' style='background:var(--accent-green)'></div>
+            <div class='phase-item-text'>
+              <h4>Orchestrator Confidence Gate</h4>
+              <p>orchestrator.py ~20줄 변경. ambiguities[] 비어 있지 않으면 Analysis 건너뜀. clarification_needed status 추가. dead config 활성화.</p>
+            </div>
+          </div>
+          <div class='impact-badges'>
+            <span class='impact-badge tag-amber'>T-05 해결</span>
+            <span class='impact-badge tag-amber'>T-08 해결</span>
+            <span class='impact-badge tag-amber'>T-09 해결</span>
+            <span class='impact-badge tag-amber'>T-01 Layer3</span>
+            <span class='impact-badge tag-amber'>Temporal 0%→70%+</span>
+          </div>
+        </div>
+      </div>
+      <div class='phase-card'>
+        <div class='phase-header'>
+          <div class='phase-num p2'>P2</div>
+          <div>
+            <div class='phase-title'>Semantic Index 완성</div>
+            <div class='phase-subtitle'>3~5일 | 구조적 개선</div>
+          </div>
+        </div>
+        <div class='phase-body'>
+          <div class='phase-item'>
+            <div class='phase-dot' style='background:var(--accent-blue)'></div>
+            <div class='phase-item-text'>
+              <h4>Parameter Concept Clustering</h4>
+              <p>임베딩 기반 클러스터링으로 concept_id 자동 생성. concept_priority는 file_group 메타데이터 + variant_type으로 자동 설정. Cross-device 규칙 프롬프트에서 제거.</p>
+            </div>
+          </div>
+          <div class='phase-item'>
+            <div class='phase-dot' style='background:var(--accent-blue)'></div>
+            <div class='phase-item-text'>
+              <h4>CompletenessGate 노드 [150]</h4>
+              <p>LangGraph에 신규 노드 추가. LLM 기반 필수 슬롯 검증 (scope_intent=single_case + caseid 없음 → 중단). 규칙 기반이 아닌 의미 기반.</p>
+            </div>
+          </div>
+          <div class='phase-item'>
+            <div class='phase-dot' style='background:var(--accent-blue)'></div>
+            <div class='phase-item-text'>
+              <h4>scope_intent QueryUnderstanding 확장</h4>
+              <p>prompts.py에 scope_intent, is_caseid_required 필드 추가. ParameterResolver의 disambiguation 로직을 concept_id 기반으로 교체.</p>
+            </div>
+          </div>
+          <div class='impact-badges'>
+            <span class='impact-badge tag-blue'>T-01 완전 해결</span>
+            <span class='impact-badge tag-blue'>T-02 해결</span>
+            <span class='impact-badge tag-blue'>T-03 해결</span>
+            <span class='impact-badge tag-blue'>Level1 F1 0.86→0.93+</span>
+          </div>
+        </div>
+      </div>
+      <div class='phase-card'>
+        <div class='phase-header'>
+          <div class='phase-num p3'>P3</div>
+          <div>
+            <div class='phase-title'>Autonomous Data Agent</div>
+            <div class='phase-subtitle'>장기 | Part B 구현</div>
+          </div>
+        </div>
+        <div class='phase-body'>
+          <div class='phase-item'>
+            <div class='phase-dot' style='background:var(--accent-purple)'></div>
+            <div class='phase-item-text'>
+              <h4>AnalysisAgent REPL 루프</h4>
+              <p>단일 코드 생성(one-shot) → 반복 실행 루프로. 데이터를 관찰하며 코드를 수정. Blind Coding 탈피. 자율 오류 수정.</p>
+            </div>
+          </div>
+          <div class='phase-item'>
+            <div class='phase-dot' style='background:var(--accent-purple)'></div>
+            <div class='phase-item-text'>
+              <h4>File System Tools</h4>
+              <p>list_files(), peek_file() 도구로 IndexingAgent 없이도 새 폴더 즉시 탐색 가능. 사전 인덱싱 불필요.</p>
+            </div>
+          </div>
+          <div class='phase-item'>
+            <div class='phase-dot' style='background:var(--accent-purple)'></div>
+            <div class='phase-item-text'>
+              <h4>ReAct 루프 Orchestrator</h4>
+              <p>LangGraph cyclic graph. [생각→도구선택→실행→관찰→다시생각] 반복. 완전 자율형 데이터 분석가.</p>
+            </div>
+          </div>
+          <div class='impact-badges'>
+            <span class='impact-badge tag-new'>임의 데이터셋</span>
+            <span class='impact-badge tag-new'>사전 인덱싱 불필요</span>
+            <span class='impact-badge tag-new'>자율 오류 수정</span>
+          </div>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <div class='footer-note'>
+    <span>VitalAgent Architecture Evolution · Based on FUTURE_WORK.md + EMBEDDING_PARAMETER_SEARCH.md + ONTOLOGY_KNOWLEDGE_EXTENSION.md</span>
+    <span>Phase 1 → 즉시 시작 가능 | pgvector ✅ 설치됨 | 259개 파라미터</span>
+  </div>
+
+</div>
+</body>
+</html>

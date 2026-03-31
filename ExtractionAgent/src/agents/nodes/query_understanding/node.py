@@ -222,7 +222,11 @@ class QueryUnderstandingNode(BaseNode):
                         "term": param.get("term", ""),
                         "normalized": param.get("normalized", param.get("term", "")),
                         "candidates": param.get("candidates", []),
-                        "expected_categories": param.get("expected_categories", [])  # Option B: 카테고리 힌트
+                        "expected_categories": param.get("expected_categories", []),
+                        # Ontology-aware fields
+                        "query_intent_type": param.get("query_intent_type", "specific_param"),
+                        "category_terms": param.get("category_terms", []),
+                        "measurement_type_hint": param.get("measurement_type_hint"),
                     }
                     # candidates가 없으면 term과 normalized를 사용
                     if not normalized_param["candidates"]:
@@ -230,7 +234,7 @@ class QueryUnderstandingNode(BaseNode):
                         if normalized_param["normalized"] != normalized_param["term"]:
                             candidates.append(normalized_param["normalized"])
                         normalized_param["candidates"] = candidates
-                    
+
                     result["requested_parameters"].append(normalized_param)
         
         # cohort_filters 정규화

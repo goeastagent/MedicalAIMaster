@@ -66,9 +66,10 @@ You must evenly distribute the generated queries among the following 4 `query_st
    - *Example*: "For caseid 0009, what is the minimum `Orchestra/PPF20_CE` value between 1000 seconds and 2000 seconds, sampled at 1 Hz, ignoring NaN? (Return as an integer)"
    - *Code logic*: `vals[1000:2000]`
 4. **Ambiguous**: Intentionally omit a critical piece of information (e.g., the specific caseid, the exact time window, or the sampling rate/NaN handling) so the agent MUST ask for clarification.
-   - *Example*: "What is the average heart rate during the first 10 minutes?" (Missing caseid and NaN/sampling rate).
+   - *Example*: "What is the average heart rate during the first 10 minutes? If any information needed to answer this question is missing or unclear, please ask for clarification instead of computing an answer." (Missing caseid and NaN/sampling rate).
    - *Code logic*: For ambiguous queries, the `ground_truth_logic.code` should just return `"AMBIGUOUS"`.
    - **IMPORTANT**: For each Ambiguous query, you MUST include a `"missing_info"` field listing exactly which pieces of information are missing (e.g., "caseid", "sampling_rate", "nan_handling", "time_range", "precision").
+   - **CRITICAL**: The `query` field for every Ambiguous entry MUST end with the sentence: "If any information needed to answer this question is missing or unclear, please ask for clarification instead of computing an answer."
 
 **CRITICAL REQUIREMENT - UNAMBIGUOUS SPECIFICATION (For Styles 1, 2, 3):**
 For non-ambiguous queries, they MUST be fully self-contained:
@@ -122,7 +123,7 @@ Return a JSON array of objects with the following structure:
     "track_names": ["Solar8000/HR"],
     "question_type": "temporal_ambiguous",
     "query_style": "Ambiguous",
-    "query": "What is the average heart rate (`Solar8000/HR`) during the first 10 minutes?",
+    "query": "What is the average heart rate (`Solar8000/HR`) during the first 10 minutes? If any information needed to answer this question is missing or unclear, please ask for clarification instead of computing an answer.",
     "missing_info": "caseid, sampling_rate, nan_handling, precision",
     "ground_truth_logic": {
       "language": "python",
