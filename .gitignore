@@ -24,6 +24,7 @@ wheels/
 
 # Virtual Environment
 venv/
+venv*/
 ENV/
 env/
 .venv/
@@ -105,6 +106,9 @@ htmlcov/
 *.xlsx
 *.xls
 *.csv
+Evaluation/**/output/*
+!Evaluation/**/output/.gitkeep
+**/quality_warnings.txt
 
 # Logs and Checkpoints
 *.log
