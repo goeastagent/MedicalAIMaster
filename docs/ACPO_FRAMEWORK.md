@@ -207,6 +207,8 @@ raw 데이터 디렉토리 (.vital 6,384개 + clinical_data.csv + lab_data.csv +
 저장: PostgreSQL 12개 테이블 + Neo4j 온톨로지 그래프
 ```
 
+> **저장 구현 업데이트 (2026-05)**: 위 "PostgreSQL + Neo4j" 저장은 *차세대 [`IndexingAgent → Cartographer`](CARTOGRAPHER_DESIGN.md)* 에서 **DB 서버 없이 파일 아티팩트(Engram)** 로 대체되었다(인덱싱 중엔 임베디드 SQLite 스크래치, 산출물은 JSONL/YAML). 프레임워크(K1–K5, I1–I3)의 *개념*은 그대로 유효하며, 바뀐 것은 *저장 매체*뿐이다. 또한 아래 "재현 가능"은 *동결된 산출물* 기준이며, *파이프라인 재실행*은 LLM 단계 때문에 동일 결과를 보장하지 않는다(Rule-Prepares는 결정적, LLM-Decides는 확률적).
+
 **핵심 성질**:
 - **재현 가능**: 동일 데이터에 대해 동일 indexing 결과
 - **persistent**: 한 번 구축되면 모든 쿼리에서 재사용

@@ -1,8 +1,10 @@
 # ACPO Skill: Distributable Ontology Artifact
 
-> **Status**: 설계 제안서 (구현 대기)
+> **⚠️ 저장 방식 SUPERSEDED (2026-05-31)**: 본 문서의 `DB(작업) → exporter → 파일(배포본)` 구조는 [`CARTOGRAPHER_DESIGN.md`](CARTOGRAPHER_DESIGN.md)로 대체되었다. Cartographer(구 IndexingAgent 차세대)는 DB 서버 없이 인덱싱 도중엔 임베디드 SQLite, 산출물은 순수 파일 **Engram**(= 본 문서의 Skill 구현체)을 직접 생성한다(export 단계 없음). **여전히 유효한 부분**: §3 아티팩트 포맷, §4 manifest(키는 `skill:`→`engram:`으로 통일), §7 privacy 검사, §9 ablation 활용. **무효**: §5(DB export/activate 라이프사이클), §7.1 loader의 DB 복원 단계.
 >
-> 이 문서는 [`ACPO_FRAMEWORK.md`](ACPO_FRAMEWORK.md)에서 정의한 K1–K5 ontology의 *오프라인 인덱싱 산출물*을 **재사용 가능한 단일 단위로 동결·배포·교체**할 수 있게 만드는 ACPO Skill의 설계를 기술한다.
+> **Status**: 설계 제안서 (저장 방식은 superseded, 포맷/manifest/ablation은 계승)
+>
+> 이 문서는 [`ACPO_FRAMEWORK.md`](ACPO_FRAMEWORK.md)에서 정의한 K1–K5 ontology의 *오프라인 인덱싱 산출물*을 **재사용 가능한 단일 단위로 동결·배포·교체**할 수 있게 만드는 ACPO Skill의 설계를 기술한다. (구체 구현은 Cartographer의 Engram으로 실현 — [`CARTOGRAPHER_DESIGN.md`](CARTOGRAPHER_DESIGN.md).)
 >
 > 핵심 아이디어 한 줄: **"한 번 인덱싱한 결과를 빼다 꽂다 할 수 있게."**
 
