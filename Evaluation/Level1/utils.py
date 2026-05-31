@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import json
+import re
 from pathlib import Path
 from typing import Dict, List
 
@@ -14,6 +15,8 @@ from Evaluation.Level1.models import (
     SynonymEntry,
     infer_param_source,
 )
+
+_VITAL_SIGNAL_PARAM_KEY_RE = re.compile(r"^[A-Za-z0-9_]+/[A-Za-z0-9_]+$")
 
 
 def load_synonym_map(path: Path) -> Dict[str, SynonymEntry]:
@@ -32,8 +35,18 @@ def append_jsonl(path: Path, item: BaseModel) -> None:
         f.write(item.model_dump_json() + "\n")
 
 
+def is_vital_signal_param_key(param_key: str) -> bool:
+    """Return True when the key matches the Device/Signal vital track format."""
+    return bool(_VITAL_SIGNAL_PARAM_KEY_RE.fullmatch(param_key or ""))
+
+
+def all_params_are_vital_signals(required_parameters: List[str]) -> bool:
+    """Return True when all required params are valid vital track keys."""
+    return all(is_vital_signal_param_key(pk) for pk in required_parameters)
+
+
 def infer_category(required_parameters: List[str]) -> Category:
-    """Derive Category from required_parameters via ParamSource.
+    """Derive Category for the vital-only Level 1 benchmark.
 
     Used in Stage 6 when promoting QueryCandidate → Level1Case.
     Returns ADVERSARIAL when required_parameters is empty (source is None).
@@ -41,10 +54,9 @@ def infer_category(required_parameters: List[str]) -> Category:
     source = infer_param_source(required_parameters)
     if source is None:
         return Category.ADVERSARIAL
-    mapping = {
-        ParamSource.SIGNAL: Category.VITAL_ONLY,
-        ParamSource.TABULAR_CLINICAL: Category.VITAL_CLINICAL,
-        ParamSource.TABULAR_LAB: Category.VITAL_LAB,
-        ParamSource.MIXED: Category.VITAL_CLINICAL,
-    }
-    return mapping.get(source, Category.VITAL_ONLY)
+    if source != ParamSource.SIGNAL or not all_params_are_vital_signals(required_parameters):
+        raise ValueError(
+            "Level1 generation is configured for vital-only cases; "
+            f"unsupported required_parameters={required_parameters!r}"
+        )
+    return Category.VITAL_ONLY

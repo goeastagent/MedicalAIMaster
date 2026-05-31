@@ -30,6 +30,25 @@ except ModuleNotFoundError:
 load_dotenv()
 
 
+def _parse_provider_sequence(raw: str) -> tuple[str, ...]:
+    """Parse a comma-separated provider sequence like 'openai,claude'."""
+    providers = []
+    for item in raw.split(","):
+        provider = item.strip().lower()
+        if not provider:
+            continue
+        if provider == "anthropic":
+            provider = "claude"
+        if provider not in ("openai", "claude"):
+            raise ValueError(
+                f"Unsupported Level1 provider '{provider}'. Supported: openai, claude"
+            )
+        providers.append(provider)
+    if not providers:
+        raise ValueError("Provider sequence must contain at least one provider")
+    return tuple(providers)
+
+
 # ---------------------------------------------------------------------------
 # Paths
 # ---------------------------------------------------------------------------
@@ -90,14 +109,14 @@ class Paths:
 # NOTE: Cross-Source removed — current experiment uses vital signals only.
 #
 #                         Doctor  DataSci  Layperson
-# Single-Direct              7       7        6      = 20
-# Single-Semantic            7       7        6      = 20
-# Single-Abbreviation        7       7        6      = 20
-# Multi-Independent          7       7        6      = 20
-# Multi-Conditional         10      10       10      = 30
-# Adversarial                               20      = 20  (style=N/A)
+# Single-Direct              8       8        8      = 24
+# Single-Semantic           10      10       14      = 34
+# Single-Abbreviation        9       9        8      = 26
+# Multi-Independent         10      10       12      = 32
+# Multi-Conditional         20      20       24      = 64
+# Adversarial                               30      = 30  (style=N/A)
 #                                                  ------
-#                                                   130
+#                                                   210
 
 BatchCell = Tuple[QueryType, QueryStyle]
 BatchPlan = Dict[BatchCell, int]
@@ -110,29 +129,29 @@ class GenerationConfig:
 
     BATCH_PLAN: BatchPlan = {
         # Single-Direct
-        (QueryType.SINGLE_DIRECT, QueryStyle.DOCTOR):         7,
-        (QueryType.SINGLE_DIRECT, QueryStyle.DATA_SCIENTIST): 7,
-        (QueryType.SINGLE_DIRECT, QueryStyle.LAYPERSON):      6,
+        (QueryType.SINGLE_DIRECT, QueryStyle.DOCTOR):         8,
+        (QueryType.SINGLE_DIRECT, QueryStyle.DATA_SCIENTIST): 8,
+        (QueryType.SINGLE_DIRECT, QueryStyle.LAYPERSON):      8,
         # Single-Semantic
-        (QueryType.SINGLE_SEMANTIC, QueryStyle.DOCTOR):         7,
-        (QueryType.SINGLE_SEMANTIC, QueryStyle.DATA_SCIENTIST): 7,
-        (QueryType.SINGLE_SEMANTIC, QueryStyle.LAYPERSON):      6,
+        (QueryType.SINGLE_SEMANTIC, QueryStyle.DOCTOR):         10,
+        (QueryType.SINGLE_SEMANTIC, QueryStyle.DATA_SCIENTIST): 10,
+        (QueryType.SINGLE_SEMANTIC, QueryStyle.LAYPERSON):      14,
         # Single-Abbreviation
-        (QueryType.SINGLE_ABBREVIATION, QueryStyle.DOCTOR):         7,
-        (QueryType.SINGLE_ABBREVIATION, QueryStyle.DATA_SCIENTIST): 7,
-        (QueryType.SINGLE_ABBREVIATION, QueryStyle.LAYPERSON):      6,
+        (QueryType.SINGLE_ABBREVIATION, QueryStyle.DOCTOR):         9,
+        (QueryType.SINGLE_ABBREVIATION, QueryStyle.DATA_SCIENTIST): 9,
+        (QueryType.SINGLE_ABBREVIATION, QueryStyle.LAYPERSON):      8,
         # Multi-Independent
-        (QueryType.MULTI_INDEPENDENT, QueryStyle.DOCTOR):         7,
-        (QueryType.MULTI_INDEPENDENT, QueryStyle.DATA_SCIENTIST): 7,
-        (QueryType.MULTI_INDEPENDENT, QueryStyle.LAYPERSON):      6,
+        (QueryType.MULTI_INDEPENDENT, QueryStyle.DOCTOR):         10,
+        (QueryType.MULTI_INDEPENDENT, QueryStyle.DATA_SCIENTIST): 10,
+        (QueryType.MULTI_INDEPENDENT, QueryStyle.LAYPERSON):      12,
         # Multi-Conditional
-        (QueryType.MULTI_CONDITIONAL, QueryStyle.DOCTOR):         10,
-        (QueryType.MULTI_CONDITIONAL, QueryStyle.DATA_SCIENTIST): 10,
-        (QueryType.MULTI_CONDITIONAL, QueryStyle.LAYPERSON):      10,
+        (QueryType.MULTI_CONDITIONAL, QueryStyle.DOCTOR):         20,
+        (QueryType.MULTI_CONDITIONAL, QueryStyle.DATA_SCIENTIST): 20,
+        (QueryType.MULTI_CONDITIONAL, QueryStyle.LAYPERSON):      24,
     }
 
     # Target adversarial cases (all sub-types combined: Ambiguous/Impossible/Confusing)
-    ADVERSARIAL_TARGET: int = 20
+    ADVERSARIAL_TARGET: int = 30
 
     # ---- Parameter batch configuration ------------------------------------
 
@@ -149,14 +168,25 @@ class GenerationConfig:
 
     # ---- Oversampling ------------------------------------------------------
 
-    # LLM generates GENERATION_MULTIPLIER × target to ensure enough survive
-    # quality filtering (Stage 4).
-    GENERATION_MULTIPLIER: int = 2
+    # With alternating providers/models, a larger candidate pool improves the
+    # odds that more diverse queries survive Stage 4 filtering.
+    GENERATION_MULTIPLIER: int = int(os.getenv("LEVEL1_GENERATION_MULTIPLIER", "3"))
 
     # ---- LLM for generation (Stage 2 / Stage 5) ----------------------------
     # High temperature for diversity.
 
     GENERATION_MODEL: str = os.getenv("LEVEL1_GEN_MODEL", "gpt-4o")
+    GENERATION_PROVIDERS: tuple[str, ...] = _parse_provider_sequence(
+        os.getenv("LEVEL1_GEN_PROVIDERS", "openai,claude")
+    )
+    GENERATION_OPENAI_MODEL: str = os.getenv(
+        "LEVEL1_GEN_OPENAI_MODEL",
+        GENERATION_MODEL,
+    )
+    GENERATION_CLAUDE_MODEL: str = os.getenv(
+        "LEVEL1_GEN_CLAUDE_MODEL",
+        os.getenv("ANTHROPIC_MODEL", "claude-sonnet-4-20250514"),
+    )
     GENERATION_TEMPERATURE: float = float(
         os.getenv("LEVEL1_GEN_TEMPERATURE", "0.8")
     )
@@ -170,6 +200,17 @@ class GenerationConfig:
     # ---- LLM for synonym generation (Stage 1) ------------------------------
 
     SYNONYM_MODEL: str = os.getenv("LEVEL1_SYNONYM_MODEL", "gpt-4o")
+    SYNONYM_PROVIDERS: tuple[str, ...] = _parse_provider_sequence(
+        os.getenv("LEVEL1_SYNONYM_PROVIDERS", "openai,claude")
+    )
+    SYNONYM_OPENAI_MODEL: str = os.getenv(
+        "LEVEL1_SYNONYM_OPENAI_MODEL",
+        SYNONYM_MODEL,
+    )
+    SYNONYM_CLAUDE_MODEL: str = os.getenv(
+        "LEVEL1_SYNONYM_CLAUDE_MODEL",
+        os.getenv("ANTHROPIC_MODEL", "claude-sonnet-4-20250514"),
+    )
     SYNONYM_TEMPERATURE: float = 0.3   # slight variation for synonym diversity
     SYNONYM_MAX_TOKENS: int = 512
 
@@ -339,15 +380,15 @@ class FilterConfig:
 # ---------------------------------------------------------------------------
 
 class AdversarialConfig:
-    """Breakdown of the 20 adversarial target cases."""
+    """Breakdown of the adversarial target cases."""
 
     # How many of each sub-type to generate
-    TARGET_AMBIGUOUS:  int = 7   # query is vague; expected: clarify
-    TARGET_IMPOSSIBLE: int = 7   # parameter not in DB; expected: not_found
-    TARGET_CONFUSING:  int = 6   # same physiological indicator, multiple devices
+    TARGET_AMBIGUOUS:  int = 10  # query is vague; expected: clarify
+    TARGET_IMPOSSIBLE: int = 10  # parameter not in DB; expected: not_found
+    TARGET_CONFUSING:  int = 10  # same physiological indicator, multiple devices
 
     # Oversampling for adversarial cases (same principle as normal cases)
-    GENERATION_MULTIPLIER: int = 2
+    GENERATION_MULTIPLIER: int = int(os.getenv("LEVEL1_ADV_GENERATION_MULTIPLIER", "3"))
 
     @classmethod
     def total(cls) -> int:
@@ -364,15 +405,15 @@ class ValidationCriteria:
     Source: LEVEL1_DATASET.md Section 5, Stage 6.
     """
 
-    # Minimum unique param_keys covered (≥ 15% of ~260 total)
-    MIN_UNIQUE_PARAM_KEYS: int = int(os.getenv("LEVEL1_MIN_UNIQUE_PARAMS", "40"))
+    # Minimum unique param_keys covered for the regenerated vital-only dataset.
+    MIN_UNIQUE_PARAM_KEYS: int = int(os.getenv("LEVEL1_MIN_UNIQUE_PARAMS", "50"))
 
     # Every category must have at least this many cases
     MIN_CASES_PER_CATEGORY: int = 1
 
-    # Categories excluded from the MIN_CASES_PER_CATEGORY check.
-    # Current experiment uses vital signals only — no clinical/lab data sources.
-    EXCLUDED_CATEGORIES: tuple = ("vital+clinical", "vital+lab")
+    # The regenerated dataset is intentionally limited to vital_only plus
+    # adversarial cases derived from the same vital ontology.
+    ALLOWED_CATEGORIES: tuple = ("vital_only", "adversarial")
 
     # Each query style must fall within [MIN_STYLE_PCT, MAX_STYLE_PCT] of total
     MIN_STYLE_PCT: float = 0.25

@@ -136,6 +136,8 @@ MedicalAIMaster/
 - [ExtractionAgent 아키텍처](ExtractionAgent_ARCHITECTURE.md)
 - [AnalysisAgent 아키텍처](AnalysisAgent_ARCHITECTURE.md)
 - [OrchestrationAgent 아키텍처](OrchestrationAgent_ARCHITECTURE.md)
+- [논문 작성 전략](PAPER_STRATEGY.md)
+- [Hybrid Privacy Architecture 전략](HYBRID_PRIVACY_ARCHITECTURE.md)
 
 ### 각 에이전트의 상세 문서
 각 에이전트 폴더 내의 `ARCHITECTURE.md`에서 더 상세한 내용을 확인할 수 있습니다:

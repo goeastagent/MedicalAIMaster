@@ -38,7 +38,9 @@ if str(_PROJECT_ROOT) not in sys.path:
     sys.path.insert(0, str(_PROJECT_ROOT))
 
 from Evaluation.Level1.config import DBConfig, GenerationConfig, Paths
+from Evaluation.Level1.llm_router import build_router
 from Evaluation.Level1.models import SynonymEntry
+from Evaluation.Level1.utils import is_vital_signal_param_key
 
 logging.basicConfig(
     level=logging.INFO,
@@ -67,7 +69,7 @@ def load_params_from_db(
     conn: psycopg2.extensions.connection,
     limit: Optional[int] = None,
 ) -> List[Dict]:
-    """Return distinct non-identifier params that have semantic_name set.
+    """Return distinct vital-track params that have semantic_name set.
 
     Returns a list of dicts:
         [{"param_key": str, "semantic_name": str, "unit": str, "concept_category": str}, ...]
@@ -92,7 +94,7 @@ def load_params_from_db(
         cur.execute(sql)
         rows = cur.fetchall()
 
-    return [
+    params = [
         {
             "param_key":        row[0],
             "semantic_name":    row[1],
@@ -101,43 +103,45 @@ def load_params_from_db(
         }
         for row in rows
     ]
+    # Keep a Python-side guard as well so the stage stays vital-only even if the
+    # SQL query changes later.
+    return [param for param in params if is_vital_signal_param_key(param["param_key"])]
 
 
 # ---------------------------------------------------------------------------
 # LLM helper — direct OpenAI call with custom temperature
 # ---------------------------------------------------------------------------
 
+_SYNONYM_ROUTER = None
+
+
+def _get_synonym_router():
+    global _SYNONYM_ROUTER
+    if _SYNONYM_ROUTER is None:
+        _SYNONYM_ROUTER = build_router(
+            providers=GenerationConfig.SYNONYM_PROVIDERS,
+            openai_model=GenerationConfig.SYNONYM_OPENAI_MODEL,
+            claude_model=GenerationConfig.SYNONYM_CLAUDE_MODEL,
+            stage_name="Stage1 synonym generation",
+        )
+    return _SYNONYM_ROUTER
+
+
 def _call_synonym_llm(prompt: str) -> Dict:
-    """Call OpenAI with the synonym_gen prompt and return parsed JSON.
-
-    Uses GenerationConfig.SYNONYM_MODEL / SYNONYM_TEMPERATURE directly so
-    it doesn't touch the shared singleton client (which has temperature=0).
-    Falls back gracefully on any error, returning an empty dict.
-    """
+    """Call the configured synonym-generation backends in round-robin order."""
     try:
-        from openai import OpenAI
-        from Evaluation.Level1.config import DBConfig  # noqa — just to trigger load_dotenv
-        import os
-
-        client = OpenAI(api_key=os.getenv("OPENAI_API_KEY"))
-        response = client.chat.completions.create(
-            model=GenerationConfig.SYNONYM_MODEL,
-            messages=[
-                {
-                    "role": "system",
-                    "content": (
-                        "You are a medical terminology expert. "
-                        "Output valid JSON only, no markdown."
-                    ),
-                },
-                {"role": "user", "content": prompt},
-            ],
+        parsed, backend_label = _get_synonym_router().call_json(
+            system_prompt=(
+                "You are a medical terminology expert. "
+                "Output valid JSON only, no markdown."
+            ),
+            user_prompt=prompt,
             temperature=GenerationConfig.SYNONYM_TEMPERATURE,
             max_tokens=GenerationConfig.SYNONYM_MAX_TOKENS,
-            response_format={"type": "json_object"},
+            expect_array=False,
         )
-        raw = response.choices[0].message.content
-        return json.loads(raw)
+        log.debug("Synonym generation backend: %s", backend_label)
+        return parsed
     except Exception as e:
         log.warning("LLM call failed: %s", e)
         return {}

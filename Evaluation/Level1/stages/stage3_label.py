@@ -53,7 +53,11 @@ from Evaluation.Level1.models import (
     QueryType,
     SynonymEntry,
 )
-from Evaluation.Level1.utils import append_jsonl, load_synonym_map
+from Evaluation.Level1.utils import (
+    append_jsonl,
+    is_vital_signal_param_key,
+    load_synonym_map,
+)
 
 logging.basicConfig(
     level=logging.INFO,
@@ -208,18 +212,18 @@ def label_candidate(
 
     Returns None if the candidate is invalid (e.g., hallucinated params).
     """
-    # ── Step 1: validate required_parameters exist ──
+    # ── Step 1: validate required_parameters exist and stay vital-only ──
     valid_params: List[str] = []
     invalid_params: List[str] = []
     for pk in candidate.required_parameters:
-        if pk in synonym_map:
+        if pk in synonym_map and is_vital_signal_param_key(pk):
             valid_params.append(pk)
         else:
             invalid_params.append(pk)
 
     if invalid_params:
         log.debug(
-            "Dropping candidate — hallucinated params %s: %s",
+            "Dropping candidate — invalid or non-vital params %s: %s",
             invalid_params, candidate.query[:80],
         )
         return None

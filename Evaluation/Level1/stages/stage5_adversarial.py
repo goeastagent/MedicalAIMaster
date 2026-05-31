@@ -48,6 +48,7 @@ from Evaluation.Level1.config import (
     GenerationConfig,
     Paths,
 )
+from Evaluation.Level1.llm_router import build_router
 from Evaluation.Level1.models import (
     ExpectedBehavior,
     GroundTruth,
@@ -64,6 +65,20 @@ logging.basicConfig(
     datefmt="%H:%M:%S",
 )
 log = logging.getLogger(__name__)
+
+_ADVERSARIAL_ROUTER = None
+
+
+def _get_adversarial_router():
+    global _ADVERSARIAL_ROUTER
+    if _ADVERSARIAL_ROUTER is None:
+        _ADVERSARIAL_ROUTER = build_router(
+            providers=GenerationConfig.GENERATION_PROVIDERS,
+            openai_model=GenerationConfig.GENERATION_OPENAI_MODEL,
+            claude_model=GenerationConfig.GENERATION_CLAUDE_MODEL,
+            stage_name="Stage5 adversarial generation",
+        )
+    return _ADVERSARIAL_ROUTER
 
 # Plausible intraoperative signals that do NOT exist in VitalDB
 UNAVAILABLE_SIGNALS = [
@@ -191,44 +206,29 @@ def _call_adversarial_llm(
     prompt: str,
     dry_run: bool = False,
     adversarial_type: str = "ambiguous",
-) -> List[dict]:
-    """Call LLM for adversarial generation. Returns list of raw dicts."""
+) -> tuple[List[dict], str]:
+    """Call LLM for adversarial generation. Returns raw dicts plus backend label."""
     if dry_run:
         placeholder = _DRY_RUN_PLACEHOLDERS.get(
             adversarial_type, _DRY_RUN_PLACEHOLDERS["ambiguous"]
         )
-        return [placeholder]
+        return [placeholder], "dry-run"
 
     try:
-        import os
-        from openai import OpenAI
-
-        client = OpenAI(api_key=os.getenv("OPENAI_API_KEY"))
-        response = client.chat.completions.create(
-            model=GenerationConfig.GENERATION_MODEL,
-            messages=[
-                {
-                    "role": "system",
-                    "content": (
-                        "You generate adversarial test data for a medical AI system. "
-                        "Output a JSON array only, no markdown."
-                    ),
-                },
-                {"role": "user", "content": prompt},
-            ],
+        parsed, backend_label = _get_adversarial_router().call_json(
+            system_prompt=(
+                "You generate adversarial test data for a medical AI system. "
+                "Output a JSON array only, no markdown."
+            ),
+            user_prompt=prompt,
             temperature=GenerationConfig.GENERATION_TEMPERATURE,
             max_tokens=GenerationConfig.GENERATION_MAX_TOKENS,
+            expect_array=True,
         )
-        raw = response.choices[0].message.content
-        text = re.sub(r"```json\s*", "", raw, flags=re.IGNORECASE)
-        text = re.sub(r"```", "", text).strip()
-        parsed = json.loads(text)
-        if isinstance(parsed, dict):
-            parsed = [parsed]
-        return parsed
+        return parsed, backend_label
     except Exception as e:
         log.warning("Adversarial LLM call failed: %s", e)
-        return []
+        return [], "error"
 
 
 # ---------------------------------------------------------------------------
@@ -262,9 +262,17 @@ def _generate_ambiguous(
             confusing_groups="(not applicable for ambiguous type)",
             query_style=style.value,
         )
-        raw_items = _call_adversarial_llm(prompt, dry_run=dry_run, adversarial_type="ambiguous")
+        raw_items, backend_label = _call_adversarial_llm(
+            prompt,
+            dry_run=dry_run,
+            adversarial_type="ambiguous",
+        )
         for item in raw_items:
-            cand = _to_adversarial_candidate(item, "ambiguous", style=style)
+            cand = _to_adversarial_candidate(
+                _annotate_generation_notes(item, backend_label),
+                "ambiguous",
+                style=style,
+            )
             if cand:
                 results.append(cand)
         if not dry_run:
@@ -300,9 +308,17 @@ def _generate_impossible(
             confusing_groups="(not applicable for impossible type)",
             query_style=style.value,
         )
-        raw_items = _call_adversarial_llm(prompt, dry_run=dry_run, adversarial_type="impossible")
+        raw_items, backend_label = _call_adversarial_llm(
+            prompt,
+            dry_run=dry_run,
+            adversarial_type="impossible",
+        )
         for item in raw_items:
-            cand = _to_adversarial_candidate(item, "impossible", style=style)
+            cand = _to_adversarial_candidate(
+                _annotate_generation_notes(item, backend_label),
+                "impossible",
+                style=style,
+            )
             if not cand:
                 continue
             if synonym_map and not _verify_truly_impossible(cand.query, synonym_map):
@@ -348,16 +364,21 @@ def _generate_confusing(
             confusing_groups=groups_str,
             query_style=style.value,
         )
-        raw_items = _call_adversarial_llm(prompt, dry_run=dry_run, adversarial_type="confusing")
+        raw_items, backend_label = _call_adversarial_llm(
+            prompt,
+            dry_run=dry_run,
+            adversarial_type="confusing",
+        )
         for item in raw_items:
+            annotated_item = _annotate_generation_notes(item, backend_label)
             # Find query-specific valid params instead of all confusing params
             query_specific_pks = _find_confusing_pks_for_query(
-                item.get("query", ""), confusing_groups
+                annotated_item.get("query", ""), confusing_groups
             )
             # Fall back to all confusing pks if query-specific filtering finds nothing
             valid_pks = query_specific_pks if query_specific_pks else all_confusing_pks
             cand = _to_adversarial_candidate(
-                item, "confusing", style=style,
+                annotated_item, "confusing", style=style,
                 confusing_param_keys=valid_pks,
             )
             if cand:
@@ -371,6 +392,14 @@ def _generate_confusing(
 # ---------------------------------------------------------------------------
 # Helpers
 # ---------------------------------------------------------------------------
+
+def _annotate_generation_notes(raw: dict, backend_label: str) -> dict:
+    """Attach backend metadata so adversarial diversity can be audited."""
+    item = dict(raw)
+    note = item.get("generation_notes")
+    suffix = f"generated_by={backend_label}"
+    item["generation_notes"] = f"{note}; {suffix}" if note else suffix
+    return item
 
 def _verify_truly_impossible(
     query: str,

@@ -51,6 +51,7 @@ from Evaluation.Level1.config import (
     MULTI_PAIRS,
     Paths,
 )
+from Evaluation.Level1.llm_router import build_router
 from Evaluation.Level1.models import (
     QueryCandidate,
     QueryStyle,
@@ -65,6 +66,20 @@ logging.basicConfig(
     datefmt="%H:%M:%S",
 )
 log = logging.getLogger(__name__)
+
+_GENERATION_ROUTER = None
+
+
+def _get_generation_router():
+    global _GENERATION_ROUTER
+    if _GENERATION_ROUTER is None:
+        _GENERATION_ROUTER = build_router(
+            providers=GenerationConfig.GENERATION_PROVIDERS,
+            openai_model=GenerationConfig.GENERATION_OPENAI_MODEL,
+            claude_model=GenerationConfig.GENERATION_CLAUDE_MODEL,
+            stage_name="Stage2 query generation",
+        )
+    return _GENERATION_ROUTER
 
 # Types that process params in flat batches (1 query per param)
 SINGLE_TYPES = {
@@ -150,55 +165,37 @@ def _format_multi_param_info(
 # LLM call
 # ---------------------------------------------------------------------------
 
-def _call_generation_llm(prompt: str, dry_run: bool = False) -> List[dict]:
-    """Call the generation LLM and return parsed JSON array.
+def _call_generation_llm(prompt: str, dry_run: bool = False) -> tuple[List[dict], str]:
+    """Call the generation LLM and return parsed JSON array plus backend label.
 
     Returns an empty list on any error.
     """
     if dry_run:
-        return [
+        return ([
             {
                 "query": "[DRY-RUN] placeholder query",
                 "required_parameters": [],
                 "query_style": "doctor",
                 "generation_notes": "dry-run",
             }
-        ]
+        ], "dry-run")
 
     try:
-        import os
-        from openai import OpenAI
-
-        client = OpenAI(api_key=os.getenv("OPENAI_API_KEY"))
-        response = client.chat.completions.create(
-            model=GenerationConfig.GENERATION_MODEL,
-            messages=[
-                {
-                    "role": "system",
-                    "content": (
-                        "You generate evaluation test data. "
-                        "Output a JSON array only, no markdown."
-                    ),
-                },
-                {"role": "user", "content": prompt},
-            ],
+        parsed, backend_label = _get_generation_router().call_json(
+            system_prompt=(
+                "You generate evaluation test data. "
+                "Output a JSON array only, no markdown."
+            ),
+            user_prompt=prompt,
             temperature=GenerationConfig.GENERATION_TEMPERATURE,
             max_tokens=GenerationConfig.GENERATION_MAX_TOKENS,
+            expect_array=True,
         )
-        raw = response.choices[0].message.content
-
-        # Strip markdown fences if present
-        text = re.sub(r"```json\s*", "", raw, flags=re.IGNORECASE)
-        text = re.sub(r"```", "", text).strip()
-
-        parsed = json.loads(text)
-        if isinstance(parsed, dict):
-            parsed = [parsed]
-        return parsed
+        return parsed, backend_label
 
     except Exception as e:
         log.warning("LLM call failed: %s", e)
-        return []
+        return [], "error"
 
 
 # ---------------------------------------------------------------------------
@@ -333,10 +330,14 @@ def _process_single_cell(
             n=n,
         )
 
-        results = _call_generation_llm(prompt, dry_run=dry_run)
+        results, backend_label = _call_generation_llm(prompt, dry_run=dry_run)
 
         for item in results:
-            candidate = _to_candidate(item, query_type, query_style)
+            candidate = _to_candidate(
+                _annotate_generation_notes(item, backend_label),
+                query_type,
+                query_style,
+            )
             if candidate:
                 append_jsonl(output_file, candidate)
                 total_generated += 1
@@ -378,10 +379,14 @@ def _process_multi_cell(
             n=batch["n"],
         )
 
-        results = _call_generation_llm(prompt, dry_run=dry_run)
+        results, backend_label = _call_generation_llm(prompt, dry_run=dry_run)
 
         for item in results:
-            candidate = _to_candidate(item, query_type, query_style)
+            candidate = _to_candidate(
+                _annotate_generation_notes(item, backend_label),
+                query_type,
+                query_style,
+            )
             if candidate:
                 append_jsonl(output_file, candidate)
                 total_generated += 1
@@ -419,6 +424,15 @@ def _to_candidate(
     except Exception as e:
         log.warning("Invalid candidate: %s — %s", e, raw)
         return None
+
+
+def _annotate_generation_notes(raw: dict, backend_label: str) -> dict:
+    """Attach backend metadata so diversity can be audited later."""
+    item = dict(raw)
+    note = item.get("generation_notes")
+    suffix = f"generated_by={backend_label}"
+    item["generation_notes"] = f"{note}; {suffix}" if note else suffix
+    return item
 
 
 # ---------------------------------------------------------------------------

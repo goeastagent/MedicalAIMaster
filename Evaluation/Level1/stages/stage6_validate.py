@@ -113,10 +113,14 @@ def promote_to_level1(
         if is_adversarial:
             category = Category.ADVERSARIAL
         else:
-            category = infer_category(
-                cand.ground_truth.required_parameters
-                if cand.ground_truth else []
-            )
+            try:
+                category = infer_category(
+                    cand.ground_truth.required_parameters
+                    if cand.ground_truth else []
+                )
+            except ValueError as e:
+                log.warning("Skipping non-vital candidate during promotion: %s", e)
+                continue
 
         # Ensure ground_truth exists
         gt = cand.ground_truth or GroundTruth()
@@ -165,9 +169,13 @@ def _check_category_distribution(
         if cat.value not in dist:
             dist[cat.value] = 0
     cat_issues: List[str] = []
-    excluded = set(ValidationCriteria.EXCLUDED_CATEGORIES)
+    allowed = set(ValidationCriteria.ALLOWED_CATEGORIES)
     for cat_val, cnt in dist.items():
-        if cat_val in excluded:
+        if cat_val not in allowed:
+            if cnt > 0:
+                cat_issues.append(
+                    f"Category '{cat_val}' is not allowed in the vital-only dataset"
+                )
             continue
         if cnt < ValidationCriteria.MIN_CASES_PER_CATEGORY:
             cat_issues.append(
